@@ -1,22 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronsUpDown, Store as StoreIcon } from "lucide-react";
+import { ChevronsUpDown, Plus, Store as StoreIcon } from "lucide-react";
+import { ConnectStoreDialog } from "@/components/connect-store-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
+import type { Store } from "@/types/store";
 
-// Placeholder stores only — Unit 4 is a static layout, no Shopify data yet.
-// Unit 7 (initial store import) replaces this with real connected stores.
-const mockStores = [{ id: "mock-store-1", name: "My Shopify Store" }];
-
-export function StoreSwitcher() {
-  const [selectedStoreId, setSelectedStoreId] = useState(mockStores[0].id);
-  const selectedStore = mockStores.find((store) => store.id === selectedStoreId)!;
+export function StoreSwitcher({ stores }: { stores: Store[] }) {
+  const [selectedStoreId, setSelectedStoreId] = useState(stores[0]?.id);
+  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+  const selectedStore = stores.find((store) => store.id === selectedStoreId);
 
   return (
     <SidebarMenu>
@@ -26,23 +26,31 @@ export function StoreSwitcher() {
             render={
               <SidebarMenuButton size="lg">
                 <StoreIcon className="size-4" />
-                <span className="truncate font-medium">{selectedStore.name}</span>
+                <span className="truncate font-medium">
+                  {selectedStore ? selectedStore.shopifyDomain : "No store connected"}
+                </span>
                 <ChevronsUpDown className="ml-auto size-4" />
               </SidebarMenuButton>
             }
           />
           <DropdownMenuContent className="w-[--radix-popper-anchor-width]">
-            {mockStores.map((store) => (
+            {stores.map((store) => (
               <DropdownMenuItem
                 key={store.id}
                 onClick={() => setSelectedStoreId(store.id)}
               >
-                {store.name}
+                {store.shopifyDomain}
               </DropdownMenuItem>
             ))}
+            {stores.length > 0 && <DropdownMenuSeparator />}
+            <DropdownMenuItem onClick={() => setConnectDialogOpen(true)}>
+              <Plus className="size-4" />
+              Connect store
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
+      <ConnectStoreDialog open={connectDialogOpen} onOpenChange={setConnectDialogOpen} />
     </SidebarMenu>
   );
 }
