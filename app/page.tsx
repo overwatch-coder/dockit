@@ -1,27 +1,27 @@
 import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center gap-6 bg-zinc-50 font-sans dark:bg-black">
-      <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
+    <div className="flex flex-col flex-1 items-center justify-center gap-6 bg-background font-sans">
+      <h1 className="text-page-title font-semibold tracking-tight text-foreground">
         Dockit
       </h1>
       <Show when="signed-out">
         <div className="flex gap-4">
-          <SignInButton />
-          <SignUpButton />
+          <SignInButton>
+            <Button>Sign in</Button>
+          </SignInButton>
+          <SignUpButton>
+            <Button variant="outline">Sign up</Button>
+          </SignUpButton>
         </div>
       </Show>
       <Show when="signed-in">
         <div className="flex items-center gap-4">
           <UserButton />
-          <Link
-            href="/dashboard"
-            className="text-sm font-medium text-black underline dark:text-zinc-50"
-          >
-            Go to dashboard
-          </Link>
+          <Button render={<Link href="/dashboard" />}>Go to dashboard</Button>
         </div>
       </Show>
     </div>

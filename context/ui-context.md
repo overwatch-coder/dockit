@@ -27,6 +27,27 @@ Primary is a clean indigo-violet, closer to Stripe's restrained use of purple th
 
 Do not introduce any other named color. If a new state needs a color (for example, a new job status), pick from this table or extend it explicitly here before using it in code, never inline a new hex value in a component.
 
+## Dark Mode
+
+The app supports both light and dark, toggled via a `.dark` class on `<html>` (next-themes, `attribute="class"`). Dark mode uses the same semantic roles and the same indigo-violet accent family as the light table above, with standard dark-mode brightening for contrast (roughly one Tailwind step lighter than the light-mode equivalent) rather than a different hue or a second invented palette:
+
+| Token | Hex | Notes |
+|---|---|---|
+| `--primary` | `#818CF8` | Lighter than light mode's `#5B5FEF` for contrast on a dark background |
+| `--primary-hover` | `#6366F1` | |
+| `--primary-subtle` | `#26263F` | Dark indigo-tinted surface, same role as light mode (selected row, subtle highlight) |
+| `--background` | `#0B0B0F` | Near-black, slightly blue-tinted rather than flat black |
+| `--surface` | `#17171C` | Cards, panels, sidebar |
+| `--border` | `#2A2A31` | |
+| `--foreground` | `#F4F4F5` | |
+| `--foreground-muted` | `#A1A1AA` | |
+| `--success` | `#22C55E` | |
+| `--warning` | `#F59E0B` | |
+| `--destructive` | `#EF4444` | |
+| `--conflict` | `#A78BFA` | |
+
+Same rule applies: don't introduce a color outside this table (light or dark) without extending it here first.
+
 ## Typography
 
 - **UI face:** Inter, for all interface text (nav, buttons, body copy, form labels). It's the de facto standard for this kind of product (Linear, Stripe-adjacent dashboards) — huge x-height, extremely legible at small sizes, and a neutral personality that won't compete with the `--primary` indigo-violet accent.
