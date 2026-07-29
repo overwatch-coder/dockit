@@ -1,0 +1,165 @@
+// Prisma schema for the Shopify product-management dashboard.
+// See context/architecture.md (Storage Model, Auth and Access Model,
+// Invariants) and context/00-build-plan.md (Unit 2) for the spec this
+// implements.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Root tenant entity. Not itself accountId-scoped.
+model Account {
+  id        String   @id @default(cuid())
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users  AccountUser[]
+  stores Store[]
+}
+
+enum AccountRole {
+  OWNER
+}
+
+// Join between an Account and a Clerk-managed user, carrying a role so
+// staff roles can be added later without a shape-changing migration
+// (context/architecture.md, Auth and Access Model).
+model AccountUser {
+  id          String      @id @default(cuid())
+  accountId   String
+  clerkUserId String      @unique
+  role        AccountRole @default(OWNER)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
+model Store {
+  id            String    @id @default(cuid())
+  accountId     String
+  shopifyDomain String    @unique
+  connectedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  account  Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  token    ShopifyToken?
+  products Product[]
+  jobs     Job[]
+
+  @@index([accountId])
+}
+
+// Kept as its own model (not fields on Store) since Shopify OAuth tokens
+// are a distinct entity in context/architecture.md's Storage Model table
+// and context/00-build-plan.md's Unit 2 description.
+model ShopifyToken {
+  id                   String   @id @default(cuid())
+  accountId            String
+  storeId              String   @unique
+  accessTokenEncrypted String
+  scope                String
+  tokenType            String   @default("bearer")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+}
+
+model Product {
+  id               String        @id @default(cuid())
+  accountId        String
+  storeId          String
+  shopifyProductId String?
+  title            String
+  description      String?       @db.Text
+  price            Decimal       @db.Decimal(10, 2)
+  status           ProductStatus @default(DRAFT)
+  tags             String[]      @default([])
+  collectionId     String?
+  seoTitle         String?
+  seoDescription   String?
+
+  // Conflict detection (context/architecture.md invariant 6).
+  lastEditedAt            DateTime  @default(now())
+  lastSyncedAt            DateTime?
+  isConflicted            Boolean   @default(false)
+  conflictAppSnapshot     Json?
+  conflictShopifySnapshot Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variants Variant[]
+
+  @@index([accountId])
+  @@index([accountId, storeId])
+}
+
+model Variant {
+  id               String   @id @default(cuid())
+  productId        String
+  accountId        String
+  shopifyVariantId String?
+  optionName       String
+  price            Decimal  @db.Decimal(10, 2)
+  inventory        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([productId])
+}
+
+enum JobType {
+  PUSH
+  SYNC
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  PARTIAL
+}
+
+// One table for both push and sync jobs (context/00-build-plan.md Unit 6
+// refers to "the SyncJob/PushJob table", singular). `type` is the
+// discriminator called for by context/code-standards.md's TypeScript rules.
+model Job {
+  id          String    @id @default(cuid())
+  accountId   String
+  storeId     String
+  type        JobType
+  status      JobStatus @default(PENDING)
+  results     Json?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([accountId, storeId])
+}
