@@ -29,8 +29,8 @@ Do not introduce any other named color. If a new state needs a color (for exampl
 
 ## Typography
 
-- **UI face:** Geist Sans, for all interface text (nav, buttons, body copy, form labels). It's Vercel's own typeface and matches the deployment stack, and it's cleaner than Inter without being a generic default.
-- **Data/mono face:** Geist Mono, for anything tabular or precise: SKUs, prices, variant IDs, timestamps, tags. Using mono here signals "this is a value," not prose, and keeps numbers aligned in tables.
+- **UI face:** Inter, for all interface text (nav, buttons, body copy, form labels). It's the de facto standard for this kind of product (Linear, Stripe-adjacent dashboards) — huge x-height, extremely legible at small sizes, and a neutral personality that won't compete with the `--primary` indigo-violet accent.
+- **Data/mono face:** JetBrains Mono, for anything tabular or precise: SKUs, prices, variant IDs, timestamps, tags. Using mono here signals "this is a value," not prose, and keeps numbers aligned in tables.
 - **Type scale:**
 
 | Role | Size | Weight |
