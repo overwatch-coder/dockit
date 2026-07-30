@@ -13,6 +13,7 @@ export type ShopifyImportedProduct = {
   title: string;
   description: string | null;
   imageUrl: string | null;
+  imageUrls: string[];
   price: string;
   status: "ACTIVE" | "DRAFT";
   tags: string[];
@@ -39,6 +40,7 @@ type RawProductNode = {
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
   tags: string[];
   featuredImage: { url: string } | null;
+  images: { edges: { node: { url: string } }[] };
   // Only the first collection is fetched — a product's full collection
   // membership and the ability to assign/change it is Unit 13's job; this is
   // a read-only "primary collection" display for the product list's Category
@@ -77,6 +79,7 @@ function toImportedProduct(node: RawProductNode): ShopifyImportedProduct {
     title: node.title,
     description: node.descriptionHtml || null,
     imageUrl: node.featuredImage?.url ?? null,
+    imageUrls: node.images.edges.map(({ node: image }) => image.url),
     price: node.priceRangeV2.minVariantPrice.amount,
     status: toProductStatus(node.status),
     tags: node.tags,
@@ -103,6 +106,13 @@ const PRODUCTS_QUERY = `
           tags
           featuredImage {
             url
+          }
+          images(first: 10) {
+            edges {
+              node {
+                url
+              }
+            }
           }
           collections(first: 1) {
             edges {

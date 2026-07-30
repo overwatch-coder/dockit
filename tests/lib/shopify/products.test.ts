@@ -12,6 +12,7 @@ function productNode(overrides: Partial<{
   tags: string[];
   price: string;
   imageUrl: string | null;
+  images: string[];
   collection: { id: string; title: string } | null;
 }> = {}) {
   return {
@@ -24,6 +25,11 @@ function productNode(overrides: Partial<{
       overrides.imageUrl === null
         ? null
         : { url: overrides.imageUrl ?? "https://cdn.shopify.com/s/files/1/test.jpg" },
+    images: {
+      edges: (overrides.images ?? ["https://cdn.shopify.com/s/files/1/test.jpg"]).map((url) => ({
+        node: { url },
+      })),
+    },
     collections: {
       edges:
         overrides.collection === null
@@ -75,6 +81,7 @@ describe("fetchAllProducts", () => {
           title: "Test Product",
           description: "<p>Desc</p>",
           imageUrl: "https://cdn.shopify.com/s/files/1/test.jpg",
+          imageUrls: ["https://cdn.shopify.com/s/files/1/test.jpg"],
           price: "19.99",
           status: "ACTIVE",
           tags: ["tag1"],
@@ -141,6 +148,48 @@ describe("fetchAllProducts", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data[0].imageUrl).toBeNull();
+    }
+  });
+
+  test("maps multiple product images into imageUrls, in order", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      pageResponse(
+        [
+          productNode({
+            images: [
+              "https://cdn.shopify.com/s/files/1/a.jpg",
+              "https://cdn.shopify.com/s/files/1/b.jpg",
+              "https://cdn.shopify.com/s/files/1/c.jpg",
+            ],
+          }),
+        ],
+        false,
+        null
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllProducts("my-store.myshopify.com", "shpat_test_token");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data[0].imageUrls).toEqual([
+        "https://cdn.shopify.com/s/files/1/a.jpg",
+        "https://cdn.shopify.com/s/files/1/b.jpg",
+        "https://cdn.shopify.com/s/files/1/c.jpg",
+      ]);
+    }
+  });
+
+  test("maps a product with no images to an empty imageUrls array", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(pageResponse([productNode({ images: [] })], false, null));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllProducts("my-store.myshopify.com", "shpat_test_token");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data[0].imageUrls).toEqual([]);
     }
   });
 

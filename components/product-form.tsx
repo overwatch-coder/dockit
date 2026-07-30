@@ -67,6 +67,15 @@ export function ProductForm({
   const [descriptionHtml, setDescriptionHtml] = useState(product?.description ?? "");
   const [variants, setVariants] = useState<DraftVariant[]>(() => toDraftVariants(product));
 
+  // Shopify products can have more than one image (Unit 12 will add
+  // uploading new ones; this only displays what's already imported). Falls
+  // back to the single featured imageUrl for products imported before this
+  // field existed. Clicking a thumbnail just changes which one shows as the
+  // main preview image — a display-only selection, not saved anywhere.
+  const gallery = product?.imageUrls?.length ? product.imageUrls : product?.imageUrl ? [product.imageUrl] : [];
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const mainImage = gallery[selectedImageIndex] ?? null;
+
   const prevStateRef = useRef(state);
   useEffect(() => {
     if (state === prevStateRef.current) return;
@@ -163,18 +172,39 @@ export function ProductForm({
               <CardTitle className="text-label font-medium text-muted-foreground">Preview</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              {product?.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- Shopify CDN host isn't guaranteed constant across every store, so this isn't allowlisted through next/image.
-                <img
-                  src={product.imageUrl}
-                  alt={title || "Product image"}
-                  className="aspect-square w-full rounded-lg border border-border object-cover"
-                />
-              ) : (
-                <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-border bg-muted">
-                  <ImageOff className="size-8 text-muted-foreground" />
-                </div>
-              )}
+              <div className="flex flex-col gap-2">
+                {mainImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- Shopify CDN host isn't guaranteed constant across every store, so this isn't allowlisted through next/image.
+                  <img
+                    src={mainImage}
+                    alt={title || "Product image"}
+                    className="h-40 w-full rounded-lg border border-border object-cover"
+                  />
+                ) : (
+                  <div className="flex h-40 w-full items-center justify-center rounded-lg border border-border bg-muted">
+                    <ImageOff className="size-8 text-muted-foreground" />
+                  </div>
+                )}
+                {gallery.length > 1 && (
+                  <div className="flex flex-wrap gap-2">
+                    {gallery.map((url, index) => (
+                      <button
+                        key={url + index}
+                        type="button"
+                        onClick={() => setSelectedImageIndex(index)}
+                        className={`size-12 shrink-0 overflow-hidden rounded-md border object-cover ${
+                          index === selectedImageIndex ? "border-primary ring-2 ring-primary" : "border-border"
+                        }`}
+                        aria-label={`Show image ${index + 1}`}
+                        aria-pressed={index === selectedImageIndex}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element -- same rationale as the main preview image above. */}
+                        <img src={url} alt="" className="size-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-page-title font-semibold text-foreground">

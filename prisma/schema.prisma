@@ -96,7 +96,14 @@ model Product {
   // Shopify CDN URL, source of truth for published-state images
   // (context/architecture.md Storage Model). Set on import/sync; Unit 12's
   // draft-state Vercel Blob upload is a separate, pre-push concern.
+  // Kept as the "primary/featured" image (unchanged usage everywhere it
+  // already appears — table thumbnails, dashboard) even now that a product
+  // can have more than one image.
   imageUrl         String?
+  // Every image Shopify has for this product (including the featured one),
+  // read-only display only — reordering/setting a new featured image is
+  // still Unit 12/15-17's job, not this field's.
+  imageUrls        String[]      @default([])
   price            Decimal       @db.Decimal(10, 2)
   status           ProductStatus @default(DRAFT)
   tags             String[]      @default([])

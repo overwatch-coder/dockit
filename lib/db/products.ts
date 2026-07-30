@@ -9,6 +9,7 @@ type ProductRecord = {
   title: string;
   description: string | null;
   imageUrl: string | null;
+  imageUrls: string[];
   price: { toString(): string };
   status: "DRAFT" | "ACTIVE";
   tags: string[];
@@ -33,6 +34,7 @@ function toDomainProduct(product: ProductRecord): Product {
     title: product.title,
     description: product.description,
     imageUrl: product.imageUrl,
+    imageUrls: product.imageUrls,
     price: product.price.toString(),
     status: product.status,
     tags: product.tags,
@@ -183,6 +185,7 @@ export async function importProducts(input: {
         title: product.title,
         description: product.description,
         imageUrl: product.imageUrl,
+        imageUrls: product.imageUrls,
         price: product.price,
         status: product.status,
         tags: product.tags,
@@ -194,6 +197,7 @@ export async function importProducts(input: {
         title: product.title,
         description: product.description,
         imageUrl: product.imageUrl,
+        imageUrls: product.imageUrls,
         price: product.price,
         status: product.status,
         tags: product.tags,

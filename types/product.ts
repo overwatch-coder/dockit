@@ -15,6 +15,7 @@ export type Product = {
   title: string;
   description: string | null;
   imageUrl: string | null;
+  imageUrls: string[];
   price: string;
   status: ProductStatus;
   tags: string[];
