@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ImageOff, Pencil, Trash2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DeleteProductDialog } from "@/components/delete-product-dialog";
+import { ProductStatusBadge } from "@/components/product-status-badge";
 import type { Product } from "@/types/product";
 
 const lastSyncedFormatter = new Intl.DateTimeFormat("en-US", {
@@ -15,16 +15,6 @@ const lastSyncedFormatter = new Intl.DateTimeFormat("en-US", {
   timeStyle: "short",
   timeZone: "UTC",
 });
-
-function StatusBadge({ product }: { product: Product }) {
-  if (product.isConflicted) {
-    return <Badge className="border-transparent bg-conflict/10 text-conflict">Conflict</Badge>;
-  }
-  if (product.status === "ACTIVE") {
-    return <Badge className="border-transparent bg-success/10 text-success">Active</Badge>;
-  }
-  return <Badge className="border-transparent bg-warning/10 text-warning">Draft</Badge>;
-}
 
 // Small client wrapper just for row-click navigation, selection, and delete
 // — the rest of the product list page stays a server component
@@ -124,7 +114,7 @@ export function ProductTable({ products }: { products: Product[] }) {
               <TableCell className="text-muted-foreground">{product.collectionTitle ?? "—"}</TableCell>
               <TableCell className="font-mono text-table-data">{product.price}</TableCell>
               <TableCell>
-                <StatusBadge product={product} />
+                <ProductStatusBadge product={product} />
               </TableCell>
               <TableCell className="font-mono text-table-data text-muted-foreground">
                 {product.lastSyncedAt ? lastSyncedFormatter.format(product.lastSyncedAt) : "—"}

@@ -61,6 +61,19 @@ export async function getProductsForStore(accountId: string, storeId: string): P
   return products.map(toDomainProduct);
 }
 
+// Read path for Unit 9's product editor — accountId-scoped (not also
+// storeId-scoped, since a product id already uniquely identifies its store
+// within the account; the editor doesn't need to know which store ahead of
+// fetching). Returns null rather than throwing on a missing/foreign id, so
+// the page can render a real 404 instead of an error boundary.
+export async function getProductById(accountId: string, productId: string): Promise<Product | null> {
+  const product = await prisma.product.findFirst({
+    where: { id: productId, accountId },
+    include: { variants: true },
+  });
+  return product ? toDomainProduct(product) : null;
+}
+
 // Account-scoped, app-database-only delete — does not touch Shopify (no
 // delete mutation exists yet, see lib/shopify/products.ts). Used for both a
 // single product (array of one) and bulk delete from the product list, so

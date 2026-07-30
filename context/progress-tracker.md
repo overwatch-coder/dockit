@@ -5,11 +5,11 @@ change.
 
 ## Current Phase
 
-- In progress — Phase A: Foundation
+- In progress — Phase D: Core Product Editing (this tracker's "Current Phase" line hadn't been updated since Unit 1 — Phases A/B/C are all actually done: Foundation (1–4), Shopify Connection (5–7), Product Viewing (8))
 
 ## Current Goal
 
-- Unit 8: Product list UI — **complete and verified end to end.**
+- Unit 9: Product editor, core fields — **complete and verified end to end.**
 
 ## Completed
 
@@ -44,13 +44,16 @@ change.
   - **Test infra fix, found while updating the homepage test**: `tests/app/page.test.tsx` gained a second test in the same file, which exposed that React Testing Library's `cleanup()` was never running between tests — `vitest.config.mts` doesn't set `test.globals`, so RTL's usual auto-registered `afterEach(cleanup)` (which relies on detecting a global `afterEach`) silently never fired, and every `render()` call was accumulating in the same jsdom document. Fixed globally in `tests/setup.ts` with an explicit `afterEach(() => cleanup())` — this was latent since Unit 1 and would have eventually broken any test file with more than one `render()`-based test.
   - `npm run build`/`lint`/`test` all green (32 tests). Verified live: the dev server's own request log showed the user's real browser session loading `/dashboard`, `/products`, and clicking into a product (expected `/products/[id]` 404, Unit 9 territory) with no new console errors — the only warning present is the pre-existing, unrelated `cz-shortcut-listen` browser-extension hydration notice (ColorZilla), already noted as such in Unit 4's session notes.
 
+- Unit 9: Product editor, core fields — new route `app/(dashboard)/products/[id]/page.tsx`, the destination `components/product-table.tsx`'s row click and Edit action already pointed at since Unit 8. Kept strictly to the build plan's own scope (title, description, price, draft/active status; no save, no variants, no images, no AI — those are Units 10/11/12/14): a back link to `/products`, the title as the page heading with its status badge alongside, price, and description. Added `lib/db/products.ts`'s `getProductById(accountId, productId)` — `accountId`-scoped only (not also `storeId`, since a product id already uniquely identifies its store within the account), returns `null` on a missing or cross-account id so the page can call `notFound()` for a real 404 instead of an error boundary. Extracted the status-badge logic that `components/product-table.tsx` already had into a shared `components/product-status-badge.tsx` (no hooks, so it works in both the table's client component and the editor's server component) rather than duplicating it for this second consumer. **Security note, not just a display choice**: Shopify's `descriptionHtml` is stored as-is (`lib/shopify/products.ts`) and isn't guaranteed sanitized, so rendering it as raw HTML (`dangerouslySetInnerHTML`) would be an XSS risk for what's supposed to be a read-only display — the first version of this page stripped tags to plain text instead via a small `stripHtml` helper (**superseded the same day, see below**). `npm run build`/`lint`/`test` all green (32 tests); confirmed via a direct Postgres-backed call that `getProductById` returns real data for a correct account and `null` for both a wrong account and a nonexistent id.
+- Unit 9 follow-up, per explicit user request: **real sanitized HTML rendering instead of flattened plain text.** The plain-text `stripHtml` approach lost all formatting (headings, bold, lists) — replaced with `isomorphic-dompurify` (safe in a server component, no real DOM needed) sanitizing against a tight allowlist (`p`, `br`, `strong`/`b`, `em`/`i`/`u`, `ul`/`ol`/`li`, `h1`–`h6`, `a`, `span`; only the `href` attribute), then rendered via `dangerouslySetInnerHTML` — the sanitizer, not the flattening, is what makes this safe now. A DOMPurify hook forces every surviving `<a>` to `target="_blank" rel="noopener noreferrer"` (DOMPurify's own documented recipe), closing a tabnabbing risk a description-embedded link would otherwise open. Rendered output is styled with targeted child-element selectors (`[&_h2]:...`, `[&_ul]:...`, etc.) using only existing design tokens — no new colors, no Tailwind Typography plugin pulled in for what's a single content area. **Verified**: a scratch test confirmed `<script>`, `onerror`/`onclick` handlers, `javascript:` hrefs, and disallowed tags (`<img>`, `<div>`) are all stripped, while real formatting (headings/bold/lists/links) survives and links get the forced safe attributes — then re-verified against a real product's actual `descriptionHtml`. `npm run build`/`lint`/`test` all green (32 tests, no new persisted tests — verification was exploratory via a temporary script, deleted after use, same pattern as prior units' live-data checks).
+
 ## In Progress
 
 - None.
 
 ## Next Up
 
-- Unit 9: Product editor, core fields.
+- Unit 10: Product create/edit/delete (core fields only). **Scope addition per explicit user request**: also add a search + filter bar to the top of `/products` (`components/product-table.tsx`/`app/(dashboard)/products/page.tsx`) as part of this unit — user asked for it, then explicitly said not to build it immediately and to fold it into Unit 10 instead, rather than doing it as a separate ad-hoc pass.
 
 ## Open Questions
 
