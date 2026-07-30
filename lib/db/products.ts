@@ -1,5 +1,61 @@
 import { prisma } from "@/lib/db/client";
 import type { ShopifyImportedProduct } from "@/lib/shopify/products";
+import type { Product } from "@/types/product";
+
+type ProductRecord = {
+  id: string;
+  storeId: string;
+  shopifyProductId: string | null;
+  title: string;
+  description: string | null;
+  imageUrl: string | null;
+  price: { toString(): string };
+  status: "DRAFT" | "ACTIVE";
+  tags: string[];
+  isConflicted: boolean;
+  lastSyncedAt: Date | null;
+  variants: {
+    id: string;
+    shopifyVariantId: string | null;
+    optionName: string;
+    price: { toString(): string };
+    inventory: number;
+  }[];
+};
+
+function toDomainProduct(product: ProductRecord): Product {
+  return {
+    id: product.id,
+    storeId: product.storeId,
+    shopifyProductId: product.shopifyProductId,
+    title: product.title,
+    description: product.description,
+    imageUrl: product.imageUrl,
+    price: product.price.toString(),
+    status: product.status,
+    tags: product.tags,
+    isConflicted: product.isConflicted,
+    lastSyncedAt: product.lastSyncedAt,
+    variants: product.variants.map((variant) => ({
+      id: variant.id,
+      shopifyVariantId: variant.shopifyVariantId,
+      optionName: variant.optionName,
+      price: variant.price.toString(),
+      inventory: variant.inventory,
+    })),
+  };
+}
+
+// Read path for Unit 8's product list — accountId+storeId scoped per
+// code-standards.md's tenant-isolation rule.
+export async function getProductsForStore(accountId: string, storeId: string): Promise<Product[]> {
+  const products = await prisma.product.findMany({
+    where: { accountId, storeId },
+    orderBy: { createdAt: "asc" },
+    include: { variants: true },
+  });
+  return products.map(toDomainProduct);
+}
 
 // Upserts each imported product keyed on the storeId+shopifyProductId
 // compound unique (prisma/schema.prisma), so re-running the import (retries,
@@ -32,6 +88,7 @@ export async function importProducts(input: {
         shopifyProductId: product.shopifyProductId,
         title: product.title,
         description: product.description,
+        imageUrl: product.imageUrl,
         price: product.price,
         status: product.status,
         tags: product.tags,
@@ -40,6 +97,7 @@ export async function importProducts(input: {
       update: {
         title: product.title,
         description: product.description,
+        imageUrl: product.imageUrl,
         price: product.price,
         status: product.status,
         tags: product.tags,

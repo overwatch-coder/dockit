@@ -21,7 +21,9 @@ export default function Home() {
       <Show when="signed-in">
         <div className="flex items-center gap-4">
           <UserButton />
-          <Button render={<Link href="/dashboard" />}>Go to dashboard</Button>
+          <Button nativeButton={false} render={<Link href="/dashboard" />}>
+            Go to dashboard
+          </Button>
         </div>
       </Show>
     </div>

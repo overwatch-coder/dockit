@@ -12,6 +12,7 @@ export type ShopifyImportedProduct = {
   shopifyProductId: string;
   title: string;
   description: string | null;
+  imageUrl: string | null;
   price: string;
   status: "ACTIVE" | "DRAFT";
   tags: string[];
@@ -35,6 +36,7 @@ type RawProductNode = {
   descriptionHtml: string;
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
   tags: string[];
+  featuredImage: { url: string } | null;
   priceRangeV2: { minVariantPrice: { amount: string } };
   variants: { edges: { node: RawVariantNode }[] };
 };
@@ -66,6 +68,7 @@ function toImportedProduct(node: RawProductNode): ShopifyImportedProduct {
     shopifyProductId: toBareId(node.id),
     title: node.title,
     description: node.descriptionHtml || null,
+    imageUrl: node.featuredImage?.url ?? null,
     price: node.priceRangeV2.minVariantPrice.amount,
     status: toProductStatus(node.status),
     tags: node.tags,
@@ -88,6 +91,9 @@ const PRODUCTS_QUERY = `
           descriptionHtml
           status
           tags
+          featuredImage {
+            url
+          }
           priceRangeV2 {
             minVariantPrice {
               amount

@@ -14,9 +14,11 @@ export type Product = {
   shopifyProductId: string | null;
   title: string;
   description: string | null;
+  imageUrl: string | null;
   price: string;
   status: ProductStatus;
   tags: string[];
+  isConflicted: boolean;
   variants: Variant[];
   lastSyncedAt: Date | null;
 };

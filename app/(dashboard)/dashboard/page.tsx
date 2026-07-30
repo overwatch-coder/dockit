@@ -1,12 +1,15 @@
 import { auth } from "@clerk/nextjs/server";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
 import { getStoresForAccount } from "@/lib/db/stores";
+import { getProductsForStore } from "@/lib/db/products";
 import { AutoDismissBanner } from "@/components/auto-dismiss-banner";
 import { ConnectStoreEmptyState } from "@/components/connect-store-empty-state";
+import { DashboardOverview } from "@/components/dashboard-overview";
 
-// Temporary placeholder body (once a store is connected) to verify Unit 3's
-// session -> Account resolution. Unit 8 replaces this body with the real
-// product list at this same route.
+// Unit 8: the dashboard is an overview/analytics landing page (store status,
+// product counts, a link into /products), not the product list itself — the
+// real list lives at /products, per code-standards.md's existing
+// app/(dashboard)/products/ reservation for product-related pages.
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -34,13 +37,13 @@ export default async function DashboardPage({
     );
   }
 
+  const currentStore = stores[0];
+  const products = await getProductsForStore(account.id, currentStore.id);
+
   return (
     <div className="flex flex-1 flex-col">
       {errorBanner && <div className="flex justify-center p-4">{errorBanner}</div>}
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 font-sans">
-        <p>Signed in.</p>
-        <p className="font-mono text-sm">Account ID: {account.id}</p>
-      </div>
+      <DashboardOverview store={currentStore} products={products} />
     </div>
   );
 }

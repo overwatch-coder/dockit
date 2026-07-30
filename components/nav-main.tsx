@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Package } from "lucide-react";
+import { LayoutDashboard, Package } from "lucide-react";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -11,9 +11,12 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
-// Single item for now — project-overview.md scopes v1 to products only.
-// Unit 8 (product list) is the real destination this link points to.
-const navItems = [{ title: "Products", href: "/dashboard", icon: Package }];
+// Overview (dashboard/analytics) and Products (the real product list, Unit
+// 8) are separate destinations, per explicit user request during Unit 8.
+const navItems = [
+  { title: "Overview", href: "/dashboard", icon: LayoutDashboard },
+  { title: "Products", href: "/products", icon: Package },
+];
 
 export function NavMain() {
   const pathname = usePathname();

@@ -11,6 +11,7 @@ function productNode(overrides: Partial<{
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
   tags: string[];
   price: string;
+  imageUrl: string | null;
 }> = {}) {
   return {
     id: overrides.id ?? "gid://shopify/Product/1",
@@ -18,6 +19,10 @@ function productNode(overrides: Partial<{
     descriptionHtml: "<p>Desc</p>",
     status: overrides.status ?? "ACTIVE",
     tags: overrides.tags ?? ["tag1"],
+    featuredImage:
+      overrides.imageUrl === null
+        ? null
+        : { url: overrides.imageUrl ?? "https://cdn.shopify.com/s/files/1/test.jpg" },
     priceRangeV2: { minVariantPrice: { amount: overrides.price ?? "19.99" } },
     variants: {
       edges: [
@@ -62,6 +67,7 @@ describe("fetchAllProducts", () => {
           shopifyProductId: "1",
           title: "Test Product",
           description: "<p>Desc</p>",
+          imageUrl: "https://cdn.shopify.com/s/files/1/test.jpg",
           price: "19.99",
           status: "ACTIVE",
           tags: ["tag1"],
@@ -114,6 +120,18 @@ describe("fetchAllProducts", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.map((product) => product.status)).toEqual(["DRAFT", "DRAFT"]);
+    }
+  });
+
+  test("maps a missing featuredImage to a null imageUrl", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(pageResponse([productNode({ imageUrl: null })], false, null));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllProducts("my-store.myshopify.com", "shpat_test_token");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data[0].imageUrl).toBeNull();
     }
   });
 

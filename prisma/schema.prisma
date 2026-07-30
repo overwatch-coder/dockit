@@ -93,6 +93,10 @@ model Product {
   shopifyProductId String?
   title            String
   description      String?       @db.Text
+  // Shopify CDN URL, source of truth for published-state images
+  // (context/architecture.md Storage Model). Set on import/sync; Unit 12's
+  // draft-state Vercel Blob upload is a separate, pre-push concern.
+  imageUrl         String?
   price            Decimal       @db.Decimal(10, 2)
   status           ProductStatus @default(DRAFT)
   tags             String[]      @default([])
