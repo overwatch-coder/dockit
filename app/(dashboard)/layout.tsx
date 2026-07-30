@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/sonner";
 
 export default async function DashboardLayout({
   children,
@@ -22,6 +23,7 @@ export default async function DashboardLayout({
         </header>
         <div className="flex flex-1 flex-col overflow-y-auto">{children}</div>
       </SidebarInset>
+      <Toaster />
     </SidebarProvider>
   );
 }

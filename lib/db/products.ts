@@ -74,6 +74,68 @@ export async function getProductById(accountId: string, productId: string): Prom
   return product ? toDomainProduct(product) : null;
 }
 
+// Unit 10: a brand-new local-only draft — shopifyProductId stays null until
+// a future push (Units 15-17) creates it on Shopify. Postgres treats each
+// null as distinct for the storeId+shopifyProductId unique constraint, so
+// multiple draft products in one store don't collide.
+export async function createProduct(input: {
+  accountId: string;
+  storeId: string;
+  title: string;
+  description: string;
+  price: string;
+  status: "DRAFT" | "ACTIVE";
+}): Promise<Product> {
+  const product = await prisma.product.create({
+    data: {
+      accountId: input.accountId,
+      storeId: input.storeId,
+      shopifyProductId: null,
+      title: input.title,
+      description: input.description,
+      price: input.price,
+      status: input.status,
+      lastEditedAt: new Date(),
+    },
+    include: { variants: true },
+  });
+  return toDomainProduct(product);
+}
+
+// Unit 10: edits a product's core fields (title, description, price,
+// status). Account-scoped ownership check first (same pattern as
+// getProductById) so a foreign/missing id returns null instead of silently
+// updating nothing or throwing. Bumps lastEditedAt for conflict detection
+// (context/architecture.md invariant 6).
+export async function updateProduct(input: {
+  accountId: string;
+  productId: string;
+  title: string;
+  description: string;
+  price: string;
+  status: "DRAFT" | "ACTIVE";
+}): Promise<Product | null> {
+  const existing = await prisma.product.findFirst({
+    where: { id: input.productId, accountId: input.accountId },
+  });
+  if (!existing) {
+    return null;
+  }
+
+  const product = await prisma.product.update({
+    where: { id: input.productId },
+    data: {
+      title: input.title,
+      description: input.description,
+      price: input.price,
+      status: input.status,
+      lastEditedAt: new Date(),
+    },
+    include: { variants: true },
+  });
+  return toDomainProduct(product);
+}
+
 // Account-scoped, app-database-only delete — does not touch Shopify (no
 // delete mutation exists yet, see lib/shopify/products.ts). Used for both a
 // single product (array of one) and bulk delete from the product list, so

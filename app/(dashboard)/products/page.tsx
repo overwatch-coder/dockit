@@ -1,8 +1,11 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Plus } from "lucide-react";
 import { auth } from "@clerk/nextjs/server";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
 import { getStoresForAccount } from "@/lib/db/stores";
 import { getProductsForStore } from "@/lib/db/products";
+import { Button } from "@/components/ui/button";
 import { ProductTable } from "@/components/product-table";
 
 // Unit 8: real product list, read-only. Scoped to the first connected store
@@ -24,11 +27,17 @@ export default async function ProductsPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-6">
-      <div>
-        <h1 className="text-page-title font-semibold text-foreground">Products</h1>
-        <p className="text-sm text-muted-foreground">
-          {currentStore.name ?? currentStore.shopifyDomain}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-page-title font-semibold text-foreground">Products</h1>
+          <p className="text-sm text-muted-foreground">
+            {currentStore.name ?? currentStore.shopifyDomain}
+          </p>
+        </div>
+        <Button nativeButton={false} render={<Link href="/products/new" />}>
+          <Plus className="size-4" />
+          New product
+        </Button>
       </div>
       {products.length === 0 ? (
         <p className="text-sm text-muted-foreground">No products yet.</p>

@@ -1,14 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ImageOff, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DeleteProductDialog } from "@/components/delete-product-dialog";
 import { ProductStatusBadge } from "@/components/product-status-badge";
 import type { Product } from "@/types/product";
+
+type StatusFilter = "all" | "DRAFT" | "ACTIVE" | "CONFLICT";
 
 const lastSyncedFormatter = new Intl.DateTimeFormat("en-US", {
   dateStyle: "medium",
@@ -25,11 +35,42 @@ export function ProductTable({ products }: { products: Product[] }) {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleteTarget, setDeleteTarget] = useState<{ ids: string[]; label: string } | null>(null);
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
 
-  const allSelected = products.length > 0 && selectedIds.size === products.length;
+  const categories = useMemo(
+    () =>
+      Array.from(new Set(products.map((product) => product.collectionTitle).filter(Boolean))) as string[],
+    [products]
+  );
+
+  const filteredProducts = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+    return products.filter((product) => {
+      if (query && !product.title.toLowerCase().includes(query)) return false;
+      if (statusFilter === "CONFLICT" && !product.isConflicted) return false;
+      if (statusFilter === "DRAFT" && (product.status !== "DRAFT" || product.isConflicted)) return false;
+      if (statusFilter === "ACTIVE" && (product.status !== "ACTIVE" || product.isConflicted)) return false;
+      if (categoryFilter !== "all" && product.collectionTitle !== categoryFilter) return false;
+      return true;
+    });
+  }, [products, searchText, statusFilter, categoryFilter]);
+
+  const allSelected =
+    filteredProducts.length > 0 && filteredProducts.every((product) => selectedIds.has(product.id));
 
   function toggleAll() {
-    setSelectedIds(allSelected ? new Set() : new Set(products.map((product) => product.id)));
+    setSelectedIds((current) => {
+      if (allSelected) {
+        const next = new Set(current);
+        for (const product of filteredProducts) next.delete(product.id);
+        return next;
+      }
+      const next = new Set(current);
+      for (const product of filteredProducts) next.add(product.id);
+      return next;
+    });
   }
 
   function toggleOne(productId: string) {
@@ -51,6 +92,41 @@ export function ProductTable({ products }: { products: Product[] }) {
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          placeholder="Search by title..."
+          value={searchText}
+          onChange={(event) => setSearchText(event.target.value)}
+          className="max-w-64"
+        />
+        <Select
+          value={statusFilter}
+          onValueChange={(value) => setStatusFilter((value ?? "all") as StatusFilter)}
+        >
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="DRAFT">Draft</SelectItem>
+            <SelectItem value="ACTIVE">Active</SelectItem>
+            <SelectItem value="CONFLICT">Conflict</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={categoryFilter} onValueChange={(value) => setCategoryFilter(value ?? "all")}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All categories</SelectItem>
+            {categories.map((category) => (
+              <SelectItem key={category} value={category}>
+                {category}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       {selectedIds.size > 0 && (
         <div className="flex items-center justify-between rounded-md border border-border bg-muted/50 px-4 py-2">
           <p className="text-sm text-muted-foreground">{selectedIds.size} selected</p>
@@ -81,7 +157,14 @@ export function ProductTable({ products }: { products: Product[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {products.map((product) => (
+          {filteredProducts.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
+                No products match your search or filters.
+              </TableCell>
+            </TableRow>
+          )}
+          {filteredProducts.map((product) => (
             <TableRow
               key={product.id}
               className="cursor-pointer"
