@@ -24,7 +24,12 @@ vi.mock("@/lib/db/accounts", () => ({
 
 vi.mock("@/lib/db/stores", () => ({
   getStoresForAccount: vi.fn().mockResolvedValue([
-    { id: "store_test", shopifyDomain: "my-shopify-store.myshopify.com", connectedAt: new Date() },
+    {
+      id: "store_test",
+      shopifyDomain: "my-shopify-store.myshopify.com",
+      name: "My Shopify Store",
+      connectedAt: new Date(),
+    },
   ]),
 }));
 
@@ -33,7 +38,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("AppSidebar", () => {
-  test("renders the Products nav item and the connected store", async () => {
+  test("renders the Products nav item and the connected store's display name", async () => {
     render(
       <SidebarProvider>
         {await AppSidebar()}
@@ -41,6 +46,6 @@ describe("AppSidebar", () => {
     );
 
     expect(screen.getByText("Products")).toBeInTheDocument();
-    expect(screen.getByText("my-shopify-store.myshopify.com")).toBeInTheDocument();
+    expect(screen.getByText("My Shopify Store")).toBeInTheDocument();
   });
 });

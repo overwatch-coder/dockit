@@ -2,9 +2,11 @@ import { createHmac, randomBytes } from "crypto";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import {
   buildAuthorizeUrl,
+  checkShopExists,
   decryptAccessToken,
   encryptAccessToken,
   generateOAuthState,
+  normalizeShopDomainInput,
   verifyCallbackHmac,
   verifyOAuthState,
   verifyShopDomain,
@@ -17,8 +19,33 @@ beforeEach(() => {
   vi.stubEnv("SHOPIFY_API_KEY", "test-client-id");
   vi.stubEnv("SHOPIFY_API_SECRET", TEST_SECRET);
   vi.stubEnv("SHOPIFY_APP_URL", "https://app.example.com");
-  vi.stubEnv("SHOPIFY_SCOPES", "read_products,write_products,read_collections");
+  vi.stubEnv("SHOPIFY_SCOPES", "read_products,write_products");
   vi.stubEnv("SHOPIFY_TOKEN_ENCRYPTION_KEY", TEST_KEY);
+});
+
+describe("normalizeShopDomainInput", () => {
+  test("appends myshopify.com to a bare store name", () => {
+    expect(normalizeShopDomainInput("my-store")).toBe("my-store.myshopify.com");
+  });
+
+  test("leaves a full myshopify.com domain unchanged", () => {
+    expect(normalizeShopDomainInput("my-store.myshopify.com")).toBe("my-store.myshopify.com");
+  });
+
+  test("strips protocol and path from a pasted admin URL", () => {
+    expect(normalizeShopDomainInput("https://my-store.myshopify.com/admin")).toBe(
+      "my-store.myshopify.com"
+    );
+  });
+
+  test("trims surrounding whitespace", () => {
+    expect(normalizeShopDomainInput("  my-store  ")).toBe("my-store.myshopify.com");
+  });
+
+  test("lowercases the result", () => {
+    expect(normalizeShopDomainInput("My-Store")).toBe("my-store.myshopify.com");
+    expect(normalizeShopDomainInput("My-Store.MyShopify.com")).toBe("my-store.myshopify.com");
+  });
 });
 
 describe("verifyShopDomain", () => {
@@ -38,7 +65,7 @@ describe("buildAuthorizeUrl", () => {
 
     expect(url.origin + url.pathname).toBe("https://my-store.myshopify.com/admin/oauth/authorize");
     expect(url.searchParams.get("client_id")).toBe("test-client-id");
-    expect(url.searchParams.get("scope")).toBe("read_products,write_products,read_collections");
+    expect(url.searchParams.get("scope")).toBe("read_products,write_products");
     expect(url.searchParams.get("redirect_uri")).toBe(
       "https://app.example.com/api/shopify/oauth/callback"
     );
@@ -86,6 +113,35 @@ describe("encryptAccessToken / decryptAccessToken", () => {
     const encrypted = encryptAccessToken("shpat_super_secret_token");
     expect(encrypted).not.toContain("shpat_super_secret_token");
     expect(decryptAccessToken(encrypted)).toBe("shpat_super_secret_token");
+  });
+});
+
+describe("checkShopExists", () => {
+  test("returns false when the shop responds 404", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await checkShopExists("nonexistent-store.myshopify.com")).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  test("returns true when the shop redirects (exists)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 302 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await checkShopExists("my-store.myshopify.com")).toBe(true);
+
+    vi.unstubAllGlobals();
+  });
+
+  test("fails open (returns true) on a network error", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await checkShopExists("my-store.myshopify.com")).toBe(true);
+
+    vi.unstubAllGlobals();
   });
 });
 

@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
-import { createStoreWithToken } from "@/lib/db/stores";
+import { createStoreWithToken, isShopDomainConnected } from "@/lib/db/stores";
 import {
   encryptAccessToken,
   exchangeCodeForToken,
@@ -9,6 +9,7 @@ import {
   verifyOAuthState,
   verifyShopDomain,
 } from "@/lib/shopify/oauth";
+import { fetchShopName } from "@/lib/shopify/shop";
 
 function errorRedirect(request: NextRequest, message: string): NextResponse {
   const url = new URL("/dashboard", request.url);
@@ -47,14 +48,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return errorRedirect(request, "OAuth signature verification failed");
   }
 
+  // Defense in depth — connectStore already rejects a reconnect attempt
+  // before redirecting to Shopify, but a stale/replayed authorize link could
+  // still land here directly.
+  if (await isShopDomainConnected(shop)) {
+    return errorRedirect(request, "This store is already connected.");
+  }
+
   const tokenResult = await exchangeCodeForToken(shop, code);
   if (!tokenResult.success) {
     return errorRedirect(request, tokenResult.error);
   }
 
+  // Best-effort — a failed name lookup shouldn't block the connection itself,
+  // the store switcher just falls back to the domain (lib/shopify/shop.ts).
+  const shopNameResult = await fetchShopName(shop, tokenResult.data.accessToken);
+  if (!shopNameResult.success) {
+    console.error(`OAuth callback: shop name lookup failed for ${shop}: ${shopNameResult.error}`);
+  }
+
   await createStoreWithToken({
     accountId: stateResult.accountId,
     shopifyDomain: shop,
+    name: shopNameResult.success ? shopNameResult.data.name : null,
     accessTokenEncrypted: encryptAccessToken(tokenResult.data.accessToken),
     scope: tokenResult.data.scope,
   });

@@ -14,6 +14,46 @@ export function verifyShopDomain(shopDomain: string): boolean {
   return SHOP_DOMAIN_PATTERN.test(shopDomain);
 }
 
+// Accepts a bare subdomain ("my-store"), a full myshopify.com domain
+// ("my-store.myshopify.com"), or a full admin URL ("https://my-store.myshopify.com/admin")
+// and normalizes all three down to just the domain, lowercased. Shopify shop
+// domains are case-insensitive and Shopify always echoes the canonical
+// lowercase form back in its own redirects — lowercasing here too keeps our
+// stored/queried domain consistent with that, so a differently-cased repeat
+// of an already-connected domain still gets caught by isShopDomainConnected
+// instead of slipping through to a real (and redundant) OAuth round-trip. A
+// store's custom domain never serves /admin (only *.myshopify.com does), so
+// a normalized custom domain is still rejected by verifyShopDomain — callers
+// must check that separately rather than assume this always returns a
+// connectable domain.
+export function normalizeShopDomainInput(value: string): string {
+  const withoutProtocol = value.trim().replace(/^https?:\/\//i, "");
+  const domainOnly = withoutProtocol.split(/[/?#]/)[0].toLowerCase();
+  return domainOnly.includes(".") ? domainOnly : `${domainOnly}.myshopify.com`;
+}
+
+// Shopify doesn't document an official "does this shop exist" endpoint, so
+// this is a heuristic: a nonexistent shop's /admin returns 404, an existing
+// one redirects (to login or the OAuth grant screen). Used only to avoid
+// sending the browser to Shopify's own dead-end 404 page for a typo'd
+// domain — it fails open (treats an inconclusive/network-error result as
+// "exists") since the real OAuth handshake still validates everything that
+// actually matters (HMAC, state, shop format).
+export async function checkShopExists(shopDomain: string): Promise<boolean> {
+  try {
+    const response = await fetch(`https://${shopDomain}/admin`, {
+      method: "HEAD",
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+    return response.status !== 404;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error(`checkShopExists: request to ${shopDomain} failed, assuming it exists: ${message}`);
+    return true;
+  }
+}
+
 export function buildAuthorizeUrl(shopDomain: string, state: string): string {
   const clientId = getEnv("SHOPIFY_API_KEY");
   const appUrl = getEnv("SHOPIFY_APP_URL");
