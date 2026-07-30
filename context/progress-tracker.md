@@ -9,7 +9,7 @@ change.
 
 ## Current Goal
 
-- Unit 10: Product create/edit/delete (core fields), search/filter, rich text description — **complete and verified end to end.**
+- Unit 11: Variant management — **complete and verified end to end.**
 
 ## Completed
 
@@ -63,13 +63,20 @@ change.
   - **Nav-highlighting bug fix**: `components/nav-main.tsx` only matched `pathname === item.href` exactly, so the "Products" sidebar item went inactive on `/products/[id]` and `/products/new` even though both are clearly still "on Products." Fixed to `pathname === item.href || pathname.startsWith(item.href + "/")`.
   - `npm run build`/`lint`/`test` all green (37 tests, no count change — this follow-up touched UI/state only, no new persisted tests, consistent with the project's convention of not unit-testing interactive form components).
 
+- Unit 11: Variant management — add/edit/remove UI inside the product editor for a variant's option name, price, and inventory, plus the server action and DB writes, as a child of the product draft.
+  - **DB layer**: new `lib/db/variants.ts` (`addVariant`, `updateVariant`, `deleteVariant`) — a new per-domain file, following the existing `lib/db/products.ts`/`stores.ts`/`accounts.ts`/`jobs.ts` convention, rather than folding variant queries into `products.ts` alongside the product functions. `addVariant` creates a local-only variant (`shopifyVariantId: null`, same draft convention as Unit 10's `createProduct`) after verifying the parent product belongs to the account; `updateVariant`/`deleteVariant` do an ownership check via the variant's own `accountId` first (same pattern as `updateProduct`), returning `null`/`{ deleted: false }` on a foreign/missing id rather than throwing. All three bump the **parent product's** `lastEditedAt` in the same Prisma transaction as the variant write, for `architecture.md`'s conflict-detection invariant — a variant edit is still an edit to the product draft as a whole.
+  - **Validation**: new `lib/validation/variant.ts` (option name required, price same non-negative-decimal shape as the product schema, inventory a coerced non-negative integer). 6 new tests in `tests/lib/validation/variant.test.ts`.
+  - **Server actions**: `app/(dashboard)/products/actions.ts` gained `addVariant`/`updateVariant`/`deleteVariant` — plain callable actions (typed args, not `FormData`/`useActionState`) rather than form actions, since each variant row is independently, inline-editable and a nested `<form>` per row inside the product editor's own `<form>` isn't valid HTML. Same invocation style as the existing `disconnectStore` (`useTransition`, not tied to a form).
+  - **UI**: new `components/variant-list.tsx` — a shadcn `Table` where every existing variant is already an editable row (no separate "edit mode" toggle), a per-row "Save" button that only appears once that row's fields actually differ from the last-saved values, a per-row Delete icon button (no confirmation dialog, unlike whole-product delete — removing one variant is much lower-stakes than removing a product with all its variants), and an "Add variant" row pinned at the bottom of the same table. Calls `router.refresh()` after every successful mutation so the list reflects the server's fresh state (the actions' `revalidatePath` alone only invalidates the Next.js cache; a client-side `useTransition` call needs an explicit refresh to actually refetch). Rendered inside `components/product-form.tsx` only when `mode === "edit"` — a brand-new product (`mode === "create"`) has no id yet for a variant to belong to, so variants only become addable after the product's first save.
+  - **Verified live**: `npm run build`/`lint`/`test` all green (43 tests — 6 new for the variant Zod schema; one unrelated `app/page.test.tsx` timeout on a slow test run was confirmed flaky by rerunning that file alone, not a regression — nothing in this unit touches the landing page). A temporary scratch test (`tests/scratch-query.test.ts`, deleted after use) confirmed against the real Postgres database: `addVariant` yields `shopifyVariantId: null` and correctly bumps the parent product's `lastEditedAt`; `updateVariant` persists new field values and bumps `lastEditedAt` again; both a wrong-account update and a wrong-account delete are safely rejected; and `deleteVariant` removes the row and reports the correct `productId` for cache revalidation.
+
 ## In Progress
 
 - None.
 
 ## Next Up
 
-- Unit 11: variants (add/edit/remove UI + server action + DB writes as a child of the product draft).
+- Unit 12: Draft image upload (product images in draft state, stored in Vercel Blob until a push replaces them with the Shopify CDN URL).
 
 ## Open Questions
 

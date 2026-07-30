@@ -9,7 +9,13 @@ import {
   deleteProducts as deleteProductsFromDb,
   updateProduct as updateProductInDb,
 } from "@/lib/db/products";
+import {
+  addVariant as addVariantInDb,
+  deleteVariant as deleteVariantInDb,
+  updateVariant as updateVariantInDb,
+} from "@/lib/db/variants";
 import { productFormSchema } from "@/lib/validation/product";
+import { variantFormSchema } from "@/lib/validation/variant";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 
 // Deletes from the app's own database only — there is no Shopify delete
@@ -122,4 +128,65 @@ export async function updateProduct(
   revalidatePath(`/products/${productId}`);
   revalidatePath("/dashboard");
   return { success: true };
+}
+
+type VariantInput = { optionName: string; price: string; inventory: number };
+
+// Unit 11: variant add/edit/remove, a child of the product draft. Plain
+// callable actions (not tied to a <form>) since each variant row in
+// components/variant-list.tsx is independently, inline-editable inside the
+// product editor's own <form> — a nested <form> per row isn't valid HTML,
+// same reasoning as disconnectStore's useTransition-based call.
+export async function addVariant(
+  productId: string,
+  input: VariantInput
+): Promise<{ error: string } | undefined> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const parsed = variantFormSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid variant" };
+  }
+
+  const variant = await addVariantInDb({ accountId: account.id, productId, ...parsed.data });
+  if (!variant) {
+    return { error: "This product no longer exists." };
+  }
+
+  revalidatePath(`/products/${productId}`);
+}
+
+export async function updateVariant(
+  variantId: string,
+  input: VariantInput
+): Promise<{ error: string } | undefined> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const parsed = variantFormSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid variant" };
+  }
+
+  const result = await updateVariantInDb({ accountId: account.id, variantId, ...parsed.data });
+  if (!result) {
+    return { error: "This variant no longer exists." };
+  }
+
+  revalidatePath(`/products/${result.productId}`);
+}
+
+export async function deleteVariant(variantId: string): Promise<{ error: string } | undefined> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const { deleted, productId } = await deleteVariantInDb({ accountId: account.id, variantId });
+  if (!deleted) {
+    return { error: "This variant was already removed." };
+  }
+
+  if (productId) {
+    revalidatePath(`/products/${productId}`);
+  }
 }
