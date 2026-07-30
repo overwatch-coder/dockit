@@ -60,7 +60,18 @@ export function DashboardOverview({ store, products }: { store: Store; products:
         </CardHeader>
         <CardContent className="flex flex-col gap-1 text-sm text-muted-foreground">
           <p>
-            Domain: <span className="font-mono text-table-data text-foreground">{store.shopifyDomain}</span>
+            Name: <span className="text-foreground">{store.name ?? "—"}</span>
+          </p>
+          <p>
+            Domain:{" "}
+            <Link
+              href={`https://${store.shopifyDomain}/admin`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-table-data text-primary hover:underline"
+            >
+              {store.shopifyDomain}
+            </Link>
           </p>
           <p>
             Last synced:{" "}

@@ -18,6 +18,8 @@ export type Product = {
   price: string;
   status: ProductStatus;
   tags: string[];
+  collectionId: string | null;
+  collectionTitle: string | null;
   isConflicted: boolean;
   variants: Variant[];
   lastSyncedAt: Date | null;

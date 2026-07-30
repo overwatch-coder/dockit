@@ -21,7 +21,10 @@ export async function AppSidebar() {
         <NavMain />
       </SidebarContent>
       <SidebarFooter>
-        <div className="flex items-center justify-between gap-2 p-2">
+        {/* Collapsed to icon-width, UserButton + ThemeToggle side by side
+            don't fit (48px rail vs. two 32px controls) and overflow — stack
+            them vertically instead of squeezing horizontally. */}
+        <div className="flex items-center justify-between gap-2 p-2 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-1 group-data-[collapsible=icon]:p-1">
           <UserButton />
           <ThemeToggle />
         </div>

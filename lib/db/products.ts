@@ -12,6 +12,8 @@ type ProductRecord = {
   price: { toString(): string };
   status: "DRAFT" | "ACTIVE";
   tags: string[];
+  collectionId: string | null;
+  collectionTitle: string | null;
   isConflicted: boolean;
   lastSyncedAt: Date | null;
   variants: {
@@ -34,6 +36,8 @@ function toDomainProduct(product: ProductRecord): Product {
     price: product.price.toString(),
     status: product.status,
     tags: product.tags,
+    collectionId: product.collectionId,
+    collectionTitle: product.collectionTitle,
     isConflicted: product.isConflicted,
     lastSyncedAt: product.lastSyncedAt,
     variants: product.variants.map((variant) => ({
@@ -55,6 +59,21 @@ export async function getProductsForStore(accountId: string, storeId: string): P
     include: { variants: true },
   });
   return products.map(toDomainProduct);
+}
+
+// Account-scoped, app-database-only delete — does not touch Shopify (no
+// delete mutation exists yet, see lib/shopify/products.ts). Used for both a
+// single product (array of one) and bulk delete from the product list, so
+// there's one code path instead of two. Variants cascade-delete via the
+// schema's onDelete: Cascade.
+export async function deleteProducts(input: {
+  accountId: string;
+  productIds: string[];
+}): Promise<{ deletedCount: number }> {
+  const result = await prisma.product.deleteMany({
+    where: { id: { in: input.productIds }, accountId: input.accountId },
+  });
+  return { deletedCount: result.count };
 }
 
 // Upserts each imported product keyed on the storeId+shopifyProductId
@@ -92,6 +111,8 @@ export async function importProducts(input: {
         price: product.price,
         status: product.status,
         tags: product.tags,
+        collectionId: product.collectionId,
+        collectionTitle: product.collectionTitle,
         lastSyncedAt: now,
       },
       update: {
@@ -101,6 +122,8 @@ export async function importProducts(input: {
         price: product.price,
         status: product.status,
         tags: product.tags,
+        collectionId: product.collectionId,
+        collectionTitle: product.collectionTitle,
         lastSyncedAt: now,
       },
     });

@@ -12,6 +12,7 @@ function productNode(overrides: Partial<{
   tags: string[];
   price: string;
   imageUrl: string | null;
+  collection: { id: string; title: string } | null;
 }> = {}) {
   return {
     id: overrides.id ?? "gid://shopify/Product/1",
@@ -23,6 +24,12 @@ function productNode(overrides: Partial<{
       overrides.imageUrl === null
         ? null
         : { url: overrides.imageUrl ?? "https://cdn.shopify.com/s/files/1/test.jpg" },
+    collections: {
+      edges:
+        overrides.collection === null
+          ? []
+          : [{ node: overrides.collection ?? { id: "gid://shopify/Collection/5", title: "Shirts" } }],
+    },
     priceRangeV2: { minVariantPrice: { amount: overrides.price ?? "19.99" } },
     variants: {
       edges: [
@@ -71,6 +78,8 @@ describe("fetchAllProducts", () => {
           price: "19.99",
           status: "ACTIVE",
           tags: ["tag1"],
+          collectionId: "5",
+          collectionTitle: "Shirts",
           variants: [
             { shopifyVariantId: "10", optionName: "Default Title", price: "19.99", inventory: 5 },
           ],
@@ -132,6 +141,21 @@ describe("fetchAllProducts", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data[0].imageUrl).toBeNull();
+    }
+  });
+
+  test("maps a product with no collection to null collectionId/collectionTitle", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      pageResponse([productNode({ collection: null })], false, null)
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllProducts("my-store.myshopify.com", "shpat_test_token");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data[0].collectionId).toBeNull();
+      expect(result.data[0].collectionTitle).toBeNull();
     }
   });
 

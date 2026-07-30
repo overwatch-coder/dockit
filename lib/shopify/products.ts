@@ -16,6 +16,8 @@ export type ShopifyImportedProduct = {
   price: string;
   status: "ACTIVE" | "DRAFT";
   tags: string[];
+  collectionId: string | null;
+  collectionTitle: string | null;
   variants: ShopifyImportedVariant[];
 };
 
@@ -37,6 +39,11 @@ type RawProductNode = {
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
   tags: string[];
   featuredImage: { url: string } | null;
+  // Only the first collection is fetched — a product's full collection
+  // membership and the ability to assign/change it is Unit 13's job; this is
+  // a read-only "primary collection" display for the product list's Category
+  // column.
+  collections: { edges: { node: { id: string; title: string } }[] };
   priceRangeV2: { minVariantPrice: { amount: string } };
   variants: { edges: { node: RawVariantNode }[] };
 };
@@ -64,6 +71,7 @@ function toProductStatus(status: RawProductNode["status"]): "ACTIVE" | "DRAFT" {
 }
 
 function toImportedProduct(node: RawProductNode): ShopifyImportedProduct {
+  const primaryCollection = node.collections.edges[0]?.node ?? null;
   return {
     shopifyProductId: toBareId(node.id),
     title: node.title,
@@ -72,6 +80,8 @@ function toImportedProduct(node: RawProductNode): ShopifyImportedProduct {
     price: node.priceRangeV2.minVariantPrice.amount,
     status: toProductStatus(node.status),
     tags: node.tags,
+    collectionId: primaryCollection ? toBareId(primaryCollection.id) : null,
+    collectionTitle: primaryCollection?.title ?? null,
     variants: node.variants.edges.map(({ node: variant }) => ({
       shopifyVariantId: toBareId(variant.id),
       optionName: variant.title,
@@ -93,6 +103,14 @@ const PRODUCTS_QUERY = `
           tags
           featuredImage {
             url
+          }
+          collections(first: 1) {
+            edges {
+              node {
+                id
+                title
+              }
+            }
           }
           priceRangeV2 {
             minVariantPrice {

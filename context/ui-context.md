@@ -2,6 +2,8 @@
 
 This is an internal operations dashboard, not a marketing site. The design goal is clarity and speed for a single owner managing products all day, not visual flair. Every color, spacing, and component decision below is fixed. Never invent a new one.
 
+**Exception — the public landing page (`/`, signed-out home):** per explicit user request, this one route is a minimal marketing page (header, hero, value proposition, how-it-works, footer) rather than a dashboard screen, since it's the first thing a prospective owner sees, not a working screen a signed-in owner uses all day. It still uses only the color/radius/typography tokens defined below — no new colors, no gradients, no invented components — the difference is content layout (marketing sections), not visual language. Everything under `app/(dashboard)/` remains governed by this file's "not a marketing site" rule without exception.
+
 Note on components: "ShardCN" refers to shadcn/ui. That's the component library used throughout this file.
 
 ## Color Tokens

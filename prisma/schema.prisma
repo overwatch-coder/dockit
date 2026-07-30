@@ -101,6 +101,11 @@ model Product {
   status           ProductStatus @default(DRAFT)
   tags             String[]      @default([])
   collectionId     String?
+  // Display name of collectionId's Shopify collection, read-only denormalized
+  // copy for the product list's Category column. Collection *assignment*
+  // (select field, AI suggestion) is still Unit 13 — this only reflects the
+  // product's existing primary collection from Shopify.
+  collectionTitle  String?
   seoTitle         String?
   seoDescription   String?
 
