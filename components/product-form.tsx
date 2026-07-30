@@ -1,13 +1,15 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { ImageOff } from "lucide-react";
+import { ImageOff, Maximize2 } from "lucide-react";
 import { toast } from "sonner";
 import { createProduct, updateProduct } from "@/app/(dashboard)/products/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RichTextEditor } from "@/components/rich-text-editor";
@@ -74,6 +76,7 @@ export function ProductForm({
   // main preview image — a display-only selection, not saved anywhere.
   const gallery = product?.imageUrls?.length ? product.imageUrls : product?.imageUrl ? [product.imageUrl] : [];
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const mainImage = gallery[selectedImageIndex] ?? null;
 
   const prevStateRef = useRef(state);
@@ -174,37 +177,66 @@ export function ProductForm({
             <CardContent className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 {mainImage ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- Shopify CDN host isn't guaranteed constant across every store, so this isn't allowlisted through next/image.
-                  <img
-                    src={mainImage}
-                    alt={title || "Product image"}
-                    className="h-40 w-full rounded-lg border border-border object-cover"
-                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setLightboxOpen(true)}
+                    className="relative h-48 w-full shrink-0 overflow-hidden rounded-lg border border-border p-0 hover:opacity-90"
+                    aria-label="View full-size image"
+                  >
+                    <Image
+                      src={mainImage}
+                      alt={title || "Product image"}
+                      fill
+                      sizes="(max-width: 1024px) 100vw, 480px"
+                      className="object-cover object-top"
+                    />
+                    <span className="absolute top-2 right-2 flex size-7 items-center justify-center rounded-md bg-background/80 text-foreground">
+                      <Maximize2 className="size-4" />
+                    </span>
+                  </Button>
                 ) : (
-                  <div className="flex h-40 w-full items-center justify-center rounded-lg border border-border bg-muted">
+                  <div className="flex h-48 w-full items-center justify-center rounded-lg border border-border bg-muted">
                     <ImageOff className="size-8 text-muted-foreground" />
                   </div>
                 )}
                 {gallery.length > 1 && (
                   <div className="flex flex-wrap gap-2">
                     {gallery.map((url, index) => (
-                      <button
+                      <Button
                         key={url + index}
                         type="button"
+                        variant="ghost"
                         onClick={() => setSelectedImageIndex(index)}
-                        className={`size-12 shrink-0 overflow-hidden rounded-md border object-cover ${
+                        className={`relative size-12 shrink-0 overflow-hidden rounded-md border p-0 ${
                           index === selectedImageIndex ? "border-primary ring-2 ring-primary" : "border-border"
                         }`}
                         aria-label={`Show image ${index + 1}`}
                         aria-pressed={index === selectedImageIndex}
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element -- same rationale as the main preview image above. */}
-                        <img src={url} alt="" className="size-full object-cover" />
-                      </button>
+                        <Image src={url} alt="" fill sizes="48px" className="object-cover" />
+                      </Button>
                     ))}
                   </div>
                 )}
               </div>
+
+              {mainImage && (
+                <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
+                  <DialogContent className="max-w-[95vw] bg-transparent p-0 ring-0 sm:max-w-3xl">
+                    <DialogTitle className="sr-only">{title || "Product image"}</DialogTitle>
+                    <div className="relative h-[80vh] w-full">
+                      <Image
+                        src={mainImage}
+                        alt={title || "Product image"}
+                        fill
+                        sizes="95vw"
+                        className="object-contain"
+                      />
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
 
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-page-title font-semibold text-foreground">
