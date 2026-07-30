@@ -1,153 +1,50 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
-import { toast } from "sonner";
-import { addVariant, deleteVariant, updateVariant } from "@/app/(dashboard)/products/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { Variant } from "@/types/product";
 
-function VariantRow({
-  variant,
-  disabled,
-  onSave,
-  onDelete,
-}: {
-  variant: Variant;
-  disabled: boolean;
-  onSave: (input: { optionName: string; price: string; inventory: string }) => void;
-  onDelete: () => void;
-}) {
-  const [optionName, setOptionName] = useState(variant.optionName);
-  const [price, setPrice] = useState(variant.price);
-  const [inventory, setInventory] = useState(String(variant.inventory));
+// A row's id is either a real Variant.id (existing, already-persisted row)
+// or a client-generated temporary id for a row added since the page
+// loaded — lib/db/variants.ts's syncProductVariants tells them apart by
+// checking against the product's actual current variant ids in the
+// database, not by inspecting this id's format.
+export type DraftVariant = {
+  id: string;
+  optionName: string;
+  price: string;
+  inventory: string;
+};
 
-  const dirty =
-    optionName !== variant.optionName || price !== variant.price || inventory !== String(variant.inventory);
-
-  return (
-    <TableRow>
-      <TableCell>
-        <Input
-          value={optionName}
-          onChange={(event) => setOptionName(event.target.value)}
-          disabled={disabled}
-          aria-label="Option name"
-        />
-      </TableCell>
-      <TableCell>
-        <Input
-          value={price}
-          onChange={(event) => setPrice(event.target.value)}
-          inputMode="decimal"
-          className="font-mono"
-          disabled={disabled}
-          aria-label="Price"
-        />
-      </TableCell>
-      <TableCell>
-        <Input
-          value={inventory}
-          onChange={(event) => setInventory(event.target.value)}
-          inputMode="numeric"
-          className="font-mono"
-          disabled={disabled}
-          aria-label="Inventory"
-        />
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex justify-end gap-1">
-          {dirty && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={disabled}
-              onClick={() => onSave({ optionName, price, inventory })}
-            >
-              Save
-            </Button>
-          )}
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            disabled={disabled}
-            aria-label={`Delete ${variant.optionName}`}
-            onClick={onDelete}
-          >
-            <Trash2 className="size-4 text-destructive" />
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
+function makeTempId(): string {
+  return `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// Unit 11: variant add/edit/remove, a child of the product draft. Each row
-// is independently, inline-editable — no separate "edit mode" toggle — and
-// mutations go straight to the server via useTransition rather than a
-// <form>, since this list already lives inside the product editor's own
-// <form> (components/product-form.tsx) and a nested <form> per row isn't
-// valid HTML — same reasoning as components/remove-store-dialog.tsx's
-// disconnectStore call. Only ever rendered in mode="edit" (a variant needs
-// an existing product to belong to).
-export function VariantList({ productId, variants }: { productId: string; variants: Variant[] }) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [newOptionName, setNewOptionName] = useState("");
-  const [newPrice, setNewPrice] = useState("");
-  const [newInventory, setNewInventory] = useState("");
-
-  function handleSave(variantId: string, input: { optionName: string; price: string; inventory: string }) {
-    startTransition(async () => {
-      const result = await updateVariant(variantId, {
-        optionName: input.optionName,
-        price: input.price,
-        inventory: Number(input.inventory),
-      });
-      if (result?.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success("Variant saved");
-      router.refresh();
-    });
+// Unit 11 follow-up, per explicit user request: add/edit/remove is purely
+// local/staged state, not an immediate per-row server call — nothing about
+// a variant persists to the database until the product editor's own Save
+// button is pressed (components/product-form.tsx serializes this array into
+// a hidden input on submit). Fully controlled by the parent so the preview
+// panel can mirror the same in-progress list.
+export function VariantList({
+  variants,
+  onChange,
+}: {
+  variants: DraftVariant[];
+  onChange: (variants: DraftVariant[]) => void;
+}) {
+  function updateRow(id: string, patch: Partial<DraftVariant>) {
+    onChange(variants.map((variant) => (variant.id === id ? { ...variant, ...patch } : variant)));
   }
 
-  function handleDelete(variantId: string) {
-    startTransition(async () => {
-      const result = await deleteVariant(variantId);
-      if (result?.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success("Variant removed");
-      router.refresh();
-    });
+  function removeRow(id: string) {
+    onChange(variants.filter((variant) => variant.id !== id));
   }
 
-  function handleAdd() {
-    startTransition(async () => {
-      const result = await addVariant(productId, {
-        optionName: newOptionName,
-        price: newPrice,
-        inventory: Number(newInventory || 0),
-      });
-      if (result?.error) {
-        toast.error(result.error);
-        return;
-      }
-      setNewOptionName("");
-      setNewPrice("");
-      setNewInventory("");
-      toast.success("Variant added");
-      router.refresh();
-    });
+  function addRow() {
+    onChange([...variants, { id: makeTempId(), optionName: "", price: "", inventory: "0" }]);
   }
 
   return (
@@ -159,66 +56,63 @@ export function VariantList({ productId, variants }: { productId: string; varian
             <TableHead>Option</TableHead>
             <TableHead>Price</TableHead>
             <TableHead>Inventory</TableHead>
-            <TableHead className="w-24 text-right">Actions</TableHead>
+            <TableHead className="w-10"></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
+          {variants.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
+                No variants yet.
+              </TableCell>
+            </TableRow>
+          )}
           {variants.map((variant) => (
-            <VariantRow
-              key={variant.id}
-              variant={variant}
-              disabled={isPending}
-              onSave={(input) => handleSave(variant.id, input)}
-              onDelete={() => handleDelete(variant.id)}
-            />
+            <TableRow key={variant.id}>
+              <TableCell>
+                <Input
+                  value={variant.optionName}
+                  onChange={(event) => updateRow(variant.id, { optionName: event.target.value })}
+                  aria-label="Option name"
+                />
+              </TableCell>
+              <TableCell>
+                <Input
+                  value={variant.price}
+                  onChange={(event) => updateRow(variant.id, { price: event.target.value })}
+                  inputMode="decimal"
+                  className="font-mono"
+                  aria-label="Price"
+                />
+              </TableCell>
+              <TableCell>
+                <Input
+                  value={variant.inventory}
+                  onChange={(event) => updateRow(variant.id, { inventory: event.target.value })}
+                  inputMode="numeric"
+                  className="font-mono"
+                  aria-label="Inventory"
+                />
+              </TableCell>
+              <TableCell>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={`Remove ${variant.optionName || "variant"}`}
+                  onClick={() => removeRow(variant.id)}
+                >
+                  <Trash2 className="size-4 text-destructive" />
+                </Button>
+              </TableCell>
+            </TableRow>
           ))}
-          <TableRow>
-            <TableCell>
-              <Input
-                placeholder="e.g. Small / Blue"
-                value={newOptionName}
-                onChange={(event) => setNewOptionName(event.target.value)}
-                disabled={isPending}
-                aria-label="New option name"
-              />
-            </TableCell>
-            <TableCell>
-              <Input
-                placeholder="0.00"
-                value={newPrice}
-                onChange={(event) => setNewPrice(event.target.value)}
-                inputMode="decimal"
-                className="font-mono"
-                disabled={isPending}
-                aria-label="New variant price"
-              />
-            </TableCell>
-            <TableCell>
-              <Input
-                placeholder="0"
-                value={newInventory}
-                onChange={(event) => setNewInventory(event.target.value)}
-                inputMode="numeric"
-                className="font-mono"
-                disabled={isPending}
-                aria-label="New variant inventory"
-              />
-            </TableCell>
-            <TableCell className="text-right">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={isPending || !newOptionName.trim() || !newPrice.trim()}
-                onClick={handleAdd}
-              >
-                <Plus className="size-4" />
-                Add
-              </Button>
-            </TableCell>
-          </TableRow>
         </TableBody>
       </Table>
+      <Button type="button" size="sm" variant="outline" className="self-start" onClick={addRow}>
+        <Plus className="size-4" />
+        Add variant
+      </Button>
     </div>
   );
 }

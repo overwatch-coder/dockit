@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { ImageOff } from "lucide-react";
 import { toast } from "sonner";
 import { createProduct, updateProduct } from "@/app/(dashboard)/products/actions";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { VariantList } from "@/components/variant-list";
+import { VariantList, type DraftVariant } from "@/components/variant-list";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import type { Product, ProductStatus } from "@/types/product";
 
@@ -26,6 +27,17 @@ function PreviewStatusBadge({ status }: { status: ProductStatus }) {
     return <Badge className="border-transparent bg-success/10 text-success">Active</Badge>;
   }
   return <Badge className="border-transparent bg-warning/10 text-warning">Draft</Badge>;
+}
+
+function toDraftVariants(product: Product | undefined): DraftVariant[] {
+  return (
+    product?.variants.map((variant) => ({
+      id: variant.id,
+      optionName: variant.optionName,
+      price: variant.price,
+      inventory: String(variant.inventory),
+    })) ?? []
+  );
 }
 
 // Shared by /products/new (mode="create") and /products/[id] (mode="edit")
@@ -53,6 +65,7 @@ export function ProductForm({
   const [price, setPrice] = useState(product?.price ?? "");
   const [status, setStatus] = useState<ProductStatus>(product?.status ?? "DRAFT");
   const [descriptionHtml, setDescriptionHtml] = useState(product?.description ?? "");
+  const [variants, setVariants] = useState<DraftVariant[]>(() => toDraftVariants(product));
 
   const prevStateRef = useRef(state);
   useEffect(() => {
@@ -123,7 +136,18 @@ export function ProductForm({
             {fieldErrors?.status && <p className="text-sm text-destructive">{fieldErrors.status}</p>}
           </div>
 
-          <div className="flex gap-2">
+          {mode === "edit" && product && (
+            <>
+              <VariantList variants={variants} onChange={setVariants} />
+              <input type="hidden" name="variants" value={JSON.stringify(variants)} />
+            </>
+          )}
+
+          {/* Sticky so Save/Cancel stay reachable while the form (description,
+              variants) grows long, per explicit user request — a fixed bar
+              rather than only living at the bottom of a potentially tall
+              scrolling form. */}
+          <div className="sticky bottom-0 z-10 flex gap-2 border-t border-border bg-background py-4">
             <Button type="submit" disabled={isPending}>
               {isPending ? "Saving..." : "Save"}
             </Button>
@@ -139,6 +163,19 @@ export function ProductForm({
               <CardTitle className="text-label font-medium text-muted-foreground">Preview</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              {product?.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- Shopify CDN host isn't guaranteed constant across every store, so this isn't allowlisted through next/image.
+                <img
+                  src={product.imageUrl}
+                  alt={title || "Product image"}
+                  className="aspect-square w-full rounded-lg border border-border object-cover"
+                />
+              ) : (
+                <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-border bg-muted">
+                  <ImageOff className="size-8 text-muted-foreground" />
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-page-title font-semibold text-foreground">
                   {title || "Untitled product"}
@@ -154,12 +191,28 @@ export function ProductForm({
               ) : (
                 <span className="text-sm text-muted-foreground">No description</span>
               )}
+
+              {variants.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-label font-medium text-muted-foreground">Variants</span>
+                  <ul className="flex flex-col gap-1">
+                    {variants.map((variant) => (
+                      <li key={variant.id} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="truncate text-foreground">
+                          {variant.optionName || "Untitled variant"}
+                        </span>
+                        <span className="shrink-0 font-mono text-table-data text-muted-foreground">
+                          {variant.price || "0.00"} · {variant.inventory || "0"} in stock
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
       </div>
-
-      {mode === "edit" && product && <VariantList productId={product.id} variants={product.variants} />}
     </div>
   );
 }

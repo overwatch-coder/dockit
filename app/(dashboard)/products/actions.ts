@@ -3,20 +3,24 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
+import { z } from "zod";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
 import {
   createProduct as createProductInDb,
   deleteProducts as deleteProductsFromDb,
   updateProduct as updateProductInDb,
 } from "@/lib/db/products";
-import {
-  addVariant as addVariantInDb,
-  deleteVariant as deleteVariantInDb,
-  updateVariant as updateVariantInDb,
-} from "@/lib/db/variants";
+import { syncProductVariants as syncProductVariantsInDb } from "@/lib/db/variants";
 import { productFormSchema } from "@/lib/validation/product";
 import { variantFormSchema } from "@/lib/validation/variant";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
+
+// Matches the shape components/variant-list.tsx submits: id is either a
+// real variant id or a client-generated temporary id for a not-yet-created
+// row — lib/db/variants.ts's syncProductVariants tells them apart by
+// checking against the product's actual current variant ids, not by
+// inspecting the id's format here.
+const variantsFieldSchema = z.array(variantFormSchema.extend({ id: z.string().min(1) }));
 
 // Deletes from the app's own database only — there is no Shopify delete
 // mutation yet (lib/shopify/products.ts only reads). If the product still
@@ -99,6 +103,13 @@ export async function createProduct(
 
 // Unit 10: edits a product's core fields. productId is bound via
 // updateProduct.bind(null, productId) from the client form.
+//
+// Unit 11 follow-up, per explicit user request: variants are staged
+// client-side and only reach the database here, alongside the product's own
+// fields — reconciled in one call to syncProductVariants rather than the
+// three separate immediate-persist add/update/delete actions this
+// superseded, so nothing about a variant saves until this button is
+// pressed, same as title/price/status/description.
 export async function updateProduct(
   productId: string,
   _prevState: ProductFormState,
@@ -110,6 +121,22 @@ export async function updateProduct(
   const parsed = parseProductForm(formData);
   if ("fieldErrors" in parsed) {
     return parsed;
+  }
+
+  const variantsRaw = formData.get("variants");
+  let variantsInput: z.infer<typeof variantsFieldSchema> = [];
+  if (typeof variantsRaw === "string" && variantsRaw.length > 0) {
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(variantsRaw);
+    } catch {
+      return { error: "Variant data was malformed. Try again." };
+    }
+    const parsedVariants = variantsFieldSchema.safeParse(parsedJson);
+    if (!parsedVariants.success) {
+      return { error: parsedVariants.error.issues[0]?.message ?? "One or more variants are invalid." };
+    }
+    variantsInput = parsedVariants.data;
   }
 
   const product = await updateProductInDb({
@@ -124,69 +151,17 @@ export async function updateProduct(
     return { error: "This product no longer exists." };
   }
 
+  const variantsResult = await syncProductVariantsInDb({
+    accountId: account.id,
+    productId,
+    variants: variantsInput,
+  });
+  if (!variantsResult) {
+    return { error: "This product no longer exists." };
+  }
+
   revalidatePath("/products");
   revalidatePath(`/products/${productId}`);
   revalidatePath("/dashboard");
   return { success: true };
-}
-
-type VariantInput = { optionName: string; price: string; inventory: number };
-
-// Unit 11: variant add/edit/remove, a child of the product draft. Plain
-// callable actions (not tied to a <form>) since each variant row in
-// components/variant-list.tsx is independently, inline-editable inside the
-// product editor's own <form> — a nested <form> per row isn't valid HTML,
-// same reasoning as disconnectStore's useTransition-based call.
-export async function addVariant(
-  productId: string,
-  input: VariantInput
-): Promise<{ error: string } | undefined> {
-  const { userId } = await auth.protect();
-  const account = await getOrCreateAccountForClerkUser(userId);
-
-  const parsed = variantFormSchema.safeParse(input);
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid variant" };
-  }
-
-  const variant = await addVariantInDb({ accountId: account.id, productId, ...parsed.data });
-  if (!variant) {
-    return { error: "This product no longer exists." };
-  }
-
-  revalidatePath(`/products/${productId}`);
-}
-
-export async function updateVariant(
-  variantId: string,
-  input: VariantInput
-): Promise<{ error: string } | undefined> {
-  const { userId } = await auth.protect();
-  const account = await getOrCreateAccountForClerkUser(userId);
-
-  const parsed = variantFormSchema.safeParse(input);
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid variant" };
-  }
-
-  const result = await updateVariantInDb({ accountId: account.id, variantId, ...parsed.data });
-  if (!result) {
-    return { error: "This variant no longer exists." };
-  }
-
-  revalidatePath(`/products/${result.productId}`);
-}
-
-export async function deleteVariant(variantId: string): Promise<{ error: string } | undefined> {
-  const { userId } = await auth.protect();
-  const account = await getOrCreateAccountForClerkUser(userId);
-
-  const { deleted, productId } = await deleteVariantInDb({ accountId: account.id, variantId });
-  if (!deleted) {
-    return { error: "This variant was already removed." };
-  }
-
-  if (productId) {
-    revalidatePath(`/products/${productId}`);
-  }
 }

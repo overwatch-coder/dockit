@@ -19,86 +19,60 @@ function toDomainVariant(variant: VariantRecord): Variant {
   };
 }
 
-// Unit 11: adds a local-only variant (shopifyVariantId stays null until a
-// future push, same draft convention as Unit 10's createProduct) to an
-// existing product draft. Verifies the product belongs to the account first
-// — a Variant's own accountId is set from that check, not inherited
-// implicitly — and bumps the parent product's lastEditedAt for conflict
-// detection (context/architecture.md invariant 6), same as updateProduct.
-export async function addVariant(input: {
+// Unit 11 follow-up, per explicit user request: variant add/edit/remove is
+// staged client-side (components/variant-list.tsx) and only reaches the
+// database when the product editor's Save button is pressed — so instead of
+// three separate add/update/delete server calls firing per row interaction,
+// updateProduct (app/(dashboard)/products/actions.ts) calls this once per
+// save with the full current variant list and the DB is reconciled to match
+// it: ids that already exist get updated, ids that don't (the client's
+// temporary ids for newly added rows) get created as local-only variants
+// (shopifyVariantId stays null, same draft convention as createProduct),
+// and any existing variant whose id is missing from the submitted list —
+// because the row was removed in the UI — gets deleted. All three effects
+// run in one transaction.
+export async function syncProductVariants(input: {
   accountId: string;
   productId: string;
-  optionName: string;
-  price: string;
-  inventory: number;
-}): Promise<Variant | null> {
+  variants: { id: string; optionName: string; price: string; inventory: number }[];
+}): Promise<{ variants: Variant[] } | null> {
   const product = await prisma.product.findFirst({
     where: { id: input.productId, accountId: input.accountId },
+    include: { variants: true },
   });
   if (!product) {
     return null;
   }
 
-  const [variant] = await prisma.$transaction([
-    prisma.variant.create({
-      data: {
-        accountId: input.accountId,
-        productId: input.productId,
-        shopifyVariantId: null,
-        optionName: input.optionName,
-        price: input.price,
-        inventory: input.inventory,
-      },
-    }),
-    prisma.product.update({ where: { id: input.productId }, data: { lastEditedAt: new Date() } }),
-  ]);
-  return toDomainVariant(variant);
-}
+  const existingIds = new Set(product.variants.map((variant) => variant.id));
+  const submittedIds = new Set(input.variants.map((variant) => variant.id));
 
-// Account-scoped ownership check first (same pattern as updateProduct) so a
-// foreign/missing variant id returns null instead of updating nothing or
-// throwing.
-// productId is returned alongside the variant (not part of the Variant
-// domain type itself) purely so the caller can revalidate the specific
-// product page's path.
-export async function updateVariant(input: {
-  accountId: string;
-  variantId: string;
-  optionName: string;
-  price: string;
-  inventory: number;
-}): Promise<{ variant: Variant; productId: string } | null> {
-  const existing = await prisma.variant.findFirst({
-    where: { id: input.variantId, accountId: input.accountId },
-  });
-  if (!existing) {
-    return null;
-  }
-
-  const [variant] = await prisma.$transaction([
-    prisma.variant.update({
-      where: { id: input.variantId },
-      data: { optionName: input.optionName, price: input.price, inventory: input.inventory },
-    }),
-    prisma.product.update({ where: { id: existing.productId }, data: { lastEditedAt: new Date() } }),
-  ]);
-  return { variant: toDomainVariant(variant), productId: existing.productId };
-}
-
-export async function deleteVariant(input: {
-  accountId: string;
-  variantId: string;
-}): Promise<{ deleted: boolean; productId?: string }> {
-  const existing = await prisma.variant.findFirst({
-    where: { id: input.variantId, accountId: input.accountId },
-  });
-  if (!existing) {
-    return { deleted: false };
-  }
+  const toDelete = product.variants.filter((variant) => !submittedIds.has(variant.id));
+  const toUpdate = input.variants.filter((variant) => existingIds.has(variant.id));
+  const toCreate = input.variants.filter((variant) => !existingIds.has(variant.id));
 
   await prisma.$transaction([
-    prisma.variant.delete({ where: { id: input.variantId } }),
-    prisma.product.update({ where: { id: existing.productId }, data: { lastEditedAt: new Date() } }),
+    prisma.variant.deleteMany({ where: { id: { in: toDelete.map((variant) => variant.id) } } }),
+    ...toUpdate.map((variant) =>
+      prisma.variant.update({
+        where: { id: variant.id },
+        data: { optionName: variant.optionName, price: variant.price, inventory: variant.inventory },
+      })
+    ),
+    ...toCreate.map((variant) =>
+      prisma.variant.create({
+        data: {
+          accountId: input.accountId,
+          productId: input.productId,
+          shopifyVariantId: null,
+          optionName: variant.optionName,
+          price: variant.price,
+          inventory: variant.inventory,
+        },
+      })
+    ),
   ]);
-  return { deleted: true, productId: existing.productId };
+
+  const freshVariants = await prisma.variant.findMany({ where: { productId: input.productId } });
+  return { variants: freshVariants.map(toDomainVariant) };
 }
