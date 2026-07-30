@@ -81,6 +81,24 @@ export async function createStoreWithToken(input: {
   return toDomainStore(store);
 }
 
+// Scoped lookup used by the import/sync jobs to get what they need to call
+// Shopify (lib/shopify/oauth.ts decrypts the token; this function never
+// does). Returns null if the store doesn't belong to the account or has no
+// token yet, so callers can't accidentally act on another account's store.
+export async function getStoreToken(
+  accountId: string,
+  storeId: string
+): Promise<{ shopifyDomain: string; accessTokenEncrypted: string } | null> {
+  const store = await prisma.store.findFirst({
+    where: { id: storeId, accountId },
+    include: { token: true },
+  });
+  if (!store?.token) {
+    return null;
+  }
+  return { shopifyDomain: store.shopifyDomain, accessTokenEncrypted: store.token.accessTokenEncrypted };
+}
+
 // Uses deleteMany (not delete) so the accountId scope is enforced by the
 // query itself, not a separate ownership check the caller could forget.
 // ShopifyToken/Product/Job rows for this store cascade-delete via the

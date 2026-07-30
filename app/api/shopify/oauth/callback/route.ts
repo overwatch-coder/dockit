@@ -10,6 +10,7 @@ import {
   verifyShopDomain,
 } from "@/lib/shopify/oauth";
 import { fetchShopName } from "@/lib/shopify/shop";
+import { triggerStoreImport } from "@/lib/jobs/import";
 
 function errorRedirect(request: NextRequest, message: string): NextResponse {
   const url = new URL("/dashboard", request.url);
@@ -67,12 +68,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     console.error(`OAuth callback: shop name lookup failed for ${shop}: ${shopNameResult.error}`);
   }
 
-  await createStoreWithToken({
+  const store = await createStoreWithToken({
     accountId: stateResult.accountId,
     shopifyDomain: shop,
     name: shopNameResult.success ? shopNameResult.data.name : null,
     accessTokenEncrypted: encryptAccessToken(tokenResult.data.accessToken),
     scope: tokenResult.data.scope,
+  });
+
+  await triggerStoreImport({
+    accountId: stateResult.accountId,
+    storeId: store.id,
+    shopifyDomain: shop,
   });
 
   return NextResponse.redirect(new URL("/dashboard", request.url));
