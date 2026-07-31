@@ -1,6 +1,7 @@
 import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
+import Image from "next/image";
 import Link from "next/link";
-import { Package, PenLine, RefreshCw, Sparkles, Store } from "lucide-react";
+import { PenLine, RefreshCw, Sparkles, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -68,7 +69,7 @@ export default function Home() {
       <header className="border-b border-border">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-2">
-            <Package className="size-5 text-primary" />
+            <Image src="/logo.svg" alt="" width={28} height={28} className="rounded-[10px]" />
             <span className="text-section-heading font-semibold text-foreground">Dockit</span>
           </div>
           <HeaderAuthControls />

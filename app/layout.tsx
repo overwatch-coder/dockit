@@ -21,6 +21,9 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Dockit",
   description: "Custom product management dashboard for Shopify",
+  icons: {
+    icon: "/logo.svg",
+  },
 };
 
 export default function RootLayout({
