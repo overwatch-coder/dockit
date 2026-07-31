@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ProductImages } from "@/components/product-images";
 import { VariantList, type DraftVariant } from "@/components/variant-list";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import type { Product, ProductStatus } from "@/types/product";
@@ -69,11 +70,12 @@ export function ProductForm({
   const [descriptionHtml, setDescriptionHtml] = useState(product?.description ?? "");
   const [variants, setVariants] = useState<DraftVariant[]>(() => toDraftVariants(product));
 
-  // Shopify products can have more than one image (Unit 12 will add
-  // uploading new ones; this only displays what's already imported). Falls
-  // back to the single featured imageUrl for products imported before this
-  // field existed. Clicking a thumbnail just changes which one shows as the
-  // main preview image — a display-only selection, not saved anywhere.
+  // Shopify products can have more than one image, and Unit 12 added
+  // uploading draft-state ones too (components/product-images.tsx) — both
+  // land in the same imageUrls array. Falls back to the single featured
+  // imageUrl for products imported before this field existed. Clicking a
+  // thumbnail just changes which one shows as the main preview image — a
+  // display-only selection, not saved anywhere.
   const gallery = product?.imageUrls?.length ? product.imageUrls : product?.imageUrl ? [product.imageUrl] : [];
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -107,6 +109,8 @@ export function ProductForm({
             />
             {fieldErrors?.title && <p className="text-sm text-destructive">{fieldErrors.title}</p>}
           </div>
+
+          {mode === "edit" && product && <ProductImages productId={product.id} images={gallery} />}
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="description">Description</Label>

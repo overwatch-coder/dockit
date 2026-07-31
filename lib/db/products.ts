@@ -138,6 +138,67 @@ export async function updateProduct(input: {
   return toDomainProduct(product);
 }
 
+// Unit 12: appends a newly uploaded draft image (Vercel Blob URL) to the
+// product's gallery. imageUrl (the "primary/featured" image) only gets set
+// here if it was still null — an existing Shopify-imported featured image
+// is never silently replaced by a later upload. Bumps lastEditedAt, same
+// conflict-detection convention as every other product write.
+export async function addProductImage(input: {
+  accountId: string;
+  productId: string;
+  url: string;
+}): Promise<Product | null> {
+  const existing = await prisma.product.findFirst({
+    where: { id: input.productId, accountId: input.accountId },
+  });
+  if (!existing) {
+    return null;
+  }
+
+  const product = await prisma.product.update({
+    where: { id: input.productId },
+    data: {
+      imageUrls: { push: input.url },
+      imageUrl: existing.imageUrl ?? input.url,
+      lastEditedAt: new Date(),
+    },
+    include: { variants: true },
+  });
+  return toDomainProduct(product);
+}
+
+// Unit 12: removes one image from the gallery (whether it's a draft Blob
+// URL or a Shopify-imported one — the actual Blob file deletion, only
+// applicable to the former, happens in lib/blob/products.ts before this is
+// called). If the removed url was the featured imageUrl, the next
+// remaining image (or null) takes its place.
+export async function removeProductImage(input: {
+  accountId: string;
+  productId: string;
+  url: string;
+}): Promise<Product | null> {
+  const existing = await prisma.product.findFirst({
+    where: { id: input.productId, accountId: input.accountId },
+  });
+  if (!existing) {
+    return null;
+  }
+
+  const nextImageUrls = existing.imageUrls.filter((url) => url !== input.url);
+  const nextImageUrl = existing.imageUrl === input.url ? (nextImageUrls[0] ?? null) : existing.imageUrl;
+
+  const product = await prisma.product.update({
+    where: { id: input.productId },
+    data: {
+      imageUrls: nextImageUrls,
+      imageUrl: nextImageUrl,
+      lastEditedAt: new Date(),
+    },
+    include: { variants: true },
+  });
+  return toDomainProduct(product);
+}
+
 // Account-scoped, app-database-only delete — does not touch Shopify (no
 // delete mutation exists yet, see lib/shopify/products.ts). Used for both a
 // single product (array of one) and bulk delete from the product list, so

@@ -27,7 +27,7 @@ export function NavMain() {
       <SidebarGroupContent>
         <SidebarMenu>
           {navItems.map((item) => (
-            <SidebarMenuItem key={item.href}>
+            <SidebarMenuItem key={item.href} className="mb-2">
               <SidebarMenuButton
                 isActive={pathname === item.href || pathname.startsWith(`${item.href}/`)}
                 render={<a href={item.href} />}

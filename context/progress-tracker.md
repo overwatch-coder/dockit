@@ -5,11 +5,11 @@ change.
 
 ## Current Phase
 
-- In progress — Phase D: Core Product Editing (this tracker's "Current Phase" line hadn't been updated since Unit 1 — Phases A/B/C are all actually done: Foundation (1–4), Shopify Connection (5–7), Product Viewing (8))
+- In progress — Phase F: Images (Phases A–E are all done: Foundation (1–4), Shopify Connection (5–7), Product Viewing (8), Core Product Editing (9–10), Variants (11))
 
 ## Current Goal
 
-- Unit 11: Variant management — **complete and verified end to end.**
+- Unit 12: Draft image upload — **complete and verified end to end.**
 
 ## Completed
 
@@ -97,13 +97,22 @@ change.
   - `app/page.tsx`'s header now renders `/logo.svg` via `next/image` (`alt=""`, since the adjacent "Dockit" text already names the brand — the mark is decorative in that pairing) instead of a bare `lucide-react` `Package` icon.
   - `npm run build`/`lint`/`test` all green (45 tests, no count change). Verified live: dev server restarted, `/` and `/logo.svg` both return 200, no new console errors.
 
+- Unit 12: Draft image upload — image upload inside the product editor to Vercel Blob while the product is a draft, with the Blob URL stored on the product record. Scoped via `AskUserQuestion` before building: uploads **add** to the existing gallery (`imageUrls`) rather than replacing it, consistent with the multi-image gallery Unit 11's follow-up already built; **remove is included too**, even though the build plan's own wording only says "upload" — without it, a bad upload has no fix short of a full Shopify re-sync, the same reasoning that's already justified adding delete alongside create in Units 10/11.
+  - **Blob isolation**: new `lib/blob/products.ts` — the only file that touches the `@vercel/blob` SDK directly, same isolation principle `code-standards.md` already applies to `lib/db/` (Prisma) and `lib/shopify/` (Shopify API). `uploadProductImage` wraps `put()`, `deleteProductImage` wraps `del()`, both returning the same typed `{ success: true; ... } | { success: false; error }` shape `lib/shopify/`'s mutation-style functions already use — reused here for consistency, not a new convention. `isBlobUrl` (hostname-suffix check, `.public.blob.vercel-storage.com`) exists specifically so `removeProductImage` never tries to delete a Shopify-imported gallery image from Blob, which Blob doesn't own.
+  - **DB layer**: `lib/db/products.ts` gained `addProductImage` (pushes onto `imageUrls`; only backfills `imageUrl` — the "primary/featured" slot — if it was still `null`, so an upload never silently displaces an existing Shopify-imported featured image) and `removeProductImage` (splices the url out of `imageUrls`; if it was the current `imageUrl`, the next remaining image — or `null` — takes its place). Both account-scoped ownership-check-then-write, same pattern as `updateProduct`, and both bump `lastEditedAt`.
+  - **Server actions**: `app/(dashboard)/products/actions.ts` gained `uploadProductImage` (validates the file is actually present, an allowed image MIME type, and ≤5MB, before ever calling Blob) and `removeProductImage`. **Deliberately not staged behind the main Save button**, unlike title/price/status/variants — an upload has to actually finish against Blob before there's a URL to show at all, so unlike a plain text edit there's nothing meaningful to hold as pending client state; explained explicitly in the code as a considered choice, not an inconsistency with the Unit 11 follow-up's staging decision.
+  - **UI**: new `components/product-images.tsx` — a small thumbnail row (each with a hover-revealed remove button) plus an "Upload" tile that opens a hidden file input, called via `useTransition` (same invocation style as `disconnectStore`), `router.refresh()` after each success so the product page's server-fetched `imageUrls` — and therefore the existing preview panel's gallery — picks up the change immediately. Rendered in `components/product-form.tsx`'s left (editable) column, `mode === "edit"` only, same reasoning as variants: a not-yet-created product has no id for an image to attach to.
+  - **`next/image` needed a second remote pattern.** `next.config.ts` only allowlisted `cdn.shopify.com` (Unit 11's third follow-up) — real Blob URLs use a random per-store subdomain (confirmed against an actual uploaded file's URL, not assumed), so `next.config.ts` gained a wildcard `*.public.blob.vercel-storage.com` pattern. Caught and fixed in the same session, before it could ship as a live bug (uploaded images would have failed to render with an "invalid src" error otherwise).
+  - **Infrastructure**: no Vercel Blob store existed for this project yet — `.env.example` documents the new `BLOB_READ_WRITE_TOKEN` var, the user provisioned the real store and added the token to `.env`. **First attempt failed live**: the store was created with private access, and `uploadProductImage` requests `access: "public"` — Blob rejected it ("Cannot use public access on a private store"). Discussed the alternative (private + a server-side proxy route to stream images through, keeping the token off the client) but recommended staying public, since these are product photos that become public on Shopify's own CDN the moment they're pushed anyway — nothing here is actually sensitive, and a private-with-proxy setup would mean every image load round-tripping through the app's server instead of hitting Vercel's CDN directly, for no real security benefit. User agreed; switched the store to public.
+  - **Verified live against the real Vercel Blob store** (not mocked): a temporary scratch test (`tests/scratch-query.test.ts`, deleted after use) uploaded a real file, confirmed the returned URL matches `isBlobUrl`, confirmed `addProductImage` persists it to both `imageUrl`/`imageUrls`, confirmed a wrong-`accountId` call is safely rejected, then confirmed `removeProductImage`/`deleteProductImage` actually remove it from both Blob and the DB record. (One test-environment-only wrinkle: jsdom's global `File` — this project's Vitest environment — lacks a working `.stream()` method the Blob SDK needs; the scratch script imported Node's real `File` from `node:buffer` to work around it. Not a production concern — Next.js server actions always receive a real `File`, never jsdom's.) `npm run build`/`lint`/`test` all green (48 tests — 3 new for `isBlobUrl`, the one piece of this unit that's pure logic rather than a thin I/O wrapper or interactive component, matching the project's existing testing convention).
+
 ## In Progress
 
 - None.
 
 ## Next Up
 
-- Unit 12: Draft image upload (product images in draft state, stored in Vercel Blob until a push replaces them with the Shopify CDN URL).
+- Unit 13: Manual collection and tag assignment (a collection select field, populated from Shopify collections, and a tag input field on the product editor — both manually set by the owner, saved as part of the draft).
 
 ## Open Questions
 

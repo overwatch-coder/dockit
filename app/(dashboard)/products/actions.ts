@@ -6,11 +6,18 @@ import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
 import {
+  addProductImage as addProductImageInDb,
   createProduct as createProductInDb,
   deleteProducts as deleteProductsFromDb,
+  removeProductImage as removeProductImageInDb,
   updateProduct as updateProductInDb,
 } from "@/lib/db/products";
 import { syncProductVariants as syncProductVariantsInDb } from "@/lib/db/variants";
+import {
+  deleteProductImage as deleteProductImageFromBlob,
+  isBlobUrl,
+  uploadProductImage as uploadProductImageToBlob,
+} from "@/lib/blob/products";
 import { productFormSchema } from "@/lib/validation/product";
 import { variantFormSchema } from "@/lib/validation/variant";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
@@ -164,4 +171,72 @@ export async function updateProduct(
   revalidatePath(`/products/${productId}`);
   revalidatePath("/dashboard");
   return { success: true };
+}
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
+// Unit 12: uploads a draft-state image to Vercel Blob and adds it to the
+// product's gallery. Unlike title/price/status/variants, this is an
+// immediate action, not staged behind the main Save button — an upload has
+// to actually complete against Blob before there's a URL to show at all, so
+// there's nothing meaningful to "stage" client-side the way a plain text
+// edit can be.
+export async function uploadProductImage(
+  productId: string,
+  formData: FormData
+): Promise<{ error: string } | undefined> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const file = formData.get("image");
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "Choose an image to upload." };
+  }
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    return { error: "Only JPEG, PNG, WebP, or GIF images are supported." };
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    return { error: "Images must be 5MB or smaller." };
+  }
+
+  const uploaded = await uploadProductImageToBlob({ productId, file });
+  if (!uploaded.success) {
+    return { error: uploaded.error };
+  }
+
+  const product = await addProductImageInDb({ accountId: account.id, productId, url: uploaded.url });
+  if (!product) {
+    return { error: "This product no longer exists." };
+  }
+
+  revalidatePath(`/products/${productId}`);
+  revalidatePath("/products");
+}
+
+// Unit 12: removes one image from the gallery — a draft Blob upload gets
+// actually deleted from storage; a Shopify-imported image is just removed
+// from the list (there's nothing in Blob to delete for it, and this never
+// touches Shopify itself, per the unit's own "no Shopify interaction" scope).
+export async function removeProductImage(
+  productId: string,
+  url: string
+): Promise<{ error: string } | undefined> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (isBlobUrl(url)) {
+    const deleted = await deleteProductImageFromBlob(url);
+    if (!deleted.success) {
+      return { error: deleted.error };
+    }
+  }
+
+  const product = await removeProductImageInDb({ accountId: account.id, productId, url });
+  if (!product) {
+    return { error: "This product no longer exists." };
+  }
+
+  revalidatePath(`/products/${productId}`);
+  revalidatePath("/products");
 }
