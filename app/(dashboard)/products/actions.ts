@@ -29,6 +29,10 @@ import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 // inspecting the id's format here.
 const variantsFieldSchema = z.array(variantFormSchema.extend({ id: z.string().min(1) }));
 
+// Unit 13: tags are staged client-side the same way variants are — a hidden
+// JSON field, parsed and fully replaced on each save rather than diffed.
+const tagsFieldSchema = z.array(z.string().trim().min(1)).max(20, "No more than 20 tags");
+
 // Deletes from the app's own database only — there is no Shopify delete
 // mutation yet (lib/shopify/products.ts only reads). If the product still
 // exists on Shopify, a future sync would simply re-import it. Used for both
@@ -61,6 +65,8 @@ function parseProductForm(
     description: formData.get("description") ?? "",
     price: formData.get("price"),
     status: formData.get("status"),
+    collectionId: formData.get("collectionId") ?? undefined,
+    collectionTitle: formData.get("collectionTitle") ?? undefined,
   });
 
   if (!parsed.success) {
@@ -146,6 +152,22 @@ export async function updateProduct(
     variantsInput = parsedVariants.data;
   }
 
+  const tagsRaw = formData.get("tags");
+  let tagsInput: z.infer<typeof tagsFieldSchema> = [];
+  if (typeof tagsRaw === "string" && tagsRaw.length > 0) {
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(tagsRaw);
+    } catch {
+      return { error: "Tag data was malformed. Try again." };
+    }
+    const parsedTags = tagsFieldSchema.safeParse(parsedJson);
+    if (!parsedTags.success) {
+      return { error: parsedTags.error.issues[0]?.message ?? "One or more tags are invalid." };
+    }
+    tagsInput = parsedTags.data;
+  }
+
   const product = await updateProductInDb({
     accountId: account.id,
     productId,
@@ -153,6 +175,9 @@ export async function updateProduct(
     description: sanitizeDescriptionHtml(parsed.description),
     price: parsed.price,
     status: parsed.status,
+    collectionId: parsed.collectionId || null,
+    collectionTitle: parsed.collectionTitle || null,
+    tags: tagsInput,
   });
   if (!product) {
     return { error: "This product no longer exists." };

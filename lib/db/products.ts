@@ -116,6 +116,13 @@ export async function updateProduct(input: {
   description: string;
   price: string;
   status: "DRAFT" | "ACTIVE";
+  // Unit 13: manual collection/tag assignment. collectionId/collectionTitle
+  // are written together (null clears the assignment); tags replaces the
+  // whole array, matching how variants are fully reconciled on each save
+  // rather than diffed field-by-field.
+  collectionId?: string | null;
+  collectionTitle?: string | null;
+  tags?: string[];
 }): Promise<Product | null> {
   const existing = await prisma.product.findFirst({
     where: { id: input.productId, accountId: input.accountId },
@@ -131,6 +138,9 @@ export async function updateProduct(input: {
       description: input.description,
       price: input.price,
       status: input.status,
+      collectionId: input.collectionId ?? null,
+      collectionTitle: input.collectionTitle ?? null,
+      tags: input.tags ?? [],
       lastEditedAt: new Date(),
     },
     include: { variants: true },

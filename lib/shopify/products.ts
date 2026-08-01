@@ -60,8 +60,9 @@ type RawProductsResponse = {
 };
 
 // Strips a Shopify GID ("gid://shopify/Product/123") down to the bare
-// numeric id, which is what gets stored on Product.shopifyProductId.
-function toBareId(gid: string): string {
+// numeric id, which is what gets stored on Product.shopifyProductId (and,
+// via lib/shopify/collections.ts, Product.collectionId).
+export function toBareId(gid: string): string {
   return gid.split("/").pop() ?? gid;
 }
 

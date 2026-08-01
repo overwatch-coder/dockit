@@ -21,9 +21,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ProductImages } from "@/components/product-images";
+import { TagInput } from "@/components/tag-input";
 import { VariantList, type DraftVariant } from "@/components/variant-list";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
+import type { Collection } from "@/types/collection";
 import type { Product, ProductStatus } from "@/types/product";
+
+const NO_COLLECTION_VALUE = "none";
 
 function PreviewStatusBadge({ status }: { status: ProductStatus }) {
   if (status === "ACTIVE") {
@@ -55,10 +59,17 @@ export function ProductForm({
   mode,
   product,
   storeId,
+  collections = [],
 }: {
   mode: "create" | "edit";
   product?: Product;
   storeId?: string;
+  // Unit 13: the store's Shopify collections, fetched server-side by the
+  // product editor page (only lib/shopify/ is allowed to call Shopify, and
+  // only from server code) — never fetched from inside this client
+  // component. Unused in mode="create" (collection/tags are edit-mode only,
+  // same as variants/images).
+  collections?: Collection[];
 }) {
   const action =
     mode === "create" ? createProduct.bind(null, storeId!) : updateProduct.bind(null, product!.id);
@@ -69,6 +80,9 @@ export function ProductForm({
   const [status, setStatus] = useState<ProductStatus>(product?.status ?? "DRAFT");
   const [descriptionHtml, setDescriptionHtml] = useState(product?.description ?? "");
   const [variants, setVariants] = useState<DraftVariant[]>(() => toDraftVariants(product));
+  const [collectionId, setCollectionId] = useState(product?.collectionId ?? "");
+  const [collectionTitle, setCollectionTitle] = useState(product?.collectionTitle ?? "");
+  const [tags, setTags] = useState<string[]>(product?.tags ?? []);
 
   // Shopify products can have more than one image, and Unit 12 added
   // uploading draft-state ones too (components/product-images.tsx) — both
@@ -142,7 +156,7 @@ export function ProductForm({
             <Label htmlFor="status">Status</Label>
             <Select name="status" value={status} onValueChange={(value) => setStatus(value as ProductStatus)}>
               <SelectTrigger id="status" className="max-w-40">
-                <SelectValue />
+                <SelectValue>{(value: string | null) => (value === "ACTIVE" ? "Active" : "Draft")}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="DRAFT">Draft</SelectItem>
@@ -154,6 +168,48 @@ export function ProductForm({
 
           {mode === "edit" && product && (
             <>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="collection">Collection</Label>
+                <Select
+                  value={collectionId || NO_COLLECTION_VALUE}
+                  onValueChange={(value) => {
+                    if (!value || value === NO_COLLECTION_VALUE) {
+                      setCollectionId("");
+                      setCollectionTitle("");
+                      return;
+                    }
+                    setCollectionId(value);
+                    setCollectionTitle(collections.find((c) => c.id === value)?.title ?? "");
+                  }}
+                >
+                  <SelectTrigger id="collection" className="max-w-72">
+                    <SelectValue>
+                      {(value: string | null) =>
+                        !value || value === NO_COLLECTION_VALUE
+                          ? "No collection"
+                          : (collections.find((c) => c.id === value)?.title ?? "No collection")
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_COLLECTION_VALUE}>No collection</SelectItem>
+                    {collections.map((collection) => (
+                      <SelectItem key={collection.id} value={collection.id}>
+                        {collection.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <input type="hidden" name="collectionId" value={collectionId} />
+                <input type="hidden" name="collectionTitle" value={collectionTitle} />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="tags">Tags</Label>
+                <TagInput tags={tags} onChange={setTags} />
+                <input type="hidden" name="tags" value={JSON.stringify(tags)} />
+              </div>
+
               <VariantList variants={variants} onChange={setVariants} />
               <input type="hidden" name="variants" value={JSON.stringify(variants)} />
             </>
@@ -249,6 +305,18 @@ export function ProductForm({
                 <PreviewStatusBadge status={status} />
               </div>
               <span className="font-mono text-table-data text-foreground">{price || "0.00"}</span>
+              <span className="text-sm text-muted-foreground">
+                {collectionTitle || "No collection"}
+              </span>
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map((tag) => (
+                    <Badge key={tag} variant="secondary">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              )}
               {descriptionHtml ? (
                 <div
                   className="text-sm text-foreground [&_a]:text-primary [&_a]:underline [&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_li]:mb-1 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-5"

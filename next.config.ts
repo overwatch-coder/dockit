@@ -13,6 +13,14 @@ const nextConfig: NextConfig = {
       // a fixed hostname.
       { protocol: "https", hostname: "*.public.blob.vercel-storage.com" },
     ],
+    // Both remote sources above are already CDN-served (Shopify's own CDN,
+    // Vercel Blob's public storage CDN) — routing them through Next's own
+    // Image Optimization proxy on top of that added no real benefit and, in
+    // practice, its fetch to cdn.shopify.com was timing out entirely
+    // (`/_next/image` 500s), breaking every product image in the editor and
+    // preview. Skipping Next's re-optimization removes that failure point;
+    // next/image still handles layout/sizing, just without the extra hop.
+    unoptimized: true,
   },
 };
 

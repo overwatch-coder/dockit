@@ -14,6 +14,13 @@ export const productFormSchema = z.object({
       message: "Enter a valid, non-negative price",
     }),
   status: z.enum(["DRAFT", "ACTIVE"], { message: "Select a status" }),
+  // Unit 13: manual collection assignment. Empty string means "no
+  // collection" — collectionTitle rides alongside it (the client already
+  // knows the title of whichever collection it picked from the fetched
+  // list), same "write both together" convention lib/db/products.ts's
+  // importProducts already uses.
+  collectionId: z.string().trim().optional(),
+  collectionTitle: z.string().trim().optional(),
 });
 
 export type ProductFormInput = z.infer<typeof productFormSchema>;
