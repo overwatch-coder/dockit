@@ -9,18 +9,25 @@ import {
   addProductImage as addProductImageInDb,
   createProduct as createProductInDb,
   deleteProducts as deleteProductsFromDb,
+  getProductById,
   removeProductImage as removeProductImageInDb,
   updateProduct as updateProductInDb,
 } from "@/lib/db/products";
 import { syncProductVariants as syncProductVariantsInDb } from "@/lib/db/variants";
+import { getStoreToken } from "@/lib/db/stores";
 import {
   deleteProductImage as deleteProductImageFromBlob,
   isBlobUrl,
   uploadProductImage as uploadProductImageToBlob,
 } from "@/lib/blob/products";
+import { decryptAccessToken } from "@/lib/shopify/oauth";
+import { fetchAllCollections } from "@/lib/shopify/collections";
+import { suggestProductSeo as generateProductSuggestion } from "@/lib/ai/suggestions";
 import { productFormSchema } from "@/lib/validation/product";
 import { variantFormSchema } from "@/lib/validation/variant";
+import type { AiSuggestion } from "@/lib/validation/ai-suggestion";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
+import type { Collection } from "@/types/collection";
 
 // Matches the shape components/variant-list.tsx submits: id is either a
 // real variant id or a client-generated temporary id for a not-yet-created
@@ -67,6 +74,8 @@ function parseProductForm(
     status: formData.get("status"),
     collectionId: formData.get("collectionId") ?? undefined,
     collectionTitle: formData.get("collectionTitle") ?? undefined,
+    seoTitle: formData.get("seoTitle") ?? undefined,
+    seoDescription: formData.get("seoDescription") ?? undefined,
   });
 
   if (!parsed.success) {
@@ -178,6 +187,8 @@ export async function updateProduct(
     collectionId: parsed.collectionId || null,
     collectionTitle: parsed.collectionTitle || null,
     tags: tagsInput,
+    seoTitle: parsed.seoTitle || null,
+    seoDescription: parsed.seoDescription || null,
   });
   if (!product) {
     return { error: "This product no longer exists." };
@@ -264,4 +275,46 @@ export async function removeProductImage(
 
   revalidatePath(`/products/${productId}`);
   revalidatePath("/products");
+}
+
+// Unit 14: fetches an AI suggestion for a product's SEO title/description,
+// tags, and collection. Deliberately does NOT persist anything or call
+// revalidatePath — per architecture.md invariant 7, AI-generated content is
+// only ever returned as a suggestion; it's written to the product record
+// the same way any other edit is, only when the owner presses Save.
+export async function suggestProductSeo(
+  productId: string
+): Promise<{ success: true; data: AiSuggestion } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const product = await getProductById(account.id, productId);
+  if (!product) {
+    return { error: "This product no longer exists." };
+  }
+
+  // Same fetch sequence as app/(dashboard)/products/[id]/page.tsx — fails
+  // open to an empty list rather than blocking the suggestion entirely.
+  let collections: Collection[] = [];
+  const storeToken = await getStoreToken(account.id, product.storeId);
+  if (storeToken) {
+    const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
+    const result = await fetchAllCollections(storeToken.shopifyDomain, accessToken);
+    if (result.success) {
+      collections = result.data;
+    }
+  }
+
+  const suggestion = await generateProductSuggestion({
+    title: product.title,
+    description: product.description,
+    price: product.price,
+    tags: product.tags,
+    collections,
+  });
+  if (!suggestion.success) {
+    return { error: suggestion.error };
+  }
+
+  return { success: true, data: suggestion.data };
 }

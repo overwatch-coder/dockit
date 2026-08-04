@@ -21,6 +21,11 @@ export const productFormSchema = z.object({
   // importProducts already uses.
   collectionId: z.string().trim().optional(),
   collectionTitle: z.string().trim().optional(),
+  // Unit 14: Shopify's own SEO title/description — distinct from the main
+  // title/description above, manually editable and/or AI-suggested. Empty
+  // string means "not set."
+  seoTitle: z.string().trim().optional(),
+  seoDescription: z.string().trim().optional(),
 });
 
 export type ProductFormInput = z.infer<typeof productFormSchema>;

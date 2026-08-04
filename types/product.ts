@@ -21,6 +21,8 @@ export type Product = {
   tags: string[];
   collectionId: string | null;
   collectionTitle: string | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
   isConflicted: boolean;
   variants: Variant[];
   lastSyncedAt: Date | null;

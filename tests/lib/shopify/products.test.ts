@@ -14,6 +14,7 @@ function productNode(overrides: Partial<{
   imageUrl: string | null;
   images: string[];
   collection: { id: string; title: string } | null;
+  seo: { title: string | null; description: string | null };
 }> = {}) {
   return {
     id: overrides.id ?? "gid://shopify/Product/1",
@@ -36,6 +37,7 @@ function productNode(overrides: Partial<{
           ? []
           : [{ node: overrides.collection ?? { id: "gid://shopify/Collection/5", title: "Shirts" } }],
     },
+    seo: overrides.seo ?? { title: "Test Product | Shop", description: "A great test product." },
     priceRangeV2: { minVariantPrice: { amount: overrides.price ?? "19.99" } },
     variants: {
       edges: [
@@ -87,6 +89,8 @@ describe("fetchAllProducts", () => {
           tags: ["tag1"],
           collectionId: "5",
           collectionTitle: "Shirts",
+          seoTitle: "Test Product | Shop",
+          seoDescription: "A great test product.",
           variants: [
             { shopifyVariantId: "10", optionName: "Default Title", price: "19.99", inventory: 5 },
           ],
@@ -205,6 +209,21 @@ describe("fetchAllProducts", () => {
     if (result.success) {
       expect(result.data[0].collectionId).toBeNull();
       expect(result.data[0].collectionTitle).toBeNull();
+    }
+  });
+
+  test("maps a product with no SEO title/description to nulls", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      pageResponse([productNode({ seo: { title: null, description: null } })], false, null)
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllProducts("my-store.myshopify.com", "shpat_test_token");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data[0].seoTitle).toBeNull();
+      expect(result.data[0].seoDescription).toBeNull();
     }
   });
 

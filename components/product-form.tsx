@@ -1,11 +1,11 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ImageOff, Maximize2 } from "lucide-react";
+import { ImageOff, Maximize2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { createProduct, updateProduct } from "@/app/(dashboard)/products/actions";
+import { createProduct, suggestProductSeo, updateProduct } from "@/app/(dashboard)/products/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,14 +20,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { ProductImages } from "@/components/product-images";
 import { TagInput } from "@/components/tag-input";
 import { VariantList, type DraftVariant } from "@/components/variant-list";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
+import { cn } from "@/lib/utils";
 import type { Collection } from "@/types/collection";
 import type { Product, ProductStatus } from "@/types/product";
 
 const NO_COLLECTION_VALUE = "none";
+
+// Unit 14: keys of the fields a "Suggest SEO & tags" click can populate —
+// each one gets a --primary-subtle background (per ui-context.md) until the
+// owner edits that specific field or saves the whole form.
+type AiSuggestedField = "seoTitle" | "seoDescription" | "tags" | "collection";
 
 function PreviewStatusBadge({ status }: { status: ProductStatus }) {
   if (status === "ACTIVE") {
@@ -83,6 +90,47 @@ export function ProductForm({
   const [collectionId, setCollectionId] = useState(product?.collectionId ?? "");
   const [collectionTitle, setCollectionTitle] = useState(product?.collectionTitle ?? "");
   const [tags, setTags] = useState<string[]>(product?.tags ?? []);
+  const [seoTitle, setSeoTitle] = useState(product?.seoTitle ?? "");
+  const [seoDescription, setSeoDescription] = useState(product?.seoDescription ?? "");
+
+  // Unit 14: which of the four AI-suggestible fields currently hold an
+  // unsaved suggestion (drives the --primary-subtle marking), and the
+  // suggest button's own pending state — a separate transition from the
+  // form's own Save (isPending above), since suggesting never submits.
+  const [aiSuggested, setAiSuggested] = useState<Set<AiSuggestedField>>(new Set());
+  const [isSuggesting, startSuggestTransition] = useTransition();
+
+  function clearSuggested(field: AiSuggestedField) {
+    setAiSuggested((prev) => {
+      if (!prev.has(field)) return prev;
+      const next = new Set(prev);
+      next.delete(field);
+      return next;
+    });
+  }
+
+  function handleSuggest() {
+    if (!product) return;
+    startSuggestTransition(async () => {
+      const result = await suggestProductSeo(product.id);
+      if ("error" in result) {
+        toast.error(result.error);
+        return;
+      }
+      const { data } = result;
+      setSeoTitle(data.seoTitle);
+      setSeoDescription(data.seoDescription);
+      setTags(data.tags);
+      const populated: AiSuggestedField[] = ["seoTitle", "seoDescription", "tags"];
+      if (data.collectionId) {
+        setCollectionId(data.collectionId);
+        setCollectionTitle(collections.find((c) => c.id === data.collectionId)?.title ?? "");
+        populated.push("collection");
+      }
+      setAiSuggested(new Set(populated));
+      toast.success("Suggestion applied — review before saving");
+    });
+  }
 
   // Shopify products can have more than one image, and Unit 12 added
   // uploading draft-state ones too (components/product-images.tsx) — both
@@ -101,6 +149,12 @@ export function ProductForm({
     prevStateRef.current = state;
     if (state && "success" in state && state.success) {
       toast.success("Saved");
+      // Save persists the full form snapshot at once, so every AI-suggested
+      // mark clears together on success. Deferred via setTimeout (same
+      // workaround already used by connect-store-dialog.tsx's DialogError)
+      // since eslint's react-hooks/set-state-in-effect rule disallows
+      // calling setState synchronously in an effect body.
+      setTimeout(() => setAiSuggested(new Set()), 0);
     } else if (state && "error" in state && state.error) {
       toast.error(state.error);
     }
@@ -168,11 +222,60 @@ export function ProductForm({
 
           {mode === "edit" && product && (
             <>
-              <div className="flex flex-col gap-2">
+              <div>
+                <Button type="button" variant="outline" size="sm" disabled={isSuggesting} onClick={handleSuggest}>
+                  <Sparkles className="size-4" />
+                  {isSuggesting ? "Suggesting..." : "Suggest SEO & tags"}
+                </Button>
+              </div>
+
+              <div
+                className={cn(
+                  "flex flex-col gap-2 rounded-lg p-2",
+                  aiSuggested.has("seoTitle") && "bg-primary-subtle"
+                )}
+              >
+                <Label htmlFor="seoTitle">SEO title</Label>
+                <Input
+                  id="seoTitle"
+                  name="seoTitle"
+                  value={seoTitle}
+                  onChange={(event) => {
+                    setSeoTitle(event.target.value);
+                    clearSuggested("seoTitle");
+                  }}
+                />
+              </div>
+
+              <div
+                className={cn(
+                  "flex flex-col gap-2 rounded-lg p-2",
+                  aiSuggested.has("seoDescription") && "bg-primary-subtle"
+                )}
+              >
+                <Label htmlFor="seoDescription">SEO description</Label>
+                <Textarea
+                  id="seoDescription"
+                  name="seoDescription"
+                  value={seoDescription}
+                  onChange={(event) => {
+                    setSeoDescription(event.target.value);
+                    clearSuggested("seoDescription");
+                  }}
+                />
+              </div>
+
+              <div
+                className={cn(
+                  "flex flex-col gap-2 rounded-lg p-2",
+                  aiSuggested.has("collection") && "bg-primary-subtle"
+                )}
+              >
                 <Label htmlFor="collection">Collection</Label>
                 <Select
                   value={collectionId || NO_COLLECTION_VALUE}
                   onValueChange={(value) => {
+                    clearSuggested("collection");
                     if (!value || value === NO_COLLECTION_VALUE) {
                       setCollectionId("");
                       setCollectionTitle("");
@@ -204,9 +307,20 @@ export function ProductForm({
                 <input type="hidden" name="collectionTitle" value={collectionTitle} />
               </div>
 
-              <div className="flex flex-col gap-2">
+              <div
+                className={cn(
+                  "flex flex-col gap-2 rounded-lg p-2",
+                  aiSuggested.has("tags") && "bg-primary-subtle"
+                )}
+              >
                 <Label htmlFor="tags">Tags</Label>
-                <TagInput tags={tags} onChange={setTags} />
+                <TagInput
+                  tags={tags}
+                  onChange={(next) => {
+                    setTags(next);
+                    clearSuggested("tags");
+                  }}
+                />
                 <input type="hidden" name="tags" value={JSON.stringify(tags)} />
               </div>
 

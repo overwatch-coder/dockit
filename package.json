@@ -11,6 +11,7 @@
     "test:watch": "cross-env NODE_ENV=test vitest"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.27",
     "@base-ui/react": "^1.6.0",
     "@clerk/nextjs": "^7.6.2",
     "@clerk/ui": "^1.26.1",
@@ -21,6 +22,7 @@
     "@tiptap/react": "^3.29.2",
     "@tiptap/starter-kit": "^3.29.2",
     "@vercel/blob": "^2.6.1",
+    "ai": "^7.0.47",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "inngest": "^4.13.0",

@@ -15,6 +15,8 @@ type ProductRecord = {
   tags: string[];
   collectionId: string | null;
   collectionTitle: string | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
   isConflicted: boolean;
   lastSyncedAt: Date | null;
   variants: {
@@ -40,6 +42,8 @@ function toDomainProduct(product: ProductRecord): Product {
     tags: product.tags,
     collectionId: product.collectionId,
     collectionTitle: product.collectionTitle,
+    seoTitle: product.seoTitle,
+    seoDescription: product.seoDescription,
     isConflicted: product.isConflicted,
     lastSyncedAt: product.lastSyncedAt,
     variants: product.variants.map((variant) => ({
@@ -123,6 +127,11 @@ export async function updateProduct(input: {
   collectionId?: string | null;
   collectionTitle?: string | null;
   tags?: string[];
+  // Unit 14: Shopify's own SEO title/description, distinct from the main
+  // title/description — manually editable and/or AI-suggested, same
+  // "always write, default to null" convention as collectionId/collectionTitle.
+  seoTitle?: string | null;
+  seoDescription?: string | null;
 }): Promise<Product | null> {
   const existing = await prisma.product.findFirst({
     where: { id: input.productId, accountId: input.accountId },
@@ -141,6 +150,8 @@ export async function updateProduct(input: {
       collectionId: input.collectionId ?? null,
       collectionTitle: input.collectionTitle ?? null,
       tags: input.tags ?? [],
+      seoTitle: input.seoTitle ?? null,
+      seoDescription: input.seoDescription ?? null,
       lastEditedAt: new Date(),
     },
     include: { variants: true },
@@ -262,6 +273,8 @@ export async function importProducts(input: {
         tags: product.tags,
         collectionId: product.collectionId,
         collectionTitle: product.collectionTitle,
+        seoTitle: product.seoTitle,
+        seoDescription: product.seoDescription,
         lastSyncedAt: now,
       },
       update: {
@@ -274,6 +287,8 @@ export async function importProducts(input: {
         tags: product.tags,
         collectionId: product.collectionId,
         collectionTitle: product.collectionTitle,
+        seoTitle: product.seoTitle,
+        seoDescription: product.seoDescription,
         lastSyncedAt: now,
       },
     });
