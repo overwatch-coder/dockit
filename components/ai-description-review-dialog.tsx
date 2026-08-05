@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -31,12 +31,19 @@ export function AiDescriptionReviewDialog({
   const [editedHtml, setEditedHtml] = useState(suggestedDescriptionHtml);
   const [editorVersion, setEditorVersion] = useState(0);
 
-  useEffect(() => {
+  // Adjusting state during render (not in an effect) is the React-endorsed
+  // way to reset the edited draft each time the dialog opens with a fresh
+  // suggestion, without an extra setState-in-effect — same pattern as
+  // components/connect-store-dialog.tsx:
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setEditedHtml(suggestedDescriptionHtml);
       setEditorVersion((v) => v + 1);
     }
-  }, [open, suggestedDescriptionHtml]);
+  }
 
   const sanitizedCurrent = currentDescriptionHtml
     ? sanitizeDescriptionHtml(currentDescriptionHtml)

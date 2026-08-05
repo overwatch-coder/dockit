@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -67,7 +67,14 @@ export function AiSeoReviewDialog({
   const [tags, setTags] = useState<string[]>(suggested.tags);
   const [collectionId, setCollectionId] = useState<string>(suggested.collectionId ?? "");
 
-  useEffect(() => {
+  // Adjusting state during render (not in an effect) is the React-endorsed
+  // way to reset the edited draft each time the dialog opens with a fresh
+  // suggestion, without an extra setState-in-effect — same pattern as
+  // components/connect-store-dialog.tsx:
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setSeoTitle(suggested.seoTitle);
       setSeoDescription(suggested.seoDescription);
@@ -80,7 +87,7 @@ export function AiSeoReviewDialog({
         collection: Boolean(suggested.collectionId),
       });
     }
-  }, [open, suggested]);
+  }
 
   const suggestedCollectionTitle = collectionId
     ? collections.find((c) => c.id === collectionId)?.title ?? ""
