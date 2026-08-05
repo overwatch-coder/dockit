@@ -2,10 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ImageOff, Pencil, Trash2 } from "lucide-react";
+import { ExternalLink, ImageOff, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -26,12 +32,20 @@ const lastSyncedFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
+// Product.shopifyProductId is stored as the bare numeric id, never the full
+// GID (lib/shopify/products.ts's toBareId strips it on import/push) — the
+// classic /admin/products/<id> path resolves on any shopifyDomain and
+// redirects into the merchant's real admin, no store handle lookup needed.
+function shopifyAdminProductUrl(shopDomain: string, shopifyProductId: string): string {
+  return `https://${shopDomain}/admin/products/${shopifyProductId}`;
+}
+
 // Small client wrapper just for row-click navigation, selection, and delete
 // — the rest of the product list page stays a server component
 // (code-standards.md). Edit/Sync/Publish/Draft-toggle beyond navigation
 // aren't real yet (no Shopify write mutations or jobs exist — Units 15-17),
 // so only Edit (navigation) and Delete (app-database-only) are wired here.
-export function ProductTable({ products }: { products: Product[] }) {
+export function ProductTable({ products, shopDomain }: { products: Product[]; shopDomain: string }) {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleteTarget, setDeleteTarget] = useState<{ ids: string[]; label: string } | null>(null);
@@ -203,24 +217,42 @@ export function ProductTable({ products }: { products: Product[] }) {
                 {product.lastSyncedAt ? lastSyncedFormatter.format(product.lastSyncedAt) : "—"}
               </TableCell>
               <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
-                <div className="flex justify-end gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Edit ${product.title}`}
-                    onClick={() => router.push(`/products/${product.id}`)}
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${product.title}`} />
+                    }
                   >
-                    <Pencil className="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Delete ${product.title}`}
-                    onClick={() => setDeleteTarget({ ids: [product.id], label: product.title })}
-                  >
-                    <Trash2 className="size-4 text-destructive" />
-                  </Button>
-                </div>
+                    <MoreHorizontal className="size-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => router.push(`/products/${product.id}`)}>
+                      <Pencil className="size-4" />
+                      Edit
+                    </DropdownMenuItem>
+                    {product.shopifyProductId && (
+                      <DropdownMenuItem
+                        render={
+                          <a
+                            href={shopifyAdminProductUrl(shopDomain, product.shopifyProductId)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          />
+                        }
+                      >
+                        <ExternalLink className="size-4" />
+                        View on Shopify
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => setDeleteTarget({ ids: [product.id], label: product.title })}
+                    >
+                      <Trash2 className="size-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </TableCell>
             </TableRow>
           ))}

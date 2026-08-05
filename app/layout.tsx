@@ -5,6 +5,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import "@clerk/ui/themes/shadcn.css";
 import { cn } from "@/lib/utils";
+import { OfflineBanner } from "@/components/offline-banner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -45,7 +46,10 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            <TooltipProvider>{children}</TooltipProvider>
+            <TooltipProvider>
+              <OfflineBanner />
+              {children}
+            </TooltipProvider>
           </ThemeProvider>
         </ClerkProvider>
       </body>

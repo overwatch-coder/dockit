@@ -1,41 +1,76 @@
 "use client";
 
-import { useRef, useTransition } from "react";
+import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useDropzone, type FileRejection } from "react-dropzone";
 import Image from "next/image";
-import { ImagePlus, X } from "lucide-react";
+import { Clock, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { removeProductImage, uploadProductImage } from "@/app/(dashboard)/products/actions";
+import { removeProductImage } from "@/app/(dashboard)/products/actions";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
-// Unit 12: draft-state image upload (Vercel Blob) — an immediate action,
-// not staged behind the product form's own Save button, since an upload
-// has to actually finish before there's a URL to show at all. Only
-// rendered in mode="edit" (components/product-form.tsx) — a not-yet-saved
-// product has no id for an image to attach to.
-export function ProductImages({ productId, images }: { productId: string; images: string[] }) {
+// Mirrors app/(dashboard)/products/actions.ts's own MAX_IMAGE_BYTES/
+// ALLOWED_IMAGE_TYPES — checked here too so a bad drop is rejected
+// instantly client-side instead of round-tripping to the server first, but
+// the server-side check remains the real source of truth (never trust a
+// client-side check alone).
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = {
+  "image/jpeg": [],
+  "image/png": [],
+  "image/webp": [],
+  "image/gif": [],
+};
+
+// A dropped/selected file that hasn't been uploaded to Vercel Blob yet —
+// held purely in browser memory (components/product-form.tsx owns this
+// array) so dropping an image is instant and removing one before Save costs
+// nothing. `previewUrl` is a local `URL.createObjectURL(file)` blob: URL,
+// unrelated to (and never confused with) a real Vercel Blob URL.
+export type PendingImage = { id: string; file: File; previewUrl: string };
+
+// Unit 16, per explicit user request superseding Unit 12's original design:
+// dropping/selecting a file no longer uploads to Vercel Blob immediately —
+// it only stages a local preview (owned by the parent form, so it can be
+// uploaded together once the owner actually saves, and discarded for free
+// if they change their mind first). Only already-persisted images (real
+// Blob or Shopify URLs) still remove via an immediate server call, since
+// those already exist in storage.
+//
+// Uses react-dropzone for drag-and-drop on top of click-to-browse — shadcn
+// has no first-party file upload/dropzone primitive in this project's
+// registry, so this is a plain styled wrapper around react-dropzone's hook
+// rather than a shadcn component.
+export function ProductImages({
+  productId,
+  images,
+  pendingImages,
+  onFilesAdded,
+  onRemovePending,
+  isUploadingPending,
+}: {
+  productId: string;
+  images: string[];
+  pendingImages: PendingImage[];
+  onFilesAdded: (files: File[]) => void;
+  onRemovePending: (id: string) => void;
+  isUploadingPending: boolean;
+}) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isRemoving, startTransition] = useTransition();
+  const isBusy = isRemoving || isUploadingPending;
 
-  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append("image", file);
-
-    startTransition(async () => {
-      const result = await uploadProductImage(productId, formData);
-      if (result?.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success("Image uploaded");
-      router.refresh();
-    });
+  function handleDrop(acceptedFiles: File[], rejections: FileRejection[]) {
+    for (const rejection of rejections) {
+      const reason =
+        rejection.errors[0]?.code === "file-too-large" ? "must be 5MB or smaller" : "unsupported file type";
+      toast.error(`${rejection.file.name}: ${reason}`);
+    }
+    if (acceptedFiles.length > 0) {
+      onFilesAdded(acceptedFiles);
+    }
   }
 
   function handleRemove(url: string) {
@@ -50,6 +85,15 @@ export function ProductImages({ productId, images }: { productId: string; images
     });
   }
 
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    accept: ALLOWED_IMAGE_TYPES,
+    maxSize: MAX_IMAGE_BYTES,
+    multiple: true,
+    disabled: isBusy,
+    onDrop: handleDrop,
+    noKeyboard: true,
+  });
+
   return (
     <div className="flex flex-col gap-2">
       <Label>Images</Label>
@@ -61,7 +105,7 @@ export function ProductImages({ productId, images }: { productId: string; images
               type="button"
               size="icon-xs"
               variant="ghost"
-              disabled={isPending}
+              disabled={isBusy}
               onClick={() => handleRemove(url)}
               aria-label="Remove image"
               className="absolute top-0.5 right-0.5 size-5 bg-background/90 text-destructive opacity-0 hover:bg-background hover:text-destructive group-hover:opacity-100"
@@ -70,24 +114,54 @@ export function ProductImages({ productId, images }: { productId: string; images
             </Button>
           </div>
         ))}
-        <Button
-          type="button"
-          variant="outline"
-          className="h-16 w-16 flex-col gap-1 p-0 text-xs"
-          disabled={isPending}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <ImagePlus className="size-4" />
-          Upload
-        </Button>
+        {pendingImages.map((pending) => (
+          <div
+            key={pending.id}
+            className="group relative size-16 shrink-0 overflow-hidden rounded-md border border-dashed border-primary/60"
+            title="Not uploaded yet — will upload when you save"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- a local blob: object URL, next/image's remote-pattern allowlist doesn't apply. */}
+            <img src={pending.previewUrl} alt="" className="size-full object-cover opacity-80" />
+            <span className="absolute bottom-0.5 left-0.5 flex size-4 items-center justify-center rounded-sm bg-background/90 text-primary">
+              <Clock className="size-2.5" />
+            </span>
+            {!isUploadingPending && (
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                disabled={isBusy}
+                onClick={() => onRemovePending(pending.id)}
+                aria-label="Remove staged image"
+                className="absolute top-0.5 right-0.5 size-5 bg-background/90 text-destructive opacity-0 hover:bg-background hover:text-destructive group-hover:opacity-100"
+              >
+                <X className="size-3" />
+              </Button>
+            )}
+          </div>
+        ))}
       </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
-        className="hidden"
-        onChange={handleFileChange}
-      />
+      {pendingImages.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {isUploadingPending
+            ? "Uploading..."
+            : `${pendingImages.length} image${pendingImages.length === 1 ? "" : "s"} staged — will upload when you save.`}
+        </p>
+      )}
+      <div
+        {...getRootProps()}
+        className={cn(
+          "flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-input px-4 py-6 text-center text-xs text-muted-foreground transition-colors",
+          isDragActive && "border-primary bg-primary-subtle text-primary",
+          isBusy && "opacity-60",
+          !isBusy && "cursor-pointer hover:border-primary/60 hover:text-foreground"
+        )}
+      >
+        <input {...getInputProps()} />
+        <ImagePlus className="size-5" />
+        <span>{isDragActive ? "Drop images to stage" : "Drag images here, or click to browse"}</span>
+        <span className="text-muted-foreground/70">JPEG, PNG, WebP, or GIF, up to 5MB each — uploaded on Save</span>
+      </div>
     </div>
   );
 }

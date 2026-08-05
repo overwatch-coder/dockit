@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
@@ -64,20 +64,28 @@ function ToolbarButton({
   );
 }
 
-// Syncs to a hidden `name="description"` input so it composes with the
-// existing FormData-based server actions (createProduct/updateProduct)
-// without changing their shape.
+// Reports HTML out via onChange only — the caller owns the actual
+// `name="description"` hidden input (same controlled-state-drives-a-hidden-
+// input pattern already used for tags/variants/collectionId in
+// product-form.tsx), rather than this component mutating its own hidden
+// input imperatively via a ref. The imperative version was found to lose the
+// description entirely on product *create*: nothing here forced a reconcile
+// against the actual submitted FormData, so a real desync (confirmed by
+// removing it) was silently possible. Controlled state can't desync from
+// what gets submitted the same way.
 export function RichTextEditor({
-  name,
   defaultValue,
   onChange,
+  externalContent,
 }: {
-  name: string;
   defaultValue: string;
   onChange?: (html: string) => void;
+  // Unit 16: lets a parent push AI-generated/-improved HTML into the editor
+  // after mount (e.g. clicking "Generate"/"Apply" in the description AI
+  // dialog). Bumping `version` is the trigger — comparing HTML strings alone
+  // wouldn't let the same suggestion be re-applied twice in a row.
+  externalContent?: { html: string; version: number };
 }) {
-  const hiddenInputRef = useRef<HTMLInputElement>(null);
-
   const editor = useEditor({
     extensions: buildExtensions(),
     content: defaultValue,
@@ -89,13 +97,19 @@ export function RichTextEditor({
       },
     },
     onUpdate: ({ editor }) => {
-      const html = editor.getHTML();
-      if (hiddenInputRef.current) {
-        hiddenInputRef.current.value = html;
-      }
-      onChange?.(html);
+      onChange?.(editor.getHTML());
     },
   });
+
+  useEffect(() => {
+    if (!editor || !externalContent) return;
+    editor.commands.setContent(externalContent.html);
+    onChange?.(externalContent.html);
+    // Deliberately keyed only on `version`, not `editor`/`onChange`/`html` —
+    // this should fire exactly once per explicit external-apply, not on
+    // every render or editor identity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalContent?.version]);
 
   if (!editor) {
     return null;
@@ -176,7 +190,6 @@ export function RichTextEditor({
         </ToolbarButton>
       </div>
       <EditorContent editor={editor} />
-      <input ref={hiddenInputRef} type="hidden" name={name} defaultValue={defaultValue} />
     </div>
   );
 }

@@ -15,6 +15,7 @@ import {
 } from "@/lib/db/products";
 import { syncProductVariants as syncProductVariantsInDb } from "@/lib/db/variants";
 import { getStoreToken } from "@/lib/db/stores";
+import { createJob, getJobById } from "@/lib/db/jobs";
 import {
   deleteProductImage as deleteProductImageFromBlob,
   isBlobUrl,
@@ -22,12 +23,17 @@ import {
 } from "@/lib/blob/products";
 import { decryptAccessToken } from "@/lib/shopify/oauth";
 import { fetchAllCollections } from "@/lib/shopify/collections";
-import { suggestProductSeo as generateProductSuggestion } from "@/lib/ai/suggestions";
+import {
+  generateProductDescription as generateProductDescriptionSuggestion,
+  suggestProductSeo as generateProductSuggestion,
+} from "@/lib/ai/suggestions";
+import { triggerProductPush } from "@/lib/jobs/push";
 import { productFormSchema } from "@/lib/validation/product";
 import { variantFormSchema } from "@/lib/validation/variant";
-import type { AiSuggestion } from "@/lib/validation/ai-suggestion";
+import type { AiSuggestion, ProductDescriptionSuggestion } from "@/lib/validation/ai-suggestion";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import type { Collection } from "@/types/collection";
+import type { JobStatus } from "@/types/job";
 
 // Matches the shape components/variant-list.tsx submits: id is either a
 // real variant id or a client-generated temporary id for a not-yet-created
@@ -317,4 +323,66 @@ export async function suggestProductSeo(
   }
 
   return { success: true, data: suggestion.data };
+}
+
+// Unit 16: generates or improves a product description via AI. Deliberately
+// takes no productId — it works from whatever's currently staged in the
+// form (title/price/description), so it's usable on /products/new before a
+// product row even exists, not just in edit mode. Only auth-gated, same as
+// every other action; nothing is persisted here (architecture.md invariant
+// 7 — the owner applies it in the editor and it's only saved on Save).
+export async function generateProductDescription(input: {
+  title: string;
+  price: string;
+  existingDescriptionHtml: string | null;
+  instructions: string;
+}): Promise<{ success: true; data: ProductDescriptionSuggestion } | { error: string }> {
+  await auth.protect();
+
+  if (!input.title.trim()) {
+    return { error: "Enter a product title first." };
+  }
+
+  const result = await generateProductDescriptionSuggestion(input);
+  if (!result.success) {
+    return { error: result.error };
+  }
+
+  return { success: true, data: result.data };
+}
+
+// Unit 15: enqueues a push job — never calls Shopify itself (architecture.md
+// invariants 4/5). The Job row is created here (not inside pushProductJob,
+// unlike the import job's own pattern) so its id can be returned
+// synchronously for the Push button's polling.
+export async function pushProduct(productId: string): Promise<{ jobId: string } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const product = await getProductById(account.id, productId);
+  if (!product) {
+    return { error: "This product no longer exists." };
+  }
+
+  const job = await createJob({ accountId: account.id, storeId: product.storeId, type: "PUSH" });
+  await triggerProductPush({ accountId: account.id, storeId: product.storeId, productId, jobId: job.id });
+
+  return { jobId: job.id };
+}
+
+// Unit 15: a plain polling read for the Push button's own inline status —
+// no revalidatePath here, since nothing server-rendered changes per poll
+// tick; the client refreshes itself once it observes SUCCEEDED.
+export async function getPushJobStatus(
+  jobId: string
+): Promise<{ status: JobStatus; results: unknown } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const job = await getJobById(account.id, jobId);
+  if (!job) {
+    return { error: "Job not found." };
+  }
+
+  return { status: job.status, results: job.results };
 }

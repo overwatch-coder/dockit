@@ -61,7 +61,10 @@ function toDomainProduct(product: ProductRecord): Product {
 export async function getProductsForStore(accountId: string, storeId: string): Promise<Product[]> {
   const products = await prisma.product.findMany({
     where: { accountId, storeId },
-    orderBy: { createdAt: "asc" },
+    // Unit 16, per explicit user request: most-recently-created product
+    // first, so a newly created draft shows up at the top of the list
+    // instead of needing to scroll/search for it.
+    orderBy: { createdAt: "desc" },
     include: { variants: true },
   });
   return products.map(toDomainProduct);
@@ -218,6 +221,52 @@ export async function removeProductImage(input: {
     include: { variants: true },
   });
   return toDomainProduct(product);
+}
+
+// Unit 15: writes post-push state — deliberately does NOT touch
+// lastEditedAt, unlike every other write in this file. lastEditedAt is the
+// app-side-edit signal architecture.md invariant 6 uses for conflict
+// detection; a push is the app asserting its current saved state onto
+// Shopify, not a new edit, so bumping it here would make a
+// just-pushed product look like it has unpushed changes again. Sets
+// lastSyncedAt to now instead, same as importProducts, since the app and
+// Shopify agree again immediately after a successful push. Not a reuse of
+// updateProduct, which unconditionally bumps lastEditedAt and has no concept
+// of shopifyProductId/shopifyVariantId writes.
+export async function markProductPushed(input: {
+  accountId: string;
+  productId: string;
+  shopifyProductId: string;
+  imageUrl: string | null;
+  imageUrls: string[];
+  variants: { localVariantId: string; shopifyVariantId: string }[];
+}): Promise<{ updated: boolean }> {
+  const existing = await prisma.product.findFirst({
+    where: { id: input.productId, accountId: input.accountId },
+  });
+  if (!existing) {
+    return { updated: false };
+  }
+
+  await prisma.$transaction([
+    prisma.product.update({
+      where: { id: input.productId },
+      data: {
+        shopifyProductId: input.shopifyProductId,
+        imageUrl: input.imageUrl,
+        imageUrls: input.imageUrls,
+        lastSyncedAt: new Date(),
+      },
+    }),
+    ...input.variants.map((variant) =>
+      prisma.variant.update({
+        where: { id: variant.localVariantId },
+        data: { shopifyVariantId: variant.shopifyVariantId },
+      })
+    ),
+  ]);
+
+  return { updated: true };
 }
 
 // Account-scoped, app-database-only delete — does not touch Shopify (no

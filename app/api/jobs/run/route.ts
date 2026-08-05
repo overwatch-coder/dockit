@@ -2,6 +2,7 @@ import { serve } from "inngest/next";
 import { inngest } from "@/lib/jobs/client";
 import { noopJob } from "@/lib/jobs/noop";
 import { importStoreProductsJob } from "@/lib/jobs/import";
+import { pushProductJob } from "@/lib/jobs/push";
 
 // The endpoint Inngest's infrastructure (Cloud or the local Dev Server)
 // calls to introspect and execute registered functions, per
@@ -11,5 +12,5 @@ import { importStoreProductsJob } from "@/lib/jobs/import";
 // directly — this route is what Inngest itself calls back into.
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [noopJob, importStoreProductsJob],
+  functions: [noopJob, importStoreProductsJob, pushProductJob],
 });

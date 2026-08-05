@@ -3,13 +3,29 @@
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ImageOff, Maximize2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { createProduct, suggestProductSeo, updateProduct } from "@/app/(dashboard)/products/actions";
+import {
+  createProduct,
+  generateProductDescription,
+  getPushJobStatus,
+  pushProduct,
+  suggestProductSeo,
+  updateProduct,
+  uploadProductImage,
+} from "@/app/(dashboard)/products/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RichTextEditor } from "@/components/rich-text-editor";
@@ -21,20 +37,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ProductImages } from "@/components/product-images";
+import { ProductImages, type PendingImage } from "@/components/product-images";
+import { ProductImagesErrorBoundary } from "@/components/product-images-error-boundary";
+import { ProductImageLightbox } from "@/components/product-image-lightbox";
 import { TagInput } from "@/components/tag-input";
 import { VariantList, type DraftVariant } from "@/components/variant-list";
+import { AiDescriptionReviewDialog } from "@/components/ai-description-review-dialog";
+import {
+  AiSeoReviewDialog,
+  type AiSuggestedField,
+  type CurrentSeoState,
+  type SuggestedSeoState,
+} from "@/components/ai-seo-review-dialog";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import { cn } from "@/lib/utils";
 import type { Collection } from "@/types/collection";
 import type { Product, ProductStatus } from "@/types/product";
 
 const NO_COLLECTION_VALUE = "none";
-
-// Unit 14: keys of the fields a "Suggest SEO & tags" click can populate —
-// each one gets a --primary-subtle background (per ui-context.md) until the
-// owner edits that specific field or saves the whole form.
-type AiSuggestedField = "seoTitle" | "seoDescription" | "tags" | "collection";
 
 function PreviewStatusBadge({ status }: { status: ProductStatus }) {
   if (status === "ACTIVE") {
@@ -78,6 +98,7 @@ export function ProductForm({
   // same as variants/images).
   collections?: Collection[];
 }) {
+  const router = useRouter();
   const action =
     mode === "create" ? createProduct.bind(null, storeId!) : updateProduct.bind(null, product!.id);
   const [state, formAction, isPending] = useActionState(action, undefined);
@@ -100,6 +121,58 @@ export function ProductForm({
   const [aiSuggested, setAiSuggested] = useState<Set<AiSuggestedField>>(new Set());
   const [isSuggesting, startSuggestTransition] = useTransition();
 
+  // Review dialog states for AI description and SEO suggestions
+  const [isDescriptionReviewOpen, setIsDescriptionReviewOpen] = useState(false);
+  const [pendingDescriptionHtml, setPendingDescriptionHtml] = useState("");
+
+  const [isSeoReviewOpen, setIsSeoReviewOpen] = useState(false);
+  const [pendingSeoSuggestion, setPendingSeoSuggestion] = useState<SuggestedSeoState | null>(null);
+
+  // Unit 16: AI generate/improve for the main description. Separate from
+  // the seoTitle/seoDescription/tags/collection "Suggest SEO & tags" flow
+  // above — that one requires a saved product (it fetches store
+  // collections); this one only needs whatever's currently staged in the
+  // form, so it also works on /products/new before a product row exists.
+  const [isDescriptionAiOpen, setIsDescriptionAiOpen] = useState(false);
+  const [descriptionInstructions, setDescriptionInstructions] = useState("");
+  const [isGeneratingDescription, startDescriptionTransition] = useTransition();
+  const [descriptionExternalContent, setDescriptionExternalContent] = useState<
+    { html: string; version: number } | undefined
+  >(undefined);
+  const hasDescription = descriptionHtml.trim().length > 0;
+
+  function handleGenerateDescription() {
+    if (!hasDescription && !descriptionInstructions.trim()) {
+      toast.error("Describe what you want the description to say.");
+      return;
+    }
+    startDescriptionTransition(async () => {
+      const result = await generateProductDescription({
+        title,
+        price,
+        existingDescriptionHtml: hasDescription ? descriptionHtml : null,
+        instructions: descriptionInstructions.trim(),
+      });
+      if ("error" in result) {
+        toast.error(result.error);
+        return;
+      }
+      setPendingDescriptionHtml(result.data.descriptionHtml);
+      setIsDescriptionAiOpen(false);
+      setDescriptionInstructions("");
+      setIsDescriptionReviewOpen(true);
+    });
+  }
+
+  function handleAcceptDescription(acceptedHtml: string) {
+    setDescriptionHtml(acceptedHtml);
+    setDescriptionExternalContent((prev) => ({
+      html: acceptedHtml,
+      version: (prev?.version ?? 0) + 1,
+    }));
+    toast.success("Description updated — review before saving");
+  }
+
   function clearSuggested(field: AiSuggestedField) {
     setAiSuggested((prev) => {
       if (!prev.has(field)) return prev;
@@ -117,20 +190,89 @@ export function ProductForm({
         toast.error(result.error);
         return;
       }
-      const { data } = result;
-      setSeoTitle(data.seoTitle);
-      setSeoDescription(data.seoDescription);
-      setTags(data.tags);
-      const populated: AiSuggestedField[] = ["seoTitle", "seoDescription", "tags"];
-      if (data.collectionId) {
-        setCollectionId(data.collectionId);
-        setCollectionTitle(collections.find((c) => c.id === data.collectionId)?.title ?? "");
-        populated.push("collection");
-      }
-      setAiSuggested(new Set(populated));
-      toast.success("Suggestion applied — review before saving");
+      setPendingSeoSuggestion(result.data);
+      setIsSeoReviewOpen(true);
     });
   }
+
+  function handleAcceptSeo(
+    accepted: CurrentSeoState,
+    appliedFields: AiSuggestedField[]
+  ) {
+    if (appliedFields.includes("seoTitle")) setSeoTitle(accepted.seoTitle);
+    if (appliedFields.includes("seoDescription")) setSeoDescription(accepted.seoDescription);
+    if (appliedFields.includes("tags")) setTags(accepted.tags);
+    if (appliedFields.includes("collection")) {
+      setCollectionId(accepted.collectionId);
+      setCollectionTitle(accepted.collectionTitle);
+    }
+    setAiSuggested(new Set(appliedFields));
+    toast.success("SEO suggestions applied — review before saving");
+  }
+
+  // Unit 15: the push job reads the product from Postgres, not this form's
+  // in-memory state — pushing while there are unsaved edits would silently
+  // push the last-*saved* version while looking like it pushed what's on
+  // screen. isDirty compares the current staged fields against a snapshot
+  // taken on mount and re-taken after every successful save, gating the
+  // Push button until the owner saves first.
+  function currentSnapshot() {
+    return JSON.stringify({
+      title,
+      price,
+      status,
+      descriptionHtml,
+      variants,
+      collectionId,
+      tags,
+      seoTitle,
+      seoDescription,
+    });
+  }
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => currentSnapshot());
+  const isDirty = currentSnapshot() !== lastSavedSnapshot;
+
+  const [pushStatus, setPushStatus] = useState<"idle" | "pushing" | "failed">("idle");
+  const pushJobIdRef = useRef<string | null>(null);
+
+  async function handlePush() {
+    if (!product) return;
+    setPushStatus("pushing");
+    const result = await pushProduct(product.id);
+    if ("error" in result) {
+      setPushStatus("failed");
+      toast.error(result.error);
+      return;
+    }
+    pushJobIdRef.current = result.jobId;
+  }
+
+  useEffect(() => {
+    if (pushStatus !== "pushing") return;
+    const interval = setInterval(async () => {
+      const jobId = pushJobIdRef.current;
+      if (!jobId) return;
+      const status = await getPushJobStatus(jobId);
+      if ("error" in status) {
+        clearInterval(interval);
+        setPushStatus("failed");
+        toast.error(status.error);
+        return;
+      }
+      if (status.status === "SUCCEEDED") {
+        clearInterval(interval);
+        setPushStatus("idle");
+        toast.success(product?.shopifyProductId ? "Republished to Shopify" : "Published to Shopify");
+        router.refresh();
+      } else if (status.status === "FAILED") {
+        clearInterval(interval);
+        setPushStatus("failed");
+        const results = status.results as { error?: string } | undefined;
+        toast.error(results?.error ?? "Publish failed");
+      }
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [pushStatus, router, product?.shopifyProductId]);
 
   // Shopify products can have more than one image, and Unit 12 added
   // uploading draft-state ones too (components/product-images.tsx) — both
@@ -143,6 +285,80 @@ export function ProductForm({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const mainImage = gallery[selectedImageIndex] ?? null;
 
+  // Unit 16, per explicit user request superseding Unit 12's original
+  // "upload immediately on drop" design: a dropped/selected file is only
+  // staged locally (a blob: object URL, never touches Vercel Blob) until
+  // the owner actually saves — removing a staged image before then costs
+  // nothing, since nothing was ever uploaded. Only actually persisted
+  // images (product.imageUrls) still remove via an immediate server call.
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [isUploadingPending, startImageUploadTransition] = useTransition();
+
+  // Each staged file's previewUrl is a browser-memory blob: URL — revoke
+  // whatever's still staged if the owner navigates away without saving, so
+  // it doesn't leak for the rest of the tab's lifetime. Tracked via a ref
+  // (kept in sync every render) rather than depending on `pendingImages`
+  // directly, so this only runs once on unmount, not on every add/remove.
+  const pendingImagesRef = useRef(pendingImages);
+  useEffect(() => {
+    // Writing a ref during render is disallowed by this project's eslint
+    // config (react-hooks/refs) — kept in sync here, in an effect that runs
+    // after every render, instead.
+    pendingImagesRef.current = pendingImages;
+  });
+  useEffect(() => {
+    return () => {
+      for (const pending of pendingImagesRef.current) {
+        URL.revokeObjectURL(pending.previewUrl);
+      }
+    };
+  }, []);
+
+  function handleFilesAdded(files: File[]) {
+    const staged = files.map((file) => ({
+      id: `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+    setPendingImages((prev) => [...prev, ...staged]);
+  }
+
+  function handleRemovePending(id: string) {
+    setPendingImages((prev) => {
+      const target = prev.find((p) => p.id === id);
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((p) => p.id !== id);
+    });
+  }
+
+  // Fired only after a successful Save (see the effect below) — uploads
+  // every currently-staged file to Vercel Blob, sequentially (same pattern
+  // Unit 16's drag-and-drop follow-up already used for a multi-file drop),
+  // then clears the staged list and refreshes so the server-fetched gallery
+  // picks up the new Blob URLs.
+  function uploadPendingImages(toUpload: PendingImage[]) {
+    if (!product || toUpload.length === 0) return;
+    startImageUploadTransition(async () => {
+      let uploadedCount = 0;
+      for (const pending of toUpload) {
+        const formData = new FormData();
+        formData.append("image", pending.file);
+        const result = await uploadProductImage(product.id, formData);
+        if (result?.error) {
+          toast.error(`${pending.file.name}: ${result.error}`);
+          continue;
+        }
+        uploadedCount += 1;
+        URL.revokeObjectURL(pending.previewUrl);
+      }
+      setPendingImages((prev) => prev.filter((p) => !toUpload.includes(p)));
+      if (uploadedCount > 0) {
+        toast.success(uploadedCount === 1 ? "Image uploaded" : `${uploadedCount} images uploaded`);
+        router.refresh();
+      }
+    });
+  }
+
   const prevStateRef = useRef(state);
   useEffect(() => {
     if (state === prevStateRef.current) return;
@@ -154,10 +370,24 @@ export function ProductForm({
       // workaround already used by connect-store-dialog.tsx's DialogError)
       // since eslint's react-hooks/set-state-in-effect rule disallows
       // calling setState synchronously in an effect body.
-      setTimeout(() => setAiSuggested(new Set()), 0);
+      setTimeout(() => {
+        setAiSuggested(new Set());
+        // Records what's now durably saved, for the Push button's dirty
+        // check — deferred into the same setTimeout for the same reason.
+        setLastSavedSnapshot(currentSnapshot());
+      }, 0);
+      // A successful Save is also what actually uploads any staged images
+      // to Vercel Blob (see uploadPendingImages above) — reading the latest
+      // pendingImages by closure, same deliberate "only react to state"
+      // design as the rest of this effect.
+      uploadPendingImages(pendingImages);
     } else if (state && "error" in state && state.error) {
       toast.error(state.error);
     }
+    // Deliberately only reacts to `state` (a save completing) — currentSnapshot/
+    // pendingImages read the latest render's values by closure on purpose,
+    // and shouldn't re-run this effect on every keystroke/drop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
   const fieldErrors = state && "fieldErrors" in state ? state.fieldErrors : undefined;
@@ -178,19 +408,73 @@ export function ProductForm({
             {fieldErrors?.title && <p className="text-sm text-destructive">{fieldErrors.title}</p>}
           </div>
 
-          {mode === "edit" && product && <ProductImages productId={product.id} images={gallery} />}
+          {mode === "edit" && product && (
+            <ProductImagesErrorBoundary>
+              <ProductImages
+                productId={product.id}
+                images={gallery}
+                pendingImages={pendingImages}
+                onFilesAdded={handleFilesAdded}
+                onRemovePending={handleRemovePending}
+                isUploadingPending={isUploadingPending}
+              />
+            </ProductImagesErrorBoundary>
+          )}
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="description">Description</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="description">Description</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsDescriptionAiOpen(true)}
+              >
+                <Sparkles className="size-4" />
+                {hasDescription ? "Improve with AI" : "Generate with AI"}
+              </Button>
+            </div>
             <RichTextEditor
-              name="description"
               defaultValue={product?.description ?? ""}
               onChange={setDescriptionHtml}
+              externalContent={descriptionExternalContent}
             />
+            <input type="hidden" name="description" value={descriptionHtml} readOnly />
             {fieldErrors?.description && (
               <p className="text-sm text-destructive">{fieldErrors.description}</p>
             )}
           </div>
+
+          <Dialog open={isDescriptionAiOpen} onOpenChange={setIsDescriptionAiOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{hasDescription ? "Improve description" : "Generate description"}</DialogTitle>
+                <DialogDescription>
+                  {hasDescription
+                    ? "Optionally tell the AI what to change — tone, length, what to emphasize. Leave blank for a general improvement pass."
+                    : "Describe the product in your own words and the AI will write a formatted description from it."}
+                </DialogDescription>
+              </DialogHeader>
+              <Textarea
+                placeholder={
+                  hasDescription
+                    ? "e.g. make it punchier and mention it's handmade"
+                    : "e.g. a waterproof canvas backpack with a padded laptop sleeve, for commuters"
+                }
+                value={descriptionInstructions}
+                onChange={(event) => setDescriptionInstructions(event.target.value)}
+                rows={4}
+              />
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={() => setIsDescriptionAiOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="button" disabled={isGeneratingDescription} onClick={handleGenerateDescription}>
+                  {isGeneratingDescription ? "Generating..." : hasDescription ? "Improve" : "Generate"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="price">Price</Label>
@@ -340,6 +624,23 @@ export function ProductForm({
             <Button type="button" variant="ghost" nativeButton={false} render={<Link href="/products" />}>
               Cancel
             </Button>
+            {mode === "edit" && product && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isDirty || pushStatus === "pushing"}
+                title={isDirty ? "Save your changes before publishing" : undefined}
+                onClick={handlePush}
+              >
+                {pushStatus === "pushing"
+                  ? product.shopifyProductId
+                    ? "Republishing..."
+                    : "Publishing..."
+                  : product.shopifyProductId
+                  ? "Republish to Shopify"
+                  : "Publish to Shopify"}
+              </Button>
+            )}
           </div>
         </form>
 
@@ -395,22 +696,14 @@ export function ProductForm({
                 )}
               </div>
 
-              {mainImage && (
-                <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
-                  <DialogContent className="max-w-[95vw] bg-transparent p-0 ring-0 sm:max-w-3xl">
-                    <DialogTitle className="sr-only">{title || "Product image"}</DialogTitle>
-                    <div className="relative h-[80vh] w-full">
-                      <Image
-                        src={mainImage}
-                        alt={title || "Product image"}
-                        fill
-                        sizes="95vw"
-                        className="object-contain"
-                      />
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              )}
+              <ProductImageLightbox
+                open={lightboxOpen}
+                onOpenChange={setLightboxOpen}
+                images={gallery}
+                selectedIndex={selectedImageIndex}
+                onSelectIndex={setSelectedImageIndex}
+                title={title}
+              />
 
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-page-title font-semibold text-foreground">
@@ -461,6 +754,31 @@ export function ProductForm({
           </Card>
         </div>
       </div>
+
+      <AiDescriptionReviewDialog
+        open={isDescriptionReviewOpen}
+        onOpenChange={setIsDescriptionReviewOpen}
+        currentDescriptionHtml={descriptionHtml}
+        suggestedDescriptionHtml={pendingDescriptionHtml}
+        onAccept={handleAcceptDescription}
+      />
+
+      {pendingSeoSuggestion && (
+        <AiSeoReviewDialog
+          open={isSeoReviewOpen}
+          onOpenChange={setIsSeoReviewOpen}
+          current={{
+            seoTitle,
+            seoDescription,
+            tags,
+            collectionId,
+            collectionTitle,
+          }}
+          suggested={pendingSeoSuggestion}
+          collections={collections}
+          onAccept={handleAcceptSeo}
+        />
+      )}
     </div>
   );
 }

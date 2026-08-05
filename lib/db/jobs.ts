@@ -39,6 +39,13 @@ export async function createJob(input: {
   return toDomainJob(job);
 }
 
+// Unit 15: scoped by accountId, mirrors getProductById's null-on-not-found
+// pattern — used by the push button's polling server action.
+export async function getJobById(accountId: string, jobId: string): Promise<Job | null> {
+  const job = await prisma.job.findFirst({ where: { id: jobId, accountId } });
+  return job ? toDomainJob(job) : null;
+}
+
 export async function updateJobStatus(input: {
   accountId: string;
   jobId: string;

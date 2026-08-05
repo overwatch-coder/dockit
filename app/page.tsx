@@ -45,10 +45,16 @@ function HeaderAuthControls() {
   return (
     <div className="flex items-center gap-3">
       <Show when="signed-out">
-        <SignInButton>
+        {/* forceRedirectUrl is required here, not just the app-wide
+            NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL env var — Clerk's
+            sign-in/up flow captures the page the button was clicked from
+            (this landing page, "/") as the post-auth destination, which
+            takes precedence over the fallback env default. forceRedirectUrl
+            always wins regardless of where auth was initiated from. */}
+        <SignInButton forceRedirectUrl="/dashboard">
           <Button variant="ghost">Sign in</Button>
         </SignInButton>
-        <SignUpButton>
+        <SignUpButton forceRedirectUrl="/dashboard">
           <Button>Get started</Button>
         </SignUpButton>
       </Show>
@@ -88,10 +94,10 @@ export default function Home() {
           </p>
           <div className="flex items-center gap-3">
             <Show when="signed-out">
-              <SignUpButton>
+              <SignUpButton forceRedirectUrl="/dashboard">
                 <Button size="lg">Get started</Button>
               </SignUpButton>
-              <SignInButton>
+              <SignInButton forceRedirectUrl="/dashboard">
                 <Button variant="outline" size="lg">
                   Sign in
                 </Button>

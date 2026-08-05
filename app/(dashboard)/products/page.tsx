@@ -42,7 +42,7 @@ export default async function ProductsPage() {
       {products.length === 0 ? (
         <p className="text-sm text-muted-foreground">No products yet.</p>
       ) : (
-        <ProductTable products={products} />
+        <ProductTable products={products} shopDomain={currentStore.shopifyDomain} />
       )}
     </div>
   );
