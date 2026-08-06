@@ -14,6 +14,7 @@ import {
   getProductsForStatusSync,
   getUnsyncedProductIdsForStore,
   removeProductImage as removeProductImageInDb,
+  resolveConflictKeepShopify as resolveConflictKeepShopifyInDb,
   updateProduct as updateProductInDb,
   updateProductsStatus as updateProductsStatusInDb,
 } from "@/lib/db/products";
@@ -541,6 +542,25 @@ export async function deleteProductEverywhere(productId: string): Promise<{ jobI
   await triggerProductDelete({ accountId: account.id, storeId: product.storeId, productId, jobId: job.id });
 
   return { jobId: job.id };
+}
+
+// Unit 19: the "Keep Shopify version" conflict resolution — a pure local
+// write (lib/db/products.ts's resolveConflictKeepShopify never calls
+// Shopify, invariant 1). The "Keep app version" counterpart needs no
+// dedicated action at all: it's just the existing pushProduct above, since
+// markProductPushed now clears the conflict fields on any successful push.
+export async function resolveConflictKeepShopify(productId: string): Promise<{ error: string } | undefined> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const result = await resolveConflictKeepShopifyInDb({ accountId: account.id, productId });
+  if (!result.success) {
+    return { error: result.error };
+  }
+
+  revalidatePath("/products");
+  revalidatePath(`/products/${productId}`);
+  revalidatePath("/dashboard");
 }
 
 // Unit 15: a plain polling read for the Push button's own inline status —

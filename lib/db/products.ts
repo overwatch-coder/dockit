@@ -242,6 +242,13 @@ export async function removeProductImage(input: {
 // Shopify agree again immediately after a successful push. Not a reuse of
 // updateProduct, which unconditionally bumps lastEditedAt and has no concept
 // of shopifyProductId/shopifyVariantId writes.
+//
+// Unit 19: also clears isConflicted/both snapshots on every successful push,
+// not just ones that came from the conflict-resolution dialog — correct in
+// general (a successful push always makes the app's current record
+// authoritative on Shopify, so any prior conflict is moot by definition),
+// and it's what lets "Keep app version" resolve via the existing
+// pushProduct/pushOneProduct path with no new job or server action.
 export async function markProductPushed(input: {
   accountId: string;
   productId: string;
@@ -265,6 +272,9 @@ export async function markProductPushed(input: {
         imageUrl: input.imageUrl,
         imageUrls: input.imageUrls,
         lastSyncedAt: new Date(),
+        isConflicted: false,
+        conflictAppSnapshot: Prisma.JsonNull,
+        conflictShopifySnapshot: Prisma.JsonNull,
       },
     }),
     ...input.variants.map((variant) =>
@@ -472,7 +482,12 @@ function toAppSnapshot(existing: {
   collectionTitle: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
-  variants: { optionName: string; price: { toString(): string }; inventory: number }[];
+  variants: {
+    shopifyVariantId: string | null;
+    optionName: string;
+    price: { toString(): string };
+    inventory: number;
+  }[];
 }): ConflictSnapshot {
   return {
     title: existing.title,
@@ -487,6 +502,7 @@ function toAppSnapshot(existing: {
     seoTitle: existing.seoTitle,
     seoDescription: existing.seoDescription,
     variants: existing.variants.map((variant) => ({
+      shopifyVariantId: variant.shopifyVariantId,
       optionName: variant.optionName,
       price: variant.price.toString(),
       inventory: variant.inventory,
@@ -494,9 +510,10 @@ function toAppSnapshot(existing: {
   };
 }
 
-// Unit 18: the Shopify-side half of a conflict snapshot — ShopifyImportedProduct
-// already matches ConflictSnapshot's field set almost exactly, minus the
-// per-variant shopifyVariantId this snapshot doesn't need.
+// Unit 18/19: the Shopify-side half of a conflict snapshot — ShopifyImportedProduct
+// already matches ConflictSnapshot's field set closely. Includes
+// shopifyVariantId (Unit 19) so resolveConflictKeepShopify below can upsert
+// variants by their real Shopify identity instead of losing the link.
 function toShopifySnapshot(product: ShopifyImportedProduct): ConflictSnapshot {
   return {
     title: product.title,
@@ -511,6 +528,7 @@ function toShopifySnapshot(product: ShopifyImportedProduct): ConflictSnapshot {
     seoTitle: product.seoTitle,
     seoDescription: product.seoDescription,
     variants: product.variants.map((variant) => ({
+      shopifyVariantId: variant.shopifyVariantId,
       optionName: variant.optionName,
       price: variant.price,
       inventory: variant.inventory,
@@ -658,4 +676,86 @@ export async function syncProducts(input: {
   }
 
   return { syncedCount, conflictedCount, errorCount };
+}
+
+// Unit 19: the "Keep Shopify version" conflict resolution — a pure local
+// write, no Shopify call needed (invariant 1 stays satisfied), since
+// conflictShopifySnapshot already holds everything required. The
+// counterpart, "Keep app version," needs no dedicated function at all: it's
+// just a normal push (pushProduct/pushOneProduct in lib/jobs/push.ts), and
+// markProductPushed above already clears the conflict fields on success.
+// Transactional (unlike syncProducts' per-item error isolation) since this
+// is a single product — a partial resolution (product fields updated but a
+// variant upsert failed, or vice versa) would be worse than a clean failure
+// the owner can just retry.
+export async function resolveConflictKeepShopify(input: {
+  accountId: string;
+  productId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const existing = await prisma.product.findFirst({
+    where: { id: input.productId, accountId: input.accountId },
+  });
+  if (!existing) {
+    return { success: false, error: "This product no longer exists." };
+  }
+  if (!existing.isConflicted || !existing.conflictShopifySnapshot) {
+    return { success: false, error: "This product has no conflict to resolve." };
+  }
+
+  const snapshot = existing.conflictShopifySnapshot as unknown as ConflictSnapshot;
+  const now = new Date();
+
+  await prisma.$transaction([
+    prisma.product.update({
+      where: { id: existing.id },
+      data: {
+        title: snapshot.title,
+        description: snapshot.description,
+        imageUrl: snapshot.imageUrl,
+        imageUrls: snapshot.imageUrls,
+        price: snapshot.price,
+        status: snapshot.status,
+        tags: snapshot.tags,
+        collectionId: snapshot.collectionId,
+        collectionTitle: snapshot.collectionTitle,
+        seoTitle: snapshot.seoTitle,
+        seoDescription: snapshot.seoDescription,
+        lastSyncedAt: now,
+        isConflicted: false,
+        conflictAppSnapshot: Prisma.JsonNull,
+        conflictShopifySnapshot: Prisma.JsonNull,
+      },
+    }),
+    // Every Shopify-snapshot variant has a shopifyVariantId (it came from
+    // ShopifyImportedVariant, which always has one) — upserts by the real
+    // productId_shopifyVariantId compound unique, same as syncProducts,
+    // instead of the local id the app side may have used.
+    ...snapshot.variants
+      .filter((variant): variant is typeof variant & { shopifyVariantId: string } => variant.shopifyVariantId !== null)
+      .map((variant) =>
+        prisma.variant.upsert({
+          where: {
+            productId_shopifyVariantId: {
+              productId: existing.id,
+              shopifyVariantId: variant.shopifyVariantId,
+            },
+          },
+          create: {
+            accountId: input.accountId,
+            productId: existing.id,
+            shopifyVariantId: variant.shopifyVariantId,
+            optionName: variant.optionName,
+            price: variant.price,
+            inventory: variant.inventory,
+          },
+          update: {
+            optionName: variant.optionName,
+            price: variant.price,
+            inventory: variant.inventory,
+          },
+        })
+      ),
+  ]);
+
+  return { success: true };
 }

@@ -15,6 +15,7 @@ import {
   uploadProductImage,
 } from "@/app/(dashboard)/products/actions";
 import { ActionConfirmationModal } from "@/components/action-confirmation-modal";
+import { ConflictResolutionDialog } from "@/components/conflict-resolution-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -241,6 +242,12 @@ export function ProductForm({
   // instead. Failures keep their existing toast treatment unchanged.
   const [confirmation, setConfirmation] = useState<{ title: string; description?: string } | null>(null);
 
+  // Unit 19: the editor's own entry point into the shared conflict
+  // resolution dialog — same component components/product-table.tsx uses,
+  // just triggered from the badge/banner near the title instead of a table
+  // cell.
+  const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
+
   // Unit 16: the poll-until-settled mechanics live in useJobPolling now
   // (shared with components/product-table.tsx's "Push selected" action) —
   // this component keeps only its own status state and toast copy.
@@ -400,6 +407,24 @@ export function ProductForm({
 
   return (
     <div className="flex flex-col gap-8">
+      {/* Unit 19: closes the gap where Save/Republish below previously had
+          no isConflicted check at all — a conflicted product can't be edited
+          or pushed here until it's resolved via the same dialog
+          components/product-table.tsx's Conflict badge opens. */}
+      {product?.isConflicted && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-conflict/30 bg-conflict/10 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Badge className="border-transparent bg-conflict/10 text-conflict">Conflict</Badge>
+            <p className="text-sm text-foreground">
+              This product changed in Dockit and on Shopify at the same time. Resolve it before
+              editing or pushing.
+            </p>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => setIsConflictDialogOpen(true)}>
+            Resolve conflict
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <form action={formAction} className="flex flex-col gap-6">
           <div className="flex flex-col gap-2">
@@ -624,7 +649,11 @@ export function ProductForm({
               rather than only living at the bottom of a potentially tall
               scrolling form. */}
           <div className="sticky bottom-0 z-10 flex gap-2 border-t border-border bg-background py-4">
-            <Button type="submit" disabled={isPending}>
+            <Button
+              type="submit"
+              disabled={isPending || product?.isConflicted}
+              title={product?.isConflicted ? "Resolve the conflict before editing this product" : undefined}
+            >
               {isPending ? "Saving..." : "Save"}
             </Button>
             <Button type="button" variant="ghost" nativeButton={false} render={<Link href="/products" />}>
@@ -634,8 +663,14 @@ export function ProductForm({
               <Button
                 type="button"
                 variant="outline"
-                disabled={isDirty || pushStatus === "pushing"}
-                title={isDirty ? "Save your changes before publishing" : undefined}
+                disabled={isDirty || pushStatus === "pushing" || product.isConflicted}
+                title={
+                  product.isConflicted
+                    ? "Resolve the conflict before pushing this product"
+                    : isDirty
+                    ? "Save your changes before publishing"
+                    : undefined
+                }
                 onClick={handlePush}
               >
                 {pushStatus === "pushing"
@@ -792,6 +827,15 @@ export function ProductForm({
         }}
         title={confirmation?.title ?? ""}
         description={confirmation?.description}
+      />
+      <ConflictResolutionDialog
+        product={isConflictDialogOpen ? (product ?? null) : null}
+        onOpenChange={(open) => setIsConflictDialogOpen(open)}
+        onResolved={(message) => {
+          setIsConflictDialogOpen(false);
+          setConfirmation({ title: "Conflict resolved", description: message });
+          router.refresh();
+        }}
       />
     </div>
   );

@@ -27,7 +27,7 @@ export type ConflictSnapshot = {
   collectionTitle: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
-  variants: { optionName: string; price: string; inventory: number }[];
+  variants: { shopifyVariantId: string | null; optionName: string; price: string; inventory: number }[];
 };
 
 export type Product = {

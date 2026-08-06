@@ -34,6 +34,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ActionConfirmationModal, type ActionConfirmationVariant } from "@/components/action-confirmation-modal";
 import { ChangeStatusDialog } from "@/components/change-status-dialog";
+import { ConflictResolutionDialog } from "@/components/conflict-resolution-dialog";
 import { DeleteFromShopifyDialog } from "@/components/delete-from-shopify-dialog";
 import { DeleteProductDialog } from "@/components/delete-product-dialog";
 import { ProductStatusBadge } from "@/components/product-status-badge";
@@ -72,6 +73,11 @@ export function ProductTable({ products, shopDomain }: { products: Product[]; sh
   // deliberately not merged with deleteTarget above (which stays the fast,
   // reversible, Dockit-only delete).
   const [shopifyDeleteTarget, setShopifyDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  // Unit 19: the conflicted product currently open in the resolution dialog
+  // — the full Product (not just id/title) since the dialog needs both
+  // snapshots to render the diff, unlike shopifyDeleteTarget/deleteTarget
+  // above.
+  const [conflictTarget, setConflictTarget] = useState<Product | null>(null);
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -393,8 +399,22 @@ export function ProductTable({ products, shopDomain }: { products: Product[]; sh
               </TableCell>
               <TableCell className="text-muted-foreground">{product.collectionTitle ?? "—"}</TableCell>
               <TableCell className="font-mono text-table-data">{product.price}</TableCell>
-              <TableCell>
-                <ProductStatusBadge product={product} />
+              <TableCell onClick={(event) => event.stopPropagation()}>
+                {/* Unit 19: ui-context.md's conflict modal is "triggered
+                    from a Conflict badge" — clickable only when there's
+                    actually a conflict to resolve; otherwise the badge stays
+                    plain, same as before. */}
+                {product.isConflicted ? (
+                  <button
+                    type="button"
+                    onClick={() => setConflictTarget(product)}
+                    className="cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
+                  >
+                    <ProductStatusBadge product={product} />
+                  </button>
+                ) : (
+                  <ProductStatusBadge product={product} />
+                )}
               </TableCell>
               <TableCell className="font-mono text-table-data text-muted-foreground">
                 {product.lastSyncedAt ? lastSyncedFormatter.format(product.lastSyncedAt) : "—"}
@@ -506,6 +526,17 @@ export function ProductTable({ products, shopDomain }: { products: Product[]; sh
             title: "Deleted from Shopify",
             description: `${title} removed from Shopify and Dockit`,
           });
+          router.refresh();
+        }}
+      />
+      <ConflictResolutionDialog
+        product={conflictTarget}
+        onOpenChange={(open) => {
+          if (!open) setConflictTarget(null);
+        }}
+        onResolved={(message) => {
+          setConflictTarget(null);
+          setConfirmation({ variant: "success", title: "Conflict resolved", description: message });
           router.refresh();
         }}
       />
