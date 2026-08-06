@@ -1,7 +1,7 @@
 import { serve } from "inngest/next";
 import { inngest } from "@/lib/jobs/client";
 import { noopJob } from "@/lib/jobs/noop";
-import { importStoreProductsJob } from "@/lib/jobs/import";
+import { importStoreProductsJob, syncStoreJob } from "@/lib/jobs/import";
 import { pushBatchJob, pushProductJob } from "@/lib/jobs/push";
 import { deleteProductJob } from "@/lib/jobs/delete";
 
@@ -13,5 +13,5 @@ import { deleteProductJob } from "@/lib/jobs/delete";
 // directly — this route is what Inngest itself calls back into.
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [noopJob, importStoreProductsJob, pushProductJob, pushBatchJob, deleteProductJob],
+  functions: [noopJob, importStoreProductsJob, syncStoreJob, pushProductJob, pushBatchJob, deleteProductJob],
 });

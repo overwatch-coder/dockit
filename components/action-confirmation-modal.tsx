@@ -25,7 +25,7 @@ export function ActionConfirmationModal({
   variant = "success",
   title,
   description,
-  autoCloseMs = 2000,
+  autoCloseMs = 3500,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;

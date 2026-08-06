@@ -432,3 +432,128 @@ export async function importProducts(input: {
 
   return { importedCount: input.products.length };
 }
+
+// Unit 17: the one piece of genuinely new business logic in the sync path —
+// whether a product has an unpushed local edit that a sync must not
+// silently discard (architecture.md invariant 6). Pure and independently
+// testable. Strict `>` (not `>=`) so a same-instant lastEditedAt/lastSyncedAt
+// pair (e.g. both stamped `new Date()` within the same millisecond) doesn't
+// tip into an unwanted skip. No lastSyncedAt at all means the product has
+// never been synced — nothing to compare against, so it's always safe to
+// write.
+export function shouldSkipSync(product: { lastEditedAt: Date; lastSyncedAt: Date | null }): boolean {
+  if (!product.lastSyncedAt) return false;
+  return product.lastEditedAt > product.lastSyncedAt;
+}
+
+// Unit 17: the re-sync counterpart of importProducts, deliberately a
+// separate function rather than a retrofit of it — importProducts is only
+// ever called from the OAuth-connect flow, where every row is brand-new
+// (nothing to compare lastEditedAt against yet), so bolting a skip-check
+// onto it would be dead code for its only caller. This is also the natural
+// home for per-product error isolation a full-catalog sync needs that a
+// one-time import doesn't: one malformed Shopify record here shouldn't
+// abort every other product's update the way a single throw would in
+// importProducts' unconditional loop.
+//
+// Per product: skip entirely (no writes at all, not even lastSyncedAt) if
+// shouldSkipSync says there's an unpushed local edit — this is the
+// "non-conflicting path" this unit is scoped to; the product isn't flagged
+// as Conflict yet (Unit 18), it's just left alone so a future sync/Unit 18
+// can deal with it properly. Otherwise, write the same Shopify-sourced
+// field set importProducts does.
+export async function syncProducts(input: {
+  accountId: string;
+  storeId: string;
+  products: ShopifyImportedProduct[];
+}): Promise<{ syncedCount: number; skippedCount: number; errorCount: number }> {
+  const now = new Date();
+  let syncedCount = 0;
+  let skippedCount = 0;
+  let errorCount = 0;
+
+  for (const product of input.products) {
+    try {
+      const existing = await prisma.product.findFirst({
+        where: { storeId: input.storeId, shopifyProductId: product.shopifyProductId },
+        select: { lastEditedAt: true, lastSyncedAt: true },
+      });
+      if (existing && shouldSkipSync(existing)) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const savedProduct = await prisma.product.upsert({
+        where: {
+          storeId_shopifyProductId: {
+            storeId: input.storeId,
+            shopifyProductId: product.shopifyProductId,
+          },
+        },
+        create: {
+          accountId: input.accountId,
+          storeId: input.storeId,
+          shopifyProductId: product.shopifyProductId,
+          title: product.title,
+          description: product.description,
+          imageUrl: product.imageUrl,
+          imageUrls: product.imageUrls,
+          price: product.price,
+          status: product.status,
+          tags: product.tags,
+          collectionId: product.collectionId,
+          collectionTitle: product.collectionTitle,
+          seoTitle: product.seoTitle,
+          seoDescription: product.seoDescription,
+          lastSyncedAt: now,
+        },
+        update: {
+          title: product.title,
+          description: product.description,
+          imageUrl: product.imageUrl,
+          imageUrls: product.imageUrls,
+          price: product.price,
+          status: product.status,
+          tags: product.tags,
+          collectionId: product.collectionId,
+          collectionTitle: product.collectionTitle,
+          seoTitle: product.seoTitle,
+          seoDescription: product.seoDescription,
+          lastSyncedAt: now,
+        },
+      });
+
+      for (const variant of product.variants) {
+        await prisma.variant.upsert({
+          where: {
+            productId_shopifyVariantId: {
+              productId: savedProduct.id,
+              shopifyVariantId: variant.shopifyVariantId,
+            },
+          },
+          create: {
+            accountId: input.accountId,
+            productId: savedProduct.id,
+            shopifyVariantId: variant.shopifyVariantId,
+            optionName: variant.optionName,
+            price: variant.price,
+            inventory: variant.inventory,
+          },
+          update: {
+            optionName: variant.optionName,
+            price: variant.price,
+            inventory: variant.inventory,
+          },
+        });
+      }
+
+      syncedCount += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error(`syncProducts: failed for shopifyProductId ${product.shopifyProductId}: ${message}`);
+      errorCount += 1;
+    }
+  }
+
+  return { syncedCount, skippedCount, errorCount };
+}

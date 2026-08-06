@@ -33,6 +33,7 @@ import {
 } from "@/lib/ai/suggestions";
 import { triggerBatchPush, triggerProductPush } from "@/lib/jobs/push";
 import { triggerProductDelete } from "@/lib/jobs/delete";
+import { triggerStoreSync } from "@/lib/jobs/import";
 import { productFormSchema } from "@/lib/validation/product";
 import { variantFormSchema } from "@/lib/validation/variant";
 import type { AiSuggestion, ProductDescriptionSuggestion } from "@/lib/validation/ai-suggestion";
@@ -436,6 +437,36 @@ export async function pushAllDrafts(): Promise<{ jobId: string; count: number } 
   await triggerBatchPush({ accountId: account.id, storeId: store.id, jobId: job.id, productIds });
 
   return { jobId: job.id, count: productIds.length };
+}
+
+// Unit 17: the "Sync Store" trigger — pulls the store's current Shopify
+// catalog into the database. A product with an unpushed local edit
+// (lastEditedAt after lastSyncedAt) is left untouched by the job itself
+// (lib/db/products.ts's syncProducts/shouldSkipSync), not flagged as a
+// Conflict yet (that's Unit 18). Store scope matches pushAllDrafts' own
+// "first connected store" convention (Unit 21 replaces both with the real
+// switcher selection). Creates the Job row itself, same as every other
+// dashboard-button-triggered job, so the button can poll it (invariant 4:
+// never calls Shopify here, only enqueues).
+export async function syncStore(): Promise<{ jobId: string } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const stores = await getStoresForAccount(account.id);
+  const store = stores[0];
+  if (!store) {
+    return { error: "Connect a store first." };
+  }
+
+  const job = await createJob({ accountId: account.id, storeId: store.id, type: "SYNC" });
+  await triggerStoreSync({
+    accountId: account.id,
+    storeId: store.id,
+    shopifyDomain: store.shopifyDomain,
+    jobId: job.id,
+  });
+
+  return { jobId: job.id };
 }
 
 // Unit 16 follow-up: changes one or more products' status directly from the

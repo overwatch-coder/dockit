@@ -1,15 +1,52 @@
 import { inngest } from "@/lib/jobs/client";
 import { createJob, updateJobStatus } from "@/lib/db/jobs";
 import { getStoreToken } from "@/lib/db/stores";
-import { importProducts } from "@/lib/db/products";
+import { importProducts, syncProducts } from "@/lib/db/products";
 import { decryptAccessToken } from "@/lib/shopify/oauth";
 import { fetchAllProducts } from "@/lib/shopify/products";
 
+type FetchAndImportResult =
+  | { success: true; importedCount: number }
+  | { success: false; error: string };
+
+// Extracted verbatim from importStoreProductsJob's former inline
+// "fetch-and-import" step callback — no behavior change, just lifted out of
+// the closure so Unit 17's syncStoreJob (below) can share the token-load +
+// Shopify-fetch half without duplicating it. importStoreProductsJob still
+// calls this inside the same step.run with the same step id and return
+// shape.
+async function fetchAndImport(input: {
+  accountId: string;
+  storeId: string;
+  shopifyDomain: string;
+}): Promise<FetchAndImportResult> {
+  const tokenRecord = await getStoreToken(input.accountId, input.storeId);
+  if (!tokenRecord) {
+    return { success: false, error: "Store or token not found" };
+  }
+
+  const accessToken = decryptAccessToken(tokenRecord.accessTokenEncrypted);
+  const fetched = await fetchAllProducts(input.shopifyDomain, accessToken);
+  if (!fetched.success) {
+    return { success: false, error: fetched.error };
+  }
+
+  const { importedCount } = await importProducts({
+    accountId: input.accountId,
+    storeId: input.storeId,
+    products: fetched.data,
+  });
+  return { success: true, importedCount };
+}
+
 // Fires once per store connection (see triggerStoreImport below), pulling
 // the store's full catalog into Postgres. Uses JobType "SYNC" — the schema's
-// JobType is deliberately just PUSH | SYNC (context/00-build-plan.md Unit
-// 2/6), and an initial import is a pull from Shopify like Unit 17's sync,
-// just for a brand-new store instead of a re-sync.
+// JobType is deliberately just PUSH | SYNC | DELETE (context/00-build-plan.md
+// Unit 2/6), and an initial import is a pull from Shopify like Unit 17's
+// sync, just for a brand-new store instead of a re-sync. Unlike syncStoreJob
+// below, this job creates its own Job row (see the "create-job" step) —
+// there's no UI polling this at OAuth-callback time, so there's no jobId to
+// hand back to anything.
 export const importStoreProductsJob = inngest.createFunction(
   { id: "import-store-products", triggers: { event: "store/connected" } },
   async ({ event, step }) => {
@@ -25,21 +62,9 @@ export const importStoreProductsJob = inngest.createFunction(
       updateJobStatus({ accountId, jobId: job.id, status: "RUNNING" })
     );
 
-    const result = await step.run("fetch-and-import", async () => {
-      const tokenRecord = await getStoreToken(accountId, storeId);
-      if (!tokenRecord) {
-        return { success: false as const, error: "Store or token not found" };
-      }
-
-      const accessToken = decryptAccessToken(tokenRecord.accessTokenEncrypted);
-      const fetched = await fetchAllProducts(shopifyDomain, accessToken);
-      if (!fetched.success) {
-        return { success: false as const, error: fetched.error };
-      }
-
-      const { importedCount } = await importProducts({ accountId, storeId, products: fetched.data });
-      return { success: true as const, importedCount };
-    });
+    const result = await step.run("fetch-and-import", () =>
+      fetchAndImport({ accountId, storeId, shopifyDomain })
+    );
 
     if (result.success) {
       await step.run("mark-succeeded", () =>
@@ -79,3 +104,92 @@ export async function triggerStoreImport(input: {
     data: input,
   });
 }
+
+type FetchAndSyncResult =
+  | { success: true; syncedCount: number; skippedCount: number; errorCount: number }
+  | { success: false; error: string };
+
+// Unit 17: the re-sync counterpart of fetchAndImport above — not merged
+// with it, since a sync's final call (syncProducts) and result shape
+// genuinely differ from an import's (importProducts/{importedCount}). The
+// token-load/fetch preamble is duplicated rather than shared; it's four
+// lines and the two functions diverge immediately after.
+async function fetchAndSync(input: {
+  accountId: string;
+  storeId: string;
+  shopifyDomain: string;
+}): Promise<FetchAndSyncResult> {
+  const tokenRecord = await getStoreToken(input.accountId, input.storeId);
+  if (!tokenRecord) {
+    return { success: false, error: "Store or token not found" };
+  }
+
+  const accessToken = decryptAccessToken(tokenRecord.accessTokenEncrypted);
+  const fetched = await fetchAllProducts(input.shopifyDomain, accessToken);
+  if (!fetched.success) {
+    return { success: false, error: fetched.error };
+  }
+
+  const { syncedCount, skippedCount, errorCount } = await syncProducts({
+    accountId: input.accountId,
+    storeId: input.storeId,
+    products: fetched.data,
+  });
+  return { success: true, syncedCount, skippedCount, errorCount };
+}
+
+// Unit 17: mirrors triggerProductPush's pattern — the caller
+// (syncStore in app/(dashboard)/products/actions.ts) creates the Job row
+// itself, since this is triggered from a "Sync Store" button that needs a
+// jobId back synchronously to poll, unlike importStoreProductsJob above.
+export async function triggerStoreSync(input: {
+  accountId: string;
+  storeId: string;
+  shopifyDomain: string;
+  jobId: string;
+}): Promise<void> {
+  await inngest.send({
+    name: "store/sync.requested",
+    data: input,
+  });
+}
+
+export const syncStoreJob = inngest.createFunction(
+  { id: "sync-store", triggers: { event: "store/sync.requested" } },
+  async ({ event, step }) => {
+    const { accountId, storeId, shopifyDomain, jobId } = event.data as {
+      accountId: string;
+      storeId: string;
+      shopifyDomain: string;
+      jobId: string;
+    };
+
+    await step.run("mark-running", () => updateJobStatus({ accountId, jobId, status: "RUNNING" }));
+
+    const result = await step.run("fetch-and-sync", () =>
+      fetchAndSync({ accountId, storeId, shopifyDomain })
+    );
+
+    if (result.success) {
+      await step.run("mark-succeeded", () =>
+        updateJobStatus({
+          accountId,
+          jobId,
+          status: "SUCCEEDED",
+          results: {
+            syncedCount: result.syncedCount,
+            skippedCount: result.skippedCount,
+            errorCount: result.errorCount,
+          },
+        })
+      );
+    } else {
+      console.error(`syncStoreJob failed for account ${accountId}, store ${storeId}: ${result.error}`);
+      await step.run("mark-failed", () =>
+        updateJobStatus({ accountId, jobId, status: "FAILED", results: { error: result.error } })
+      );
+    }
+
+    return result;
+  }
+);

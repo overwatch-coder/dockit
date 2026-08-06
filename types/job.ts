@@ -21,3 +21,8 @@ export type PushBatchResultItem =
   | { productId: string; success: false; failedStep: string; error: string };
 
 export type PushBatchResults = { items: PushBatchResultItem[] };
+
+// Unit 17: the shape of Job.results for a successful "Sync Store" run
+// (lib/jobs/import.ts's syncStoreJob writes this, components/sync-store-button.tsx
+// reads it back after polling).
+export type SyncStoreResults = { syncedCount: number; skippedCount: number; errorCount: number };

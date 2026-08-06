@@ -5,13 +5,30 @@ change.
 
 ## Current Phase
 
-- In progress — Phase I: Push to Shopify (Phases A–H are all done: Foundation (1–4), Shopify Connection (5–7), Product Viewing (8), Core Product Editing (9–10), Variants (11), Images (12), Collections and Tags Manual (13), AI Generation (14))
+- In progress — Phase J: Sync from Shopify (Phases A–I are all done: Foundation (1–4), Shopify Connection (5–7), Product Viewing (8), Core Product Editing (9–10), Variants (11), Images (12), Collections and Tags Manual (13), AI Generation (14), Push to Shopify (15–16))
 
 ## Current Goal
 
-- Unit 17: Manual sync (non-conflicting path).
+- Unit 18: Conflict detection.
 
 ## Completed
+
+- **Unit 17: Manual sync (non-conflicting path)** — the "Sync Store" trigger and job that pull the store's current Shopify catalog into the database, per `context/00-build-plan.md`'s spec. Per an explicit design decision confirmed before building: even though real conflict *flagging* (Unit 18) isn't built yet, this unit must not silently overwrite a product with an unpushed local edit — it skips (leaves entirely untouched) any product where `lastEditedAt > lastSyncedAt`, rather than flagging it as Conflict (that visual/snapshot handling is still Unit 18).
+  - `lib/db/products.ts`: added `shouldSkipSync(product)` — the one pure/testable decision function this unit needed (parallel to Unit 16's `computeBatchJobStatus`) — and `syncProducts`, a **new, separate** function from `importProducts` (which stays completely unchanged/frozen) rather than a retrofit of it: `importProducts` is only ever called from the OAuth-connect flow where every row is brand-new, so a skip-check would be dead code for its only caller. `syncProducts` also adds per-product error isolation (`try/catch` per product, so one malformed Shopify record doesn't abort the whole sync) that a full-catalog re-sync needs but a one-time import didn't. Returns `{syncedCount, skippedCount, errorCount}`.
+  - `lib/jobs/import.ts`: extracted `importStoreProductsJob`'s inline step body into `fetchAndImport` (verbatim, zero behavior change — same extraction pattern as Unit 16's `pushOneProduct`), then added a sibling `fetchAndSync` (calls `syncProducts` instead of `importProducts`, different result shape — kept separate rather than merged, since the two diverge immediately after the shared token-load/fetch preamble) plus the new `syncStoreJob` (Inngest, event `store/sync.requested`) and `triggerStoreSync`. Unlike `importStoreProductsJob` (which self-creates its `Job` row, since the OAuth callback that triggers it has no UI polling it), `syncStoreJob` follows the **push-job pattern** — the caller creates the `Job` row and passes `jobId` in — because it's triggered by a dashboard button that needs to poll it.
+  - `types/job.ts`: added `SyncStoreResults = { syncedCount, skippedCount, errorCount }`.
+  - `app/api/jobs/run/route.ts`: registered `syncStoreJob`.
+  - `app/(dashboard)/products/actions.ts`: added `syncStore()` — mirrors `pushAllDrafts`' "first connected store" scoping convention, creates the Job row, triggers the sync, returns `jobId`.
+  - `components/sync-store-button.tsx` (new) + wired into `components/dashboard-overview.tsx`'s "Store" card header, next to its existing derived "Last synced" stat. Structured identically to `components/push-all-drafts-button.tsx`: `useJobPolling` + the shared `ActionConfirmationModal` on success (shows the skipped count when nonzero, directly confirming the "don't overwrite my unpushed edit" behavior worked), a plain `toast.error` on failure (no `PushResultsDialog` — a newly-synced product isn't in any client-side `productTitles` map).
+  - **Follow-up, per explicit user request**: also mounted on `app/(dashboard)/products/page.tsx`'s toolbar (leftmost, before "Push new products"/"New product") — the button needs no props (it resolves the store server-side, same as `pushAllDrafts`), so this was a one-line addition, not a redesign. No longer single-location; both the dashboard and the products page trigger the same action.
+  - Tests: `tests/lib/db/products.test.ts` (new) — table-driven coverage of `shouldSkipSync` (never-synced → false; edited-before-synced → false; edited-after-synced → true; equal timestamps → false via strict `>`). No new tests for `syncProducts`/`fetchAndImport`/`fetchAndSync`/`syncStoreJob`/`syncStore` — thin Prisma/Inngest/action wrappers, consistent with this project's existing convention (confirmed no Prisma-backed function anywhere in `lib/db/` has direct test coverage today).
+  - Verified: `lint`, `tsc --noEmit`, a clean `npm run build`, and `npx vitest run` (**79 tests**, up from 75) all green. Not click-tested live (no browser-driving tool in this environment) — the important live check is: edit a product locally without pushing, edit a *different* product directly on Shopify, create a brand-new product directly on Shopify, then Sync Store and confirm the locally-edited one is untouched, the Shopify-edited one picked up its change, the new one appears, and the confirmation modal's synced/skipped counts are right.
+
+- **Queued next unit, per explicit user request (design not yet built)**: **Shopify Product Category (AI-assisted)** — distinct from the existing manual Collection assignment (Unit 13). Researched against the real Shopify Admin GraphQL API docs during Unit 17's planning session:
+  - Shopify has a standardized Product Taxonomy (~10,000 categories). `taxonomy.categories(search: "...")` returns real matches with `id`, `name`, and `fullName` — Shopify's own ready-made breadcrumb string (e.g. "Apparel & Accessories > Clothing > Shirts & Tops"), so no manual breadcrumb construction is needed.
+  - Writing it: `ProductSetInput` (the same mutation `lib/shopify/push.ts` already uses) has a plain `category: ID` field — no new mutation required.
+  - Planned AI flow (avoids ever sending the full ~10,000-category taxonomy to the model): (1) AI reads the product's title/description and outputs a plain-text category guess; (2) the app searches Shopify's real taxonomy using that guess; (3) AI or the user picks the best real match from the actual search results, in a review dialog matching the existing `AiSeoReviewDialog` pattern.
+  - Will need: new `categoryId`/`categoryName` (or `categoryFullName`) fields on `Product` (a migration), a new Shopify taxonomy-search query, an AI suggestion step, and new product-editor UI. Gets its own full plan (Explore → Plan agent) when picked up.
 
 - **New: "Delete from Shopify," per explicit user request (design discussed and confirmed via two clarifying questions before building)**: the app could previously only remove a product from its own database (`lib/db/products.ts`'s `deleteProducts`, unchanged, stays the fast/reversible everyday action — a still-live Shopify product just gets re-imported on a future sync). This adds the first real Shopify **delete** mutation, deliberately kept as a **separate, single-product-only** action from the plain Delete (not a checkbox on the existing dialog, and not offered from the bulk-selection toolbar — there's no one name to type-match against a multi-product selection).
   - **`prisma/schema.prisma`**: added `DELETE` to the `JobType` enum; migration `20260806003114_add_delete_job_type` created and applied against the real Neon database, Prisma client regenerated.
@@ -226,7 +243,8 @@ change.
 
 ## Next Up
 
-- Unit 17: Manual sync (non-conflicting path). Dependencies: Units 6, 7 — done.
+- Unit 18: Conflict detection (the comparison logic inside the sync job using `lastEditedAt`/`lastSyncedAt`, flagging a product as conflicted and storing a snapshot of both versions instead of overwriting). Dependency: Unit 17 — done.
+- Queued after that, per explicit user request: the Shopify Product Category (AI-assisted) unit — see its own entry under Completed above for the researched scope.
 
 ## Open Questions
 

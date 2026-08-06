@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SyncStoreButton } from "@/components/sync-store-button";
 import type { Product } from "@/types/product";
 import type { Store } from "@/types/store";
 
@@ -55,8 +56,9 @@ export function DashboardOverview({ store, products }: { store: Store; products:
       </div>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Store</CardTitle>
+          <SyncStoreButton />
         </CardHeader>
         <CardContent className="flex flex-col gap-1 text-sm text-muted-foreground">
           <p>

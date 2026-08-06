@@ -8,6 +8,7 @@ import { getProductsForStore } from "@/lib/db/products";
 import { Button } from "@/components/ui/button";
 import { ProductTable } from "@/components/product-table";
 import { PushAllDraftsButton } from "@/components/push-all-drafts-button";
+import { SyncStoreButton } from "@/components/sync-store-button";
 
 // Unit 8: real product list, read-only. Scoped to the first connected store
 // for now — Unit 21 wires this to the store switcher's actual selection.
@@ -36,6 +37,7 @@ export default async function ProductsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <SyncStoreButton />
           <PushAllDraftsButton products={products} />
           <Button nativeButton={false} render={<Link href="/products/new" />}>
             <Plus className="size-4" />
