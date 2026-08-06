@@ -21,7 +21,16 @@ export default async function DashboardLayout({
         <header className="flex h-14 shrink-0 items-center border-b border-border bg-background px-2">
           <SidebarTrigger />
         </header>
-        <div className="flex flex-1 flex-col overflow-y-auto">{children}</div>
+        {/* `scroll-smooth` was tried here to help with a reported scroll-lag
+            issue but made it worse — CSS smooth-scroll animates every
+            programmatic scroll (Next.js navigation, focus-driven
+            scrollIntoView from dropdowns/dialogs), which reads as exactly
+            "the scrollbar jumps ahead, content catches up late" once the
+            main thread has any real work competing for paint time. Plain
+            `overflow-y-auto` (instant scroll) plus `overscroll-contain`
+            (harmless — no animation, just stops scroll chaining to the
+            page behind this one) is the fix. */}
+        <div className="flex flex-1 flex-col overflow-y-auto overscroll-contain">{children}</div>
       </SidebarInset>
       <Toaster />
     </SidebarProvider>

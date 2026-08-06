@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  ChevronLeft,
+  ChevronRight,
   ExternalLink,
   Eye,
   EyeOff,
@@ -38,80 +40,100 @@ import { ConflictResolutionDialog } from "@/components/conflict-resolution-dialo
 import { DeleteFromShopifyDialog } from "@/components/delete-from-shopify-dialog";
 import { DeleteProductDialog } from "@/components/delete-product-dialog";
 import { ProductStatusBadge } from "@/components/product-status-badge";
+import { ProductTableRow } from "@/components/product-table-row";
 import { PushResultsDialog } from "@/components/push-results-dialog";
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
+import type { PaginatedProductsResult, ProductSummary } from "@/lib/db/products";
 import type { Product, ProductStatus } from "@/types/product";
 import type { PushBatchResultItem, PushBatchResults } from "@/types/job";
 
 type StatusFilter = "all" | "DRAFT" | "ACTIVE" | "CONFLICT";
 
-const lastSyncedFormatter = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "UTC",
-});
-
-// Product.shopifyProductId is stored as the bare numeric id, never the full
-// GID (lib/shopify/products.ts's toBareId strips it on import/push) — the
-// classic /admin/products/<id> path resolves on any shopifyDomain and
-// redirects into the merchant's real admin, no store handle lookup needed.
 function shopifyAdminProductUrl(shopDomain: string, shopifyProductId: string): string {
   return `https://${shopDomain}/admin/products/${shopifyProductId}`;
 }
 
-// Small client wrapper for row-click navigation, selection, delete, a batch
-// push, and (Unit 16 follow-up) an Active/Draft status change with an
-// optional immediate Shopify sync — the rest of the product list page stays
-// a server component (code-standards.md). Pulling in the *latest* state
-// from Shopify (Sync Store) isn't real yet — that's Units 17-19.
-export function ProductTable({ products, shopDomain }: { products: Product[]; shopDomain: string }) {
+interface ProductTableProps {
+  paginatedResult: PaginatedProductsResult;
+  categories: string[];
+  shopDomain: string;
+  initialSearch?: string;
+  initialStatusFilter?: StatusFilter;
+  initialCategoryFilter?: string;
+  // Lightweight per-product summary across the whole catalog (not just the
+  // current page) — only ever used for eligibility checks (shopifyProductId/
+  // isConflicted) and title lookups, both of which fit in the lean
+  // ProductSummary shape (lib/db/products.ts) instead of the full Product.
+  allProducts: ProductSummary[];
+}
+
+export function ProductTable({
+  paginatedResult,
+  categories,
+  shopDomain,
+  initialSearch = "",
+  initialStatusFilter = "all",
+  initialCategoryFilter = "all",
+  allProducts,
+}: ProductTableProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [isNavigating, startNavigation] = useTransition();
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleteTarget, setDeleteTarget] = useState<{ ids: string[]; label: string } | null>(null);
-  // Unit 16 follow-up, per explicit user request: a separate, single-product-only
-  // target for the far more dangerous "delete from Shopify too" action —
-  // deliberately not merged with deleteTarget above (which stays the fast,
-  // reversible, Dockit-only delete).
   const [shopifyDeleteTarget, setShopifyDeleteTarget] = useState<{ id: string; title: string } | null>(null);
-  // Unit 19: the conflicted product currently open in the resolution dialog
-  // — the full Product (not just id/title) since the dialog needs both
-  // snapshots to render the diff, unlike shopifyDeleteTarget/deleteTarget
-  // above.
   const [conflictTarget, setConflictTarget] = useState<Product | null>(null);
-  const [searchText, setSearchText] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
 
-  const categories = useMemo(
-    () =>
-      Array.from(new Set(products.map((product) => product.collectionTitle).filter(Boolean))) as string[],
-    [products]
+  const [searchText, setSearchText] = useState(initialSearch);
+
+  useEffect(() => {
+    setSearchText(initialSearch);
+  }, [initialSearch]);
+
+  const updateParams = useCallback(
+    (newParams: Record<string, string | number | undefined>) => {
+      const current = new URLSearchParams(searchParams.toString());
+      Object.entries(newParams).forEach(([key, value]) => {
+        if (value === undefined || value === "" || value === "all" || (key === "page" && value === 1)) {
+          current.delete(key);
+        } else {
+          current.set(key, String(value));
+        }
+      });
+      const searchString = current.toString();
+      const query = searchString ? `?${searchString}` : "";
+      startNavigation(() => {
+        router.push(`${pathname}${query}`);
+      });
+    },
+    [searchParams, pathname, router]
   );
 
-  const filteredProducts = useMemo(() => {
-    const query = searchText.trim().toLowerCase();
-    return products.filter((product) => {
-      if (query && !product.title.toLowerCase().includes(query)) return false;
-      if (statusFilter === "CONFLICT" && !product.isConflicted) return false;
-      if (statusFilter === "DRAFT" && (product.status !== "DRAFT" || product.isConflicted)) return false;
-      if (statusFilter === "ACTIVE" && (product.status !== "ACTIVE" || product.isConflicted)) return false;
-      if (categoryFilter !== "all" && product.collectionTitle !== categoryFilter) return false;
-      return true;
-    });
-  }, [products, searchText, statusFilter, categoryFilter]);
+  // Debounced search input syncing to URL
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (searchText !== initialSearch) {
+        updateParams({ search: searchText, page: 1 });
+      }
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchText, initialSearch, updateParams]);
+
+  const { products: paginatedProducts, totalCount, totalPages, page: currentPage, pageSize } = paginatedResult;
 
   const allSelected =
-    filteredProducts.length > 0 && filteredProducts.every((product) => selectedIds.has(product.id));
+    paginatedProducts.length > 0 && paginatedProducts.every((product) => selectedIds.has(product.id));
 
   function toggleAll() {
     setSelectedIds((current) => {
-      if (allSelected) {
-        const next = new Set(current);
-        for (const product of filteredProducts) next.delete(product.id);
-        return next;
-      }
       const next = new Set(current);
-      for (const product of filteredProducts) next.add(product.id);
+      if (allSelected) {
+        for (const product of paginatedProducts) next.delete(product.id);
+      } else {
+        for (const product of paginatedProducts) next.add(product.id);
+      }
       return next;
     });
   }
@@ -128,37 +150,22 @@ export function ProductTable({ products, shopDomain }: { products: Product[]; sh
     });
   }
 
-  // Unit 16, corrected per explicit user feedback: eligible for a push
-  // means never synced to Shopify (shopifyProductId === null) — a product's
-  // local DRAFT/ACTIVE status is independent of that, and a locally-DRAFT
-  // product that's already been pushed once should NOT be silently
-  // re-pushed by this bulk action (that stays the editor's explicit
-  // Republish button). Computed from the full `products` prop, not
-  // `filteredProducts`, so a selection made before a filter change stays
-  // correct. The server action re-validates this same eligibility (defense
-  // in depth), so this is purely what the button shows/enables, not the
-  // only guard.
   const pushableSelectedIds = useMemo(
     () =>
-      products
+      allProducts
         .filter(
           (product) => selectedIds.has(product.id) && product.shopifyProductId === null && !product.isConflicted
         )
         .map((product) => product.id),
-    [products, selectedIds]
+    [allProducts, selectedIds]
   );
 
-  // Unit 16 follow-up: per-product results (already saved to Job.results)
-  // had no UI beyond a summary toast that disappears — auto-open a dialog
-  // listing each product's outcome whenever a batch settles with at least
-  // one failure, so "something failed" doesn't leave the owner with nothing
-  // to act on. A clean SUCCEEDED result stays toast-only; there's nothing to
-  // review.
-  const [pushResultsItems, setPushResultsItems] = useState<PushBatchResultItem[] | null>(null);
   const productTitles = useMemo(
-    () => Object.fromEntries(products.map((product) => [product.id, product.title])),
-    [products]
+    () => Object.fromEntries(allProducts.map((product) => [product.id, product.title])),
+    [allProducts]
   );
+
+  const [pushResultsItems, setPushResultsItems] = useState<PushBatchResultItem[] | null>(null);
 
   // Unit 16 follow-up, per explicit user request: a toast alone wasn't a
   // strong enough "did this actually work" signal for a Shopify push/sync —
@@ -241,6 +248,40 @@ export function ProductTable({ products, shopDomain }: { products: Product[]; sh
     onError: (message) => toast.error(message),
   });
 
+  const handleToggleSelect = useCallback((productId: string) => {
+    toggleOne(productId);
+  }, []);
+
+  const handleEdit = useCallback(
+    (product: Product) => {
+      router.push(`/products/${product.id}`);
+    },
+    [router]
+  );
+
+  const handleChangeStatus = useCallback(
+    (productId: string, title: string, currentStatus: ProductStatus) => {
+      setStatusChangeTarget({
+        ids: [productId],
+        label: title,
+        targetStatus: currentStatus === "DRAFT" ? "ACTIVE" : "DRAFT",
+      });
+    },
+    []
+  );
+
+  const handleDelete = useCallback((productId: string, title: string) => {
+    setDeleteTarget({ ids: [productId], label: title });
+  }, []);
+
+  const handleDeleteShopify = useCallback((productId: string, title: string) => {
+    setShopifyDeleteTarget({ id: productId, title });
+  }, []);
+
+  const handleResolveConflict = useCallback((product: Product) => {
+    setConflictTarget(product);
+  }, []);
+
   function clearSelectionAndTarget() {
     setSelectedIds(new Set());
     setDeleteTarget(null);
@@ -256,8 +297,8 @@ export function ProductTable({ products, shopDomain }: { products: Product[]; sh
           className="max-w-64"
         />
         <Select
-          value={statusFilter}
-          onValueChange={(value) => setStatusFilter((value ?? "all") as StatusFilter)}
+          value={initialStatusFilter}
+          onValueChange={(value) => updateParams({ status: value ?? "all", page: 1 })}
         >
           <SelectTrigger className="w-36">
             <SelectValue placeholder="Status" />
@@ -269,7 +310,10 @@ export function ProductTable({ products, shopDomain }: { products: Product[]; sh
             <SelectItem value="CONFLICT">Conflict</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={categoryFilter} onValueChange={(value) => setCategoryFilter(value ?? "all")}>
+        <Select
+          value={initialCategoryFilter}
+          onValueChange={(value) => updateParams({ category: value ?? "all", page: 1 })}
+        >
           <SelectTrigger className="w-40">
             <SelectValue placeholder="Category" />
           </SelectTrigger>
@@ -344,170 +388,107 @@ export function ProductTable({ products, shopDomain }: { products: Product[]; sh
           </div>
         </div>
       )}
-      <Table>
+      <Table className="table-fixed">
         <TableHeader>
           <TableRow>
             <TableHead className="w-10">
               <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Select all products" />
             </TableHead>
             <TableHead className="w-14"></TableHead>
-            <TableHead>Title</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Price</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Last synced</TableHead>
-            <TableHead className="w-24 text-right">Actions</TableHead>
+            <TableHead className="w-auto">Title</TableHead>
+            <TableHead className="w-36 sm:w-40">Category</TableHead>
+            <TableHead className="w-24 sm:w-28">Price</TableHead>
+            <TableHead className="w-24 sm:w-28">Status</TableHead>
+            <TableHead className="w-36 sm:w-44">Last synced</TableHead>
+            <TableHead className="w-20 text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {filteredProducts.length === 0 && (
+          {paginatedProducts.length === 0 && (
             <TableRow>
-              <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
+              <TableCell colSpan={8} className="text-center text-sm text-muted-foreground py-8">
                 No products match your search or filters.
               </TableCell>
             </TableRow>
           )}
-          {filteredProducts.map((product) => (
-            <TableRow
+          {paginatedProducts.map((product) => (
+            <ProductTableRow
               key={product.id}
-              className="cursor-pointer"
-              // Unit 19 follow-up, per explicit user feedback: a conflicted
-              // row used to navigate straight into the product editor on any
-              // click except the badge itself, so the conflict was easy to
-              // miss entirely. Now the whole row opens the resolution dialog
-              // first, same as clicking the badge — the editor is only
-              // reachable normally once there's nothing to resolve.
-              onClick={() =>
-                product.isConflicted
-                  ? setConflictTarget(product)
-                  : router.push(`/products/${product.id}`)
-              }
-            >
-              <TableCell onClick={(event) => event.stopPropagation()}>
-                <Checkbox
-                  checked={selectedIds.has(product.id)}
-                  onCheckedChange={() => toggleOne(product.id)}
-                  aria-label={`Select ${product.title}`}
-                />
-              </TableCell>
-              <TableCell>
-                {product.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- Shopify CDN host isn't guaranteed constant across every store, so this isn't allowlisted through next/image.
-                  <img
-                    src={product.imageUrl}
-                    alt={product.title}
-                    className="size-10 rounded-sm border border-border object-cover"
-                  />
-                ) : (
-                  <div className="flex size-10 items-center justify-center rounded-sm border border-border bg-muted">
-                    <ImageOff className="size-4 text-muted-foreground" />
-                  </div>
-                )}
-              </TableCell>
-              <TableCell className="max-w-64 truncate font-medium text-foreground">
-                {product.title}
-              </TableCell>
-              <TableCell className="text-muted-foreground">{product.collectionTitle ?? "—"}</TableCell>
-              <TableCell className="font-mono text-table-data">{product.price}</TableCell>
-              <TableCell>
-                {/* Unit 19 follow-up: no longer a separate click target with
-                    its own stopPropagation — the whole row now opens the
-                    resolution dialog for a conflicted product (see the
-                    TableRow's onClick above), so the badge just needs to be
-                    visible, not independently clickable. */}
-                <ProductStatusBadge product={product} />
-              </TableCell>
-              <TableCell className="font-mono text-table-data text-muted-foreground">
-                {product.lastSyncedAt ? lastSyncedFormatter.format(product.lastSyncedAt) : "—"}
-              </TableCell>
-              <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${product.title}`} />
-                    }
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="min-w-44">
-                    <DropdownMenuItem
-                      onClick={() =>
-                        product.isConflicted
-                          ? setConflictTarget(product)
-                          : router.push(`/products/${product.id}`)
-                      }
-                    >
-                      <Pencil className="size-4" />
-                      Edit
-                    </DropdownMenuItem>
-                    {product.shopifyProductId && (
-                      <DropdownMenuItem
-                        render={
-                          <a
-                            href={shopifyAdminProductUrl(shopDomain, product.shopifyProductId)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          />
-                        }
-                      >
-                        <ExternalLink className="size-4" />
-                        {/* Shorter than "View on Shopify" — that wrapped onto
-                            two lines inside this menu's width, unlike every
-                            other (single-word) item here. The icon already
-                            signals "opens externally"; the menu's own
-                            width (min-w-44 above, widened again for "Delete
-                            from Shopify" below) also has more room now,
-                            matching this label on the product detail page's
-                            header button. */}
-                        Shopify
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem
-                      onClick={() =>
-                        setStatusChangeTarget({
-                          ids: [product.id],
-                          label: product.title,
-                          targetStatus: product.status === "DRAFT" ? "ACTIVE" : "DRAFT",
-                        })
-                      }
-                    >
-                      {product.status === "DRAFT" ? (
-                        <>
-                          <Eye className="size-4" />
-                          Set Active
-                        </>
-                      ) : (
-                        <>
-                          <EyeOff className="size-4" />
-                          Set Draft
-                        </>
-                      )}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onClick={() => setDeleteTarget({ ids: [product.id], label: product.title })}
-                    >
-                      <Trash2 className="size-4" />
-                      Delete
-                    </DropdownMenuItem>
-                    {product.shopifyProductId && (
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onClick={() =>
-                          setShopifyDeleteTarget({ id: product.id, title: product.title })
-                        }
-                      >
-                        <TriangleAlert className="size-4" />
-                        Delete from Shopify
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
+              product={product}
+              shopDomain={shopDomain}
+              isSelected={selectedIds.has(product.id)}
+              onToggleSelect={handleToggleSelect}
+              onEdit={handleEdit}
+              onChangeStatus={handleChangeStatus}
+              onDelete={handleDelete}
+              onDeleteShopify={handleDeleteShopify}
+              onResolveConflict={handleResolveConflict}
+            />
           ))}
         </TableBody>
       </Table>
+
+      {/* Database Pagination Footer Controls */}
+      {totalCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-4 py-2 px-1 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <span>Rows per page</span>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(val) => {
+                updateParams({ pageSize: val ?? "25", page: 1 });
+              }}
+            >
+              <SelectTrigger className="h-8 w-20">
+                <SelectValue placeholder="25" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="25">25</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+                <SelectItem value="all">All</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-xs sm:text-sm">
+              {pageSize === "all"
+                ? `Showing all ${totalCount} items`
+                : `Showing ${Math.min((currentPage - 1) * (pageSize as number) + 1, totalCount)}–${Math.min(
+                    currentPage * (pageSize as number),
+                    totalCount
+                  )} of ${totalCount} items`}
+            </span>
+          </div>
+
+          {pageSize !== "all" && totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage <= 1 || isNavigating}
+                onClick={() => updateParams({ page: Math.max(1, currentPage - 1) })}
+                aria-label="Previous page"
+              >
+                <ChevronLeft className="size-4" />
+                Previous
+              </Button>
+              <span className="font-medium text-foreground text-xs sm:text-sm">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage >= totalPages || isNavigating}
+                onClick={() => updateParams({ page: Math.min(totalPages, currentPage + 1) })}
+                aria-label="Next page"
+              >
+                Next
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
       <DeleteProductDialog
         productIds={deleteTarget?.ids ?? null}
         label={deleteTarget?.label ?? ""}

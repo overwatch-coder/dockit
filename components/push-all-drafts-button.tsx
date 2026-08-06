@@ -9,7 +9,7 @@ import { ActionConfirmationModal } from "@/components/action-confirmation-modal"
 import { Button } from "@/components/ui/button";
 import { PushResultsDialog } from "@/components/push-results-dialog";
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
-import type { Product } from "@/types/product";
+import type { ProductSummary } from "@/lib/db/products";
 import type { PushBatchResultItem, PushBatchResults } from "@/types/job";
 
 // Unit 16 follow-up, per explicit user request: "Push selected" (in
@@ -26,7 +26,7 @@ import type { PushBatchResultItem, PushBatchResults } from "@/types/job";
 // overwrite whatever's currently live on Shopify); republishing an
 // already-synced product stays the single-product editor's Republish
 // button.
-export function PushAllDraftsButton({ products }: { products: Product[] }) {
+export function PushAllDraftsButton({ products }: { products: ProductSummary[] }) {
   const router = useRouter();
   const unsyncedCount = useMemo(
     () => products.filter((product) => product.shopifyProductId === null && !product.isConflicted).length,

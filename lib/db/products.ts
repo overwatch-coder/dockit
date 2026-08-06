@@ -79,6 +79,126 @@ export async function getProductsForStore(accountId: string, storeId: string): P
   return products.map(toDomainProduct);
 }
 
+export type GetProductsOptions = {
+  page?: number;
+  pageSize?: number | "all";
+  search?: string;
+  statusFilter?: "all" | "DRAFT" | "ACTIVE" | "CONFLICT";
+  categoryFilter?: string;
+};
+
+export type PaginatedProductsResult = {
+  products: Product[];
+  totalCount: number;
+  totalPages: number;
+  page: number;
+  pageSize: number | "all";
+};
+
+export async function getPaginatedProductsForStore(
+  accountId: string,
+  storeId: string,
+  options: GetProductsOptions = {}
+): Promise<PaginatedProductsResult> {
+  const where: {
+    accountId: string;
+    storeId: string;
+    title?: { contains: string; mode: "insensitive" };
+    isConflicted?: boolean;
+    status?: "DRAFT" | "ACTIVE";
+    collectionTitle?: string;
+  } = {
+    accountId,
+    storeId,
+  };
+
+  if (options.search?.trim()) {
+    where.title = { contains: options.search.trim(), mode: "insensitive" };
+  }
+
+  if (options.statusFilter === "CONFLICT") {
+    where.isConflicted = true;
+  } else if (options.statusFilter === "DRAFT") {
+    where.status = "DRAFT";
+    where.isConflicted = false;
+  } else if (options.statusFilter === "ACTIVE") {
+    where.status = "ACTIVE";
+    where.isConflicted = false;
+  }
+
+  if (options.categoryFilter && options.categoryFilter !== "all") {
+    where.collectionTitle = options.categoryFilter;
+  }
+
+  const requestedPage = Math.max(1, options.page ?? 1);
+  const pageSizeOption = options.pageSize ?? 25;
+  const take = pageSizeOption === "all" ? undefined : pageSizeOption;
+
+  // Wrapped in one transaction (interactive form, since `skip` depends on
+  // `page`, which depends on `totalCount`, so the two reads can't just be
+  // fired as an independent array) so the count and the page of rows
+  // reflect the same consistent snapshot even if a write lands in between —
+  // same pattern markProductPushed already uses elsewhere in this file.
+  const { totalCount, totalPages, page, records } = await prisma.$transaction(async (tx) => {
+    const totalCount = await tx.product.count({ where });
+    const totalPages = take ? Math.max(1, Math.ceil(totalCount / take)) : 1;
+    const page = Math.min(requestedPage, totalPages);
+    const skip = take ? (page - 1) * take : undefined;
+
+    const records = await tx.product.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: { variants: true },
+      skip,
+      take,
+    });
+
+    return { totalCount, totalPages, page, records };
+  });
+
+  return {
+    products: records.map(toDomainProduct),
+    totalCount,
+    totalPages,
+    page,
+    pageSize: pageSizeOption,
+  };
+}
+
+export async function getStoreCategories(accountId: string, storeId: string): Promise<string[]> {
+  const products = await prisma.product.findMany({
+    where: { accountId, storeId, collectionTitle: { not: null } },
+    select: { collectionTitle: true },
+    distinct: ["collectionTitle"],
+  });
+  return products.map((p) => p.collectionTitle!).filter(Boolean);
+}
+
+export type ProductSummary = {
+  id: string;
+  title: string;
+  shopifyProductId: string | null;
+  isConflicted: boolean;
+};
+
+// Lightweight projection for call sites that only need eligibility/labeling
+// info across the store's *entire* catalog — PushAllDraftsButton's unsynced
+// count, ProductTable's productTitles/pushableSelectedIds maps — not the
+// full Product shape with variants/description/images that
+// getProductsForStore fetches. Pulling the full shape on every /products
+// page load defeated the point of getPaginatedProductsForStore above (the
+// table itself only ever needs one page of full records; these call sites
+// only need four scalar fields per product, for every product).
+export async function getProductSummariesForStore(
+  accountId: string,
+  storeId: string
+): Promise<ProductSummary[]> {
+  return prisma.product.findMany({
+    where: { accountId, storeId },
+    select: { id: true, title: true, shopifyProductId: true, isConflicted: true },
+  });
+}
+
 // Read path for Unit 9's product editor — accountId-scoped (not also
 // storeId-scoped, since a product id already uniquely identifies its store
 // within the account; the editor doesn't need to know which store ahead of
