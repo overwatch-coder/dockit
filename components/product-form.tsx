@@ -9,12 +9,12 @@ import { toast } from "sonner";
 import {
   createProduct,
   generateProductDescription,
-  getPushJobStatus,
   pushProduct,
   suggestProductSeo,
   updateProduct,
   uploadProductImage,
 } from "@/app/(dashboard)/products/actions";
+import { ActionConfirmationModal } from "@/components/action-confirmation-modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,6 +49,7 @@ import {
   type CurrentSeoState,
   type SuggestedSeoState,
 } from "@/components/ai-seo-review-dialog";
+import { useJobPolling } from "@/lib/hooks/use-job-polling";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import { cn } from "@/lib/utils";
 import type { Collection } from "@/types/collection";
@@ -233,7 +234,36 @@ export function ProductForm({
   const isDirty = currentSnapshot() !== lastSavedSnapshot;
 
   const [pushStatus, setPushStatus] = useState<"idle" | "pushing" | "failed">("idle");
-  const pushJobIdRef = useRef<string | null>(null);
+
+  // Per explicit user request: a toast alone wasn't a strong enough "did
+  // this actually work" signal for Save/Publish — a clean success now opens
+  // the shared animated-checkmark confirmation (components/action-confirmation-modal.tsx)
+  // instead. Failures keep their existing toast treatment unchanged.
+  const [confirmation, setConfirmation] = useState<{ title: string; description?: string } | null>(null);
+
+  // Unit 16: the poll-until-settled mechanics live in useJobPolling now
+  // (shared with components/product-table.tsx's "Push selected" action) —
+  // this component keeps only its own status state and toast copy.
+  const { start: startPushPolling } = useJobPolling({
+    onSettled: (status, results) => {
+      if (status === "SUCCEEDED") {
+        setPushStatus("idle");
+        setConfirmation({
+          title: product?.shopifyProductId ? "Republished to Shopify" : "Published to Shopify",
+          description: "Your product is now live on Shopify.",
+        });
+        router.refresh();
+      } else {
+        setPushStatus("failed");
+        const parsedResults = results as { error?: string } | undefined;
+        toast.error(parsedResults?.error ?? "Publish failed");
+      }
+    },
+    onError: (message) => {
+      setPushStatus("failed");
+      toast.error(message);
+    },
+  });
 
   async function handlePush() {
     if (!product) return;
@@ -244,35 +274,8 @@ export function ProductForm({
       toast.error(result.error);
       return;
     }
-    pushJobIdRef.current = result.jobId;
+    startPushPolling(result.jobId);
   }
-
-  useEffect(() => {
-    if (pushStatus !== "pushing") return;
-    const interval = setInterval(async () => {
-      const jobId = pushJobIdRef.current;
-      if (!jobId) return;
-      const status = await getPushJobStatus(jobId);
-      if ("error" in status) {
-        clearInterval(interval);
-        setPushStatus("failed");
-        toast.error(status.error);
-        return;
-      }
-      if (status.status === "SUCCEEDED") {
-        clearInterval(interval);
-        setPushStatus("idle");
-        toast.success(product?.shopifyProductId ? "Republished to Shopify" : "Published to Shopify");
-        router.refresh();
-      } else if (status.status === "FAILED") {
-        clearInterval(interval);
-        setPushStatus("failed");
-        const results = status.results as { error?: string } | undefined;
-        toast.error(results?.error ?? "Publish failed");
-      }
-    }, 1500);
-    return () => clearInterval(interval);
-  }, [pushStatus, router, product?.shopifyProductId]);
 
   // Shopify products can have more than one image, and Unit 12 added
   // uploading draft-state ones too (components/product-images.tsx) — both
@@ -364,17 +367,20 @@ export function ProductForm({
     if (state === prevStateRef.current) return;
     prevStateRef.current = state;
     if (state && "success" in state && state.success) {
-      toast.success("Saved");
       // Save persists the full form snapshot at once, so every AI-suggested
       // mark clears together on success. Deferred via setTimeout (same
       // workaround already used by connect-store-dialog.tsx's DialogError)
       // since eslint's react-hooks/set-state-in-effect rule disallows
-      // calling setState synchronously in an effect body.
+      // calling setState synchronously in an effect body — setConfirmation
+      // (the animated-checkmark modal, replacing a plain "Saved" toast per
+      // explicit user request) is a setState call too, so it's deferred
+      // into the same block rather than called directly above.
       setTimeout(() => {
         setAiSuggested(new Set());
         // Records what's now durably saved, for the Push button's dirty
         // check — deferred into the same setTimeout for the same reason.
         setLastSavedSnapshot(currentSnapshot());
+        setConfirmation({ title: "Saved", description: "Your changes have been saved." });
       }, 0);
       // A successful Save is also what actually uploads any staged images
       // to Vercel Blob (see uploadPendingImages above) — reading the latest
@@ -779,6 +785,14 @@ export function ProductForm({
           onAccept={handleAcceptSeo}
         />
       )}
+      <ActionConfirmationModal
+        open={confirmation !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
+        title={confirmation?.title ?? ""}
+        description={confirmation?.description}
+      />
     </div>
   );
 }

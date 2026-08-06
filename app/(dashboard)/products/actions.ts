@@ -9,12 +9,16 @@ import {
   addProductImage as addProductImageInDb,
   createProduct as createProductInDb,
   deleteProducts as deleteProductsFromDb,
+  getEligibleUnsyncedProducts,
   getProductById,
+  getProductsForStatusSync,
+  getUnsyncedProductIdsForStore,
   removeProductImage as removeProductImageInDb,
   updateProduct as updateProductInDb,
+  updateProductsStatus as updateProductsStatusInDb,
 } from "@/lib/db/products";
 import { syncProductVariants as syncProductVariantsInDb } from "@/lib/db/variants";
-import { getStoreToken } from "@/lib/db/stores";
+import { getStoresForAccount, getStoreToken } from "@/lib/db/stores";
 import { createJob, getJobById } from "@/lib/db/jobs";
 import {
   deleteProductImage as deleteProductImageFromBlob,
@@ -27,7 +31,8 @@ import {
   generateProductDescription as generateProductDescriptionSuggestion,
   suggestProductSeo as generateProductSuggestion,
 } from "@/lib/ai/suggestions";
-import { triggerProductPush } from "@/lib/jobs/push";
+import { triggerBatchPush, triggerProductPush } from "@/lib/jobs/push";
+import { triggerProductDelete } from "@/lib/jobs/delete";
 import { productFormSchema } from "@/lib/validation/product";
 import { variantFormSchema } from "@/lib/validation/variant";
 import type { AiSuggestion, ProductDescriptionSuggestion } from "@/lib/validation/ai-suggestion";
@@ -370,9 +375,149 @@ export async function pushProduct(productId: string): Promise<{ jobId: string } 
   return { jobId: job.id };
 }
 
+// Unit 16: mirrors pushProduct's shape — never calls Shopify itself
+// (architecture.md invariant 4). Operates on a caller-supplied selection
+// (components/product-table.tsx's existing row-selection UI), not an
+// implicit "every unsynced product" filter, per explicit product decision.
+// Eligibility, corrected per explicit user feedback: whether a product has
+// ever reached Shopify (shopifyProductId === null) — NOT its local DRAFT/
+// ACTIVE status, which is independent. A product that's locally DRAFT but
+// was already pushed once is not re-pushed here, since that would silently
+// overwrite whatever's currently live; republishing an already-synced
+// product stays the single-product editor's explicit Republish button. The
+// account-scoped eligibility check is defense in depth: the client already
+// pre-filters its selection, but state could theoretically change between
+// page load and click.
+export async function pushSelectedProducts(
+  productIds: string[]
+): Promise<{ jobId: string; count: number } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (productIds.length === 0) {
+    return { error: "No products selected." };
+  }
+
+  const eligible = await getEligibleUnsyncedProducts(account.id, productIds);
+  if (eligible.length === 0) {
+    return { error: "None of the selected products are new — they've already been pushed to Shopify." };
+  }
+
+  const storeId = eligible[0].storeId;
+  const eligibleIds = eligible.map((product) => product.id);
+
+  const job = await createJob({ accountId: account.id, storeId, type: "PUSH" });
+  await triggerBatchPush({ accountId: account.id, storeId, jobId: job.id, productIds: eligibleIds });
+
+  return { jobId: job.id, count: eligibleIds.length };
+}
+
+// Unit 16 follow-up: the no-selection counterpart to pushSelectedProducts —
+// pushes every product for the current store that's never reached Shopify.
+// Store scope matches products/page.tsx's own "first connected store"
+// convention (Unit 21 replaces both with the real switcher selection). Zero
+// eligible products is a typed error, not a job — nothing to enqueue.
+export async function pushAllDrafts(): Promise<{ jobId: string; count: number } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const stores = await getStoresForAccount(account.id);
+  const store = stores[0];
+  if (!store) {
+    return { error: "Connect a store first." };
+  }
+
+  const productIds = await getUnsyncedProductIdsForStore(account.id, store.id);
+  if (productIds.length === 0) {
+    return { error: "Every product has already been pushed to Shopify." };
+  }
+
+  const job = await createJob({ accountId: account.id, storeId: store.id, type: "PUSH" });
+  await triggerBatchPush({ accountId: account.id, storeId: store.id, jobId: job.id, productIds });
+
+  return { jobId: job.id, count: productIds.length };
+}
+
+// Unit 16 follow-up: changes one or more products' status directly from the
+// products list (a single row's dropdown, or a bulk selection) with an
+// explicit choice of whether to also sync that change to Shopify right now
+// — never calls Shopify itself here (invariant 4); syncToShopify just
+// chains into the same batch push machinery pushSelectedProducts uses.
+// Unlike pushSelectedProducts, this is not limited to never-synced
+// products: the whole point is pushing a status change onto a product that
+// may already be live.
+export async function setProductsStatus(
+  productIds: string[],
+  status: "DRAFT" | "ACTIVE",
+  syncToShopify: boolean
+): Promise<{ jobId?: string; count: number } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (productIds.length === 0) {
+    return { error: "No products selected." };
+  }
+
+  const { updatedCount } = await updateProductsStatusInDb({ accountId: account.id, productIds, status });
+  if (updatedCount === 0) {
+    return { error: "Those products no longer exist." };
+  }
+
+  revalidatePath("/products");
+  revalidatePath("/dashboard");
+
+  if (!syncToShopify) {
+    return { count: updatedCount };
+  }
+
+  const eligible = await getProductsForStatusSync(account.id, productIds);
+  if (eligible.length === 0) {
+    // Status was still updated locally — just nothing left to sync (every
+    // matched product is conflicted). Not an error: the local change
+    // already succeeded.
+    return { count: updatedCount };
+  }
+
+  const storeId = eligible[0].storeId;
+  const eligibleIds = eligible.map((product) => product.id);
+
+  const job = await createJob({ accountId: account.id, storeId, type: "PUSH" });
+  await triggerBatchPush({ accountId: account.id, storeId, jobId: job.id, productIds: eligibleIds });
+
+  return { jobId: job.id, count: eligibleIds.length };
+}
+
+// Unit 16 follow-up, per explicit user request: a genuinely destructive
+// action distinct from deleteProducts (above), which only ever touches
+// Dockit's own database — this permanently removes the product from
+// Shopify too. Gated client-side by
+// components/delete-from-shopify-dialog.tsx's type-the-product-name
+// confirmation before this is ever called. Never calls Shopify itself here
+// (invariant 4) — just enqueues the job, same shape as pushProduct.
+export async function deleteProductEverywhere(productId: string): Promise<{ jobId: string } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const product = await getProductById(account.id, productId);
+  if (!product) {
+    return { error: "This product no longer exists." };
+  }
+  if (!product.shopifyProductId) {
+    return { error: "This product was never pushed to Shopify." };
+  }
+
+  const job = await createJob({ accountId: account.id, storeId: product.storeId, type: "DELETE" });
+  await triggerProductDelete({ accountId: account.id, storeId: product.storeId, productId, jobId: job.id });
+
+  return { jobId: job.id };
+}
+
 // Unit 15: a plain polling read for the Push button's own inline status —
 // no revalidatePath here, since nothing server-rendered changes per poll
-// tick; the client refreshes itself once it observes SUCCEEDED.
+// tick; the client refreshes itself once it observes SUCCEEDED. Generic by
+// implementation despite the push-specific name — reused as-is by the
+// delete job's polling too (renaming would touch every already-tested call
+// site for no functional gain).
 export async function getPushJobStatus(
   jobId: string
 ): Promise<{ status: JobStatus; results: unknown } | { error: string }> {

@@ -60,6 +60,39 @@
   --text-section-heading: 1.125rem; /* 18px / 600 */
   --text-label: 0.75rem; /* 12px / 500 */
   --text-table-data: 0.8125rem; /* 13px / 400, mono */
+
+  /* components/action-confirmation-modal.tsx's animated checkmark: the
+     circle pops in first, then the check draws in (stroke-dashoffset from
+     full length to 0), staggered slightly so it reads as one motion rather
+     than two things happening at once. */
+  --animate-confirmation-circle: confirmation-circle-pop 0.3s ease-out forwards;
+  --animate-confirmation-check: confirmation-stroke-draw 0.35s ease-out 0.25s forwards;
+}
+
+@keyframes confirmation-circle-pop {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Generic dash-offset draw-in, reused for both the ring circle and the
+   checkmark path in components/action-confirmation-modal.tsx (each with
+   its own dasharray/duration/delay). */
+@keyframes confirmation-stroke-draw {
+  from {
+    stroke-dashoffset: var(--confirmation-stroke-length, 40);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 :root {

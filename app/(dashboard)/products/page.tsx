@@ -7,6 +7,7 @@ import { getStoresForAccount } from "@/lib/db/stores";
 import { getProductsForStore } from "@/lib/db/products";
 import { Button } from "@/components/ui/button";
 import { ProductTable } from "@/components/product-table";
+import { PushAllDraftsButton } from "@/components/push-all-drafts-button";
 
 // Unit 8: real product list, read-only. Scoped to the first connected store
 // for now — Unit 21 wires this to the store switcher's actual selection.
@@ -34,10 +35,13 @@ export default async function ProductsPage() {
             {currentStore.name ?? currentStore.shopifyDomain}
           </p>
         </div>
-        <Button nativeButton={false} render={<Link href="/products/new" />}>
-          <Plus className="size-4" />
-          New product
-        </Button>
+        <div className="flex items-center gap-2">
+          <PushAllDraftsButton products={products} />
+          <Button nativeButton={false} render={<Link href="/products/new" />}>
+            <Plus className="size-4" />
+            New product
+          </Button>
+        </div>
       </div>
       {products.length === 0 ? (
         <p className="text-sm text-muted-foreground">No products yet.</p>

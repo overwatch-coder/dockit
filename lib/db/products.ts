@@ -269,6 +269,69 @@ export async function markProductPushed(input: {
   return { updated: true };
 }
 
+// Unit 16, corrected per explicit user feedback: eligibility for a bulk
+// "push new products" action is whether a product has ever reached
+// Shopify (shopifyProductId === null), not its local DRAFT/ACTIVE status —
+// those are independent. A product marked DRAFT locally that was already
+// pushed once is NOT re-pushed by this bulk action (that would silently
+// overwrite whatever's live); republishing an already-synced product stays
+// the single-product editor's explicit Republish button. Re-validates a
+// caller-supplied selection (components/product-table.tsx's "Push
+// selected" action) server-side — the client already pre-filters, but
+// state could theoretically change between page load and click, so this is
+// defense in depth, not the only filter. id-only wouldn't be enough here:
+// storeId is needed for the batch push's Inngest event.
+export async function getEligibleUnsyncedProducts(
+  accountId: string,
+  productIds: string[]
+): Promise<{ id: string; storeId: string }[]> {
+  return prisma.product.findMany({
+    where: { accountId, id: { in: productIds }, shopifyProductId: null, isConflicted: false },
+    select: { id: true, storeId: true },
+  });
+}
+
+// Unit 16 follow-up: backs the "Push new products" trigger (no selection
+// required) — every never-synced, non-conflicted product for the store,
+// id-only since the caller (pushAllDrafts) already knows the storeId.
+export async function getUnsyncedProductIdsForStore(accountId: string, storeId: string): Promise<string[]> {
+  const products = await prisma.product.findMany({
+    where: { accountId, storeId, shopifyProductId: null, isConflicted: false },
+    select: { id: true },
+  });
+  return products.map((product) => product.id);
+}
+
+// Unit 16 follow-up: backs "sync this status change to Shopify now" — unlike
+// getEligibleUnsyncedProducts, this is NOT limited to never-synced products,
+// since the whole point is pushing a status change onto a product that may
+// already be live on Shopify. Still excludes conflicted products, same
+// safety margin as every other batch push.
+export async function getProductsForStatusSync(
+  accountId: string,
+  productIds: string[]
+): Promise<{ id: string; storeId: string }[]> {
+  return prisma.product.findMany({
+    where: { accountId, id: { in: productIds }, isConflicted: false },
+    select: { id: true, storeId: true },
+  });
+}
+
+// Unit 16 follow-up: bulk (or single-item, via a one-element array) status
+// change from the products list — bumps lastEditedAt, same conflict-
+// detection convention as every other product write (invariant 6).
+export async function updateProductsStatus(input: {
+  accountId: string;
+  productIds: string[];
+  status: "DRAFT" | "ACTIVE";
+}): Promise<{ updatedCount: number }> {
+  const result = await prisma.product.updateMany({
+    where: { id: { in: input.productIds }, accountId: input.accountId },
+    data: { status: input.status, lastEditedAt: new Date() },
+  });
+  return { updatedCount: result.count };
+}
+
 // Account-scoped, app-database-only delete — does not touch Shopify (no
 // delete mutation exists yet, see lib/shopify/products.ts). Used for both a
 // single product (array of one) and bulk delete from the product list, so

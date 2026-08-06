@@ -155,6 +155,11 @@ model Variant {
 enum JobType {
   PUSH
   SYNC
+  // Unit 16 follow-up, per explicit user request: a background job for
+  // permanently deleting a product from Shopify (not just from Dockit's own
+  // database, which lib/db/products.ts's deleteProducts already handles
+  // synchronously with no job at all).
+  DELETE
 }
 
 enum JobStatus {

@@ -66,7 +66,7 @@ export default async function ProductEditorPage({
             nativeButton={false}
             render={<a href={shopifyUrl} target="_blank" rel="noopener noreferrer" />}
           >
-            Go to Shopify
+            Shopify
             <ExternalLink className="size-4" />
           </Button>
         )}

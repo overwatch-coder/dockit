@@ -92,7 +92,22 @@ async function postGraphQL<T>(
 
     const body = (await response.json()) as { data?: T; errors?: { message: string }[] };
     if (body.errors?.length) {
-      return { success: false, error: body.errors.map((e) => e.message).join("; ") };
+      // Top-level GraphQL `errors` (as opposed to productSet's own
+      // `userErrors`) are always protocol-level failures — malformed
+      // variables, schema/type mismatches, auth issues — never messages
+      // Shopify wrote for end-user display (e.g. "Variable $input of type
+      // ProductSetInput! was provided invalid value for
+      // variants.0.optionValues..."). Logging the real message server-side
+      // and returning a generic one keeps that GraphQL-internal detail out
+      // of the push results dialog the owner actually sees. `userErrors`
+      // (handled separately in pushProductToShopify, below) ARE meant for
+      // display and are left untouched.
+      const technicalMessage = body.errors.map((e) => e.message).join("; ");
+      console.error(`Shopify GraphQL error (${shopDomain}): ${technicalMessage}`);
+      return {
+        success: false,
+        error: "Shopify rejected the request due to invalid product data. Check the title, price, and variants, then try again.",
+      };
     }
     if (!body.data) {
       return { success: false, error: "Shopify response had no data" };
@@ -272,7 +287,6 @@ export async function pushProductToShopify(
     beforeMediaIds = new Set(before.data.map((node) => node.id));
   }
 
-  const hasVariants = input.variants.length > 0;
   const newLocalVariants = input.variants.filter((v) => v.shopifyVariantId === null);
 
   const productSetInput: Record<string, unknown> = {
@@ -283,31 +297,56 @@ export async function pushProductToShopify(
     seo: { title: input.seoTitle, description: input.seoDescription },
   };
 
-  if (hasVariants) {
-    productSetInput.productOptions = [
-      { name: "Title", position: 1, values: input.variants.map((v) => ({ name: v.optionName })) },
-    ];
-    // Scope call: inventory quantities are NOT set here. Doing so requires
-    // the locations query, which needs a read_locations OAuth scope this
-    // app's connected store token doesn't currently have (confirmed live —
-    // "Access denied for locations field" — SHOPIFY_SCOPES is only
-    // read_products,write_products today). This app also has no
-    // inventory-management concept anywhere else in its schema/UI beyond
-    // Variant.inventory as a plain stored number, so this is a reasonable
-    // scope cut rather than blocking push on an OAuth reconnect mid-unit —
-    // real inventory sync can be added later alongside read_locations/
-    // write_inventory once the store token is reconnected with that scope.
-    productSetInput.variants = input.variants.map((v) => ({
-      ...(v.shopifyVariantId ? { id: toGid("ProductVariant", v.shopifyVariantId) } : {}),
-      price: v.price,
-      optionValues: [{ optionName: "Title", name: v.optionName }],
-    }));
-  } else {
-    // No explicit variants (Unit 11 scope) — still need one default variant
-    // so Shopify has somewhere to put the product's price. No productOptions
-    // sent, so Shopify creates its own implicit default option.
-    productSetInput.variants = [{ price: input.price }];
-  }
+  // Bugfix: this used to only send productOptions/optionValues when the
+  // product had explicit local variants, falling back to a bare
+  // `{ price }` variant with no productOptions at all otherwise. Updating
+  // an EXISTING Shopify product that already has an option configured (from
+  // an earlier push with variants, or from a prior update using this same
+  // shape) with that bare payload produced a GraphQL variable-coercion
+  // error ("variants.0.optionValues ... Expected value to not be null")
+  // instead of a clean userError, because the payload no longer matched the
+  // option structure Shopify already had on file for that product. Always
+  // sending a consistent productOptions + optionValues shape — a synthetic
+  // single "Default Title" variant when there are no explicit local
+  // variants, matching Shopify's own default-variant convention — removes
+  // that mismatch. Blank or duplicate variant names are also normalized
+  // here rather than sent through: Shopify silently collapses duplicate
+  // option values, which would desync a later variant's optionValues.name
+  // from what Shopify actually created.
+  const seenOptionNames = new Set<string>();
+  const normalizedVariants = (
+    input.variants.length > 0
+      ? input.variants
+      : [{ id: "", shopifyVariantId: null, optionName: "Default Title", price: input.price, inventory: 0 }]
+  ).map((variant) => {
+    let name = variant.optionName.trim() || "Default Title";
+    if (seenOptionNames.has(name)) {
+      let suffix = 2;
+      while (seenOptionNames.has(`${name} (${suffix})`)) suffix++;
+      name = `${name} (${suffix})`;
+    }
+    seenOptionNames.add(name);
+    return { ...variant, optionName: name };
+  });
+
+  productSetInput.productOptions = [
+    { name: "Title", position: 1, values: normalizedVariants.map((v) => ({ name: v.optionName })) },
+  ];
+  // Scope call: inventory quantities are NOT set here. Doing so requires
+  // the locations query, which needs a read_locations OAuth scope this
+  // app's connected store token doesn't currently have (confirmed live —
+  // "Access denied for locations field" — SHOPIFY_SCOPES is only
+  // read_products,write_products today). This app also has no
+  // inventory-management concept anywhere else in its schema/UI beyond
+  // Variant.inventory as a plain stored number, so this is a reasonable
+  // scope cut rather than blocking push on an OAuth reconnect mid-unit —
+  // real inventory sync can be added later alongside read_locations/
+  // write_inventory once the store token is reconnected with that scope.
+  productSetInput.variants = normalizedVariants.map((v) => ({
+    ...(v.shopifyVariantId ? { id: toGid("ProductVariant", v.shopifyVariantId) } : {}),
+    price: v.price,
+    optionValues: [{ optionName: "Title", name: v.optionName }],
+  }));
 
   // Never touches collection membership when the app has no opinion —
   // productSet's `collections` field is a full-replacement list, so sending
@@ -351,7 +390,16 @@ export async function pushProductToShopify(
   const existingVariants: PushedVariant[] = input.variants
     .filter((v) => v.shopifyVariantId !== null)
     .map((v) => ({ localVariantId: v.id, shopifyVariantId: v.shopifyVariantId! }));
-  const matchedNewVariants = matchNewVariants(newLocalVariants, product.variants.nodes);
+  // Match against the normalized names actually sent to Shopify (a blank or
+  // duplicate optionName gets renamed above), not the raw local ones —
+  // otherwise a renamed variant would never find its remote counterpart by
+  // title.
+  const normalizedNameByLocalId = new Map(normalizedVariants.map((v) => [v.id, v.optionName]));
+  const newLocalVariantsForMatching = newLocalVariants.map((v) => ({
+    ...v,
+    optionName: normalizedNameByLocalId.get(v.id) ?? v.optionName,
+  }));
+  const matchedNewVariants = matchNewVariants(newLocalVariantsForMatching, product.variants.nodes);
   const pushedVariants = [...existingVariants, ...matchedNewVariants];
 
   let newMediaUrls: string[] = [];
