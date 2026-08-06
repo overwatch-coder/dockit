@@ -371,7 +371,17 @@ export function ProductTable({ products, shopDomain }: { products: Product[]; sh
             <TableRow
               key={product.id}
               className="cursor-pointer"
-              onClick={() => router.push(`/products/${product.id}`)}
+              // Unit 19 follow-up, per explicit user feedback: a conflicted
+              // row used to navigate straight into the product editor on any
+              // click except the badge itself, so the conflict was easy to
+              // miss entirely. Now the whole row opens the resolution dialog
+              // first, same as clicking the badge — the editor is only
+              // reachable normally once there's nothing to resolve.
+              onClick={() =>
+                product.isConflicted
+                  ? setConflictTarget(product)
+                  : router.push(`/products/${product.id}`)
+              }
             >
               <TableCell onClick={(event) => event.stopPropagation()}>
                 <Checkbox
@@ -399,22 +409,13 @@ export function ProductTable({ products, shopDomain }: { products: Product[]; sh
               </TableCell>
               <TableCell className="text-muted-foreground">{product.collectionTitle ?? "—"}</TableCell>
               <TableCell className="font-mono text-table-data">{product.price}</TableCell>
-              <TableCell onClick={(event) => event.stopPropagation()}>
-                {/* Unit 19: ui-context.md's conflict modal is "triggered
-                    from a Conflict badge" — clickable only when there's
-                    actually a conflict to resolve; otherwise the badge stays
-                    plain, same as before. */}
-                {product.isConflicted ? (
-                  <button
-                    type="button"
-                    onClick={() => setConflictTarget(product)}
-                    className="cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
-                  >
-                    <ProductStatusBadge product={product} />
-                  </button>
-                ) : (
-                  <ProductStatusBadge product={product} />
-                )}
+              <TableCell>
+                {/* Unit 19 follow-up: no longer a separate click target with
+                    its own stopPropagation — the whole row now opens the
+                    resolution dialog for a conflicted product (see the
+                    TableRow's onClick above), so the badge just needs to be
+                    visible, not independently clickable. */}
+                <ProductStatusBadge product={product} />
               </TableCell>
               <TableCell className="font-mono text-table-data text-muted-foreground">
                 {product.lastSyncedAt ? lastSyncedFormatter.format(product.lastSyncedAt) : "—"}
@@ -429,7 +430,13 @@ export function ProductTable({ products, shopDomain }: { products: Product[]; sh
                     <MoreHorizontal className="size-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-44">
-                    <DropdownMenuItem onClick={() => router.push(`/products/${product.id}`)}>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        product.isConflicted
+                          ? setConflictTarget(product)
+                          : router.push(`/products/${product.id}`)
+                      }
+                    >
                       <Pencil className="size-4" />
                       Edit
                     </DropdownMenuItem>

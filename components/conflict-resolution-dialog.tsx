@@ -158,7 +158,12 @@ export function ConflictResolutionDialog({
         }
       }}
     >
-      <DialogContent className="sm:max-w-2xl">
+      {/* Wider than the shadcn default on every breakpoint — a two-column
+          diff needs more room than a typical dialog, both on mobile (the
+          base DialogContent's calc(100%-2rem) margin still felt tight for
+          two side-by-side columns) and on desktop, per explicit user
+          feedback. */}
+      <DialogContent className="max-w-[calc(100%-1rem)] sm:max-w-2xl md:max-w-3xl lg:max-w-4xl">
         <DialogHeader>
           <DialogTitle>Resolve conflict: {product?.title}</DialogTitle>
           <DialogDescription>
