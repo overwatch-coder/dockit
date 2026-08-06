@@ -106,7 +106,7 @@ export async function triggerStoreImport(input: {
 }
 
 type FetchAndSyncResult =
-  | { success: true; syncedCount: number; skippedCount: number; errorCount: number }
+  | { success: true; syncedCount: number; conflictedCount: number; errorCount: number }
   | { success: false; error: string };
 
 // Unit 17: the re-sync counterpart of fetchAndImport above — not merged
@@ -130,12 +130,12 @@ async function fetchAndSync(input: {
     return { success: false, error: fetched.error };
   }
 
-  const { syncedCount, skippedCount, errorCount } = await syncProducts({
+  const { syncedCount, conflictedCount, errorCount } = await syncProducts({
     accountId: input.accountId,
     storeId: input.storeId,
     products: fetched.data,
   });
-  return { success: true, syncedCount, skippedCount, errorCount };
+  return { success: true, syncedCount, conflictedCount, errorCount };
 }
 
 // Unit 17: mirrors triggerProductPush's pattern — the caller
@@ -178,7 +178,7 @@ export const syncStoreJob = inngest.createFunction(
           status: "SUCCEEDED",
           results: {
             syncedCount: result.syncedCount,
-            skippedCount: result.skippedCount,
+            conflictedCount: result.conflictedCount,
             errorCount: result.errorCount,
           },
         })

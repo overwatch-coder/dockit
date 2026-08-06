@@ -26,16 +26,20 @@ export function SyncStoreButton() {
   const { isPolling, start } = useJobPolling({
     onSettled: (status, results) => {
       if (status === "SUCCEEDED") {
-        const { syncedCount, skippedCount } = (results as SyncStoreResults | undefined) ?? {
+        const { syncedCount, conflictedCount } = (results as SyncStoreResults | undefined) ?? {
           syncedCount: 0,
-          skippedCount: 0,
+          conflictedCount: 0,
           errorCount: 0,
         };
         setConfirmation({
           title: "Store synced",
+          // Unit 18: a product with an unpushed local edit is no longer
+          // silently skipped — it's flagged as a conflict (Conflict badge +
+          // dashboard stat) for the owner to resolve, so this needs to read
+          // as "needs your attention," not "nothing happened."
           description:
-            skippedCount > 0
-              ? `${syncedCount} product${syncedCount === 1 ? "" : "s"} updated, ${skippedCount} skipped (unpushed local changes)`
+            conflictedCount > 0
+              ? `${syncedCount} product${syncedCount === 1 ? "" : "s"} updated, ${conflictedCount} flagged as conflict${conflictedCount === 1 ? "" : "s"}`
               : `${syncedCount} product${syncedCount === 1 ? "" : "s"} updated`,
         });
       } else {

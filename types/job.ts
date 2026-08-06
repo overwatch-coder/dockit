@@ -22,7 +22,10 @@ export type PushBatchResultItem =
 
 export type PushBatchResults = { items: PushBatchResultItem[] };
 
-// Unit 17: the shape of Job.results for a successful "Sync Store" run
+// Unit 17/18: the shape of Job.results for a successful "Sync Store" run
 // (lib/jobs/import.ts's syncStoreJob writes this, components/sync-store-button.tsx
-// reads it back after polling).
-export type SyncStoreResults = { syncedCount: number; skippedCount: number; errorCount: number };
+// reads it back after polling). skippedCount was renamed conflictedCount in
+// Unit 18: what used to be a silent no-op skip is now a flagged conflict
+// (Product.isConflicted + snapshots) that the owner needs to know about and
+// resolve (Unit 19), not just a count of nothing-happened.
+export type SyncStoreResults = { syncedCount: number; conflictedCount: number; errorCount: number };

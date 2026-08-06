@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/client";
+import { Prisma } from "@/lib/generated/prisma/client";
 import type { ShopifyImportedProduct } from "@/lib/shopify/products";
-import type { Product } from "@/types/product";
+import type { ConflictSnapshot, Product } from "@/types/product";
 
 type ProductRecord = {
   id: string;
@@ -18,6 +19,12 @@ type ProductRecord = {
   seoTitle: string | null;
   seoDescription: string | null;
   isConflicted: boolean;
+  // Prisma's Json? columns type as JsonValue | null at the client level —
+  // narrowed to ConflictSnapshot | null here since this app is the only
+  // writer of these columns (see syncProducts below) and always writes the
+  // exact shape.
+  conflictAppSnapshot: unknown;
+  conflictShopifySnapshot: unknown;
   lastSyncedAt: Date | null;
   variants: {
     id: string;
@@ -45,6 +52,8 @@ function toDomainProduct(product: ProductRecord): Product {
     seoTitle: product.seoTitle,
     seoDescription: product.seoDescription,
     isConflicted: product.isConflicted,
+    conflictAppSnapshot: (product.conflictAppSnapshot as ConflictSnapshot | null) ?? null,
+    conflictShopifySnapshot: (product.conflictShopifySnapshot as ConflictSnapshot | null) ?? null,
     lastSyncedAt: product.lastSyncedAt,
     variants: product.variants.map((variant) => ({
       id: variant.id,
@@ -446,7 +455,70 @@ export function shouldSkipSync(product: { lastEditedAt: Date; lastSyncedAt: Date
   return product.lastEditedAt > product.lastSyncedAt;
 }
 
-// Unit 17: the re-sync counterpart of importProducts, deliberately a
+// Unit 18: builds the "app side" half of a conflict snapshot from the
+// currently-stored row — the exact ConflictSnapshot shape, so Unit 19's
+// resolution UI can render conflictAppSnapshot/conflictShopifySnapshot
+// symmetrically without knowing which side came from Prisma vs. Shopify's
+// GraphQL response.
+function toAppSnapshot(existing: {
+  title: string;
+  description: string | null;
+  imageUrl: string | null;
+  imageUrls: string[];
+  price: { toString(): string };
+  status: "DRAFT" | "ACTIVE";
+  tags: string[];
+  collectionId: string | null;
+  collectionTitle: string | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  variants: { optionName: string; price: { toString(): string }; inventory: number }[];
+}): ConflictSnapshot {
+  return {
+    title: existing.title,
+    description: existing.description,
+    imageUrl: existing.imageUrl,
+    imageUrls: existing.imageUrls,
+    price: existing.price.toString(),
+    status: existing.status,
+    tags: existing.tags,
+    collectionId: existing.collectionId,
+    collectionTitle: existing.collectionTitle,
+    seoTitle: existing.seoTitle,
+    seoDescription: existing.seoDescription,
+    variants: existing.variants.map((variant) => ({
+      optionName: variant.optionName,
+      price: variant.price.toString(),
+      inventory: variant.inventory,
+    })),
+  };
+}
+
+// Unit 18: the Shopify-side half of a conflict snapshot — ShopifyImportedProduct
+// already matches ConflictSnapshot's field set almost exactly, minus the
+// per-variant shopifyVariantId this snapshot doesn't need.
+function toShopifySnapshot(product: ShopifyImportedProduct): ConflictSnapshot {
+  return {
+    title: product.title,
+    description: product.description,
+    imageUrl: product.imageUrl,
+    imageUrls: product.imageUrls,
+    price: product.price,
+    status: product.status,
+    tags: product.tags,
+    collectionId: product.collectionId,
+    collectionTitle: product.collectionTitle,
+    seoTitle: product.seoTitle,
+    seoDescription: product.seoDescription,
+    variants: product.variants.map((variant) => ({
+      optionName: variant.optionName,
+      price: variant.price,
+      inventory: variant.inventory,
+    })),
+  };
+}
+
+// Unit 17/18: the re-sync counterpart of importProducts, deliberately a
 // separate function rather than a retrofit of it — importProducts is only
 // ever called from the OAuth-connect flow, where every row is brand-new
 // (nothing to compare lastEditedAt against yet), so bolting a skip-check
@@ -456,30 +528,48 @@ export function shouldSkipSync(product: { lastEditedAt: Date; lastSyncedAt: Date
 // abort every other product's update the way a single throw would in
 // importProducts' unconditional loop.
 //
-// Per product: skip entirely (no writes at all, not even lastSyncedAt) if
-// shouldSkipSync says there's an unpushed local edit — this is the
-// "non-conflicting path" this unit is scoped to; the product isn't flagged
-// as Conflict yet (Unit 18), it's just left alone so a future sync/Unit 18
-// can deal with it properly. Otherwise, write the same Shopify-sourced
-// field set importProducts does.
+// Per product: if shouldSkipSync says there's an unpushed local edit, this
+// is architecture.md invariant 6's case — never silently overwrite it.
+// Unit 17 left it at that (skip, no write at all); Unit 18 upgrades this
+// into the real behavior the invariant asks for: flag isConflicted, and
+// store a snapshot of both versions (conflictAppSnapshot/
+// conflictShopifySnapshot) so Unit 19 has something to show the owner. Only
+// those three fields are written — title/description/price/etc. are left
+// exactly as they are, so the app's unpushed edit is still what's live
+// locally. If the product was already conflicted from a previous sync, this
+// re-runs the same branch and refreshes conflictShopifySnapshot to the
+// latest Shopify state, so a still-unresolved conflict doesn't go stale.
+// Otherwise, write the same Shopify-sourced field set importProducts does.
 export async function syncProducts(input: {
   accountId: string;
   storeId: string;
   products: ShopifyImportedProduct[];
-}): Promise<{ syncedCount: number; skippedCount: number; errorCount: number }> {
+}): Promise<{ syncedCount: number; conflictedCount: number; errorCount: number }> {
   const now = new Date();
   let syncedCount = 0;
-  let skippedCount = 0;
+  let conflictedCount = 0;
   let errorCount = 0;
 
   for (const product of input.products) {
     try {
       const existing = await prisma.product.findFirst({
-        where: { storeId: input.storeId, shopifyProductId: product.shopifyProductId },
-        select: { lastEditedAt: true, lastSyncedAt: true },
+        where: {
+          accountId: input.accountId,
+          storeId: input.storeId,
+          shopifyProductId: product.shopifyProductId,
+        },
+        include: { variants: true },
       });
       if (existing && shouldSkipSync(existing)) {
-        skippedCount += 1;
+        await prisma.product.update({
+          where: { id: existing.id },
+          data: {
+            isConflicted: true,
+            conflictAppSnapshot: toAppSnapshot(existing),
+            conflictShopifySnapshot: toShopifySnapshot(product),
+          },
+        });
+        conflictedCount += 1;
         continue;
       }
 
@@ -520,6 +610,18 @@ export async function syncProducts(input: {
           seoTitle: product.seoTitle,
           seoDescription: product.seoDescription,
           lastSyncedAt: now,
+          // Reaching this branch means shouldSkipSync was false, i.e. no
+          // unpushed local edit was found — clears a stale conflict flag
+          // (and its now-irrelevant snapshots) left over from a conflict
+          // that got resolved by some other path than Unit 19's dedicated
+          // action, so isConflicted never drifts out of sync with reality.
+          isConflicted: false,
+          // Prisma's Json? columns require the sentinel Prisma.JsonNull, not
+          // a plain `null`, to actually write a JSON null — a bare `null`
+          // here is a TS-level type error since it's ambiguous with "leave
+          // the field unset."
+          conflictAppSnapshot: Prisma.JsonNull,
+          conflictShopifySnapshot: Prisma.JsonNull,
         },
       });
 
@@ -555,5 +657,5 @@ export async function syncProducts(input: {
     }
   }
 
-  return { syncedCount, skippedCount, errorCount };
+  return { syncedCount, conflictedCount, errorCount };
 }
