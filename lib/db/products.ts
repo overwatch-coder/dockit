@@ -798,22 +798,38 @@ export async function syncProducts(input: {
   return { syncedCount, conflictedCount, errorCount };
 }
 
-// Unit 19: the "Keep Shopify version" conflict resolution — a pure local
-// write, no Shopify call needed (invariant 1 stays satisfied), since
-// conflictShopifySnapshot already holds everything required. The
-// counterpart, "Keep app version," needs no dedicated function at all: it's
-// just a normal push (pushProduct/pushOneProduct in lib/jobs/push.ts), and
-// markProductPushed above already clears the conflict fields on success.
+// Unit 19 follow-up, per explicit user request: real per-field conflict
+// resolution, not just "keep everything from one side." Replaces the old
+// resolveConflictKeepShopify — that function's whole-record write is now
+// just the special case where every selection below is "shopify", so one
+// general function covers both the old wholesale resolutions and a real
+// mix, instead of maintaining near-duplicate write paths. Confirmed via
+// AskUserQuestion: per-field pick only (no free-text editing this pass);
+// variants are picked as one atomic unit, not merged per-variant.
+export type ConflictFieldSelections = {
+  title: "app" | "shopify";
+  description: "app" | "shopify";
+  price: "app" | "shopify";
+  status: "app" | "shopify";
+  tags: "app" | "shopify";
+  collection: "app" | "shopify"; // collectionId + collectionTitle move together
+  seoTitle: "app" | "shopify";
+  seoDescription: "app" | "shopify";
+  variants: "app" | "shopify";
+};
+
 // Transactional (unlike syncProducts' per-item error isolation) since this
 // is a single product — a partial resolution (product fields updated but a
 // variant upsert failed, or vice versa) would be worse than a clean failure
 // the owner can just retry.
-export async function resolveConflictKeepShopify(input: {
+export async function resolveConflictWithSelections(input: {
   accountId: string;
   productId: string;
-}): Promise<{ success: true } | { success: false; error: string }> {
+  selections: ConflictFieldSelections;
+}): Promise<{ success: true; needsPush: boolean } | { success: false; error: string }> {
   const existing = await prisma.product.findFirst({
     where: { id: input.productId, accountId: input.accountId },
+    include: { variants: true },
   });
   if (!existing) {
     return { success: false, error: "This product no longer exists." };
@@ -822,60 +838,86 @@ export async function resolveConflictKeepShopify(input: {
     return { success: false, error: "This product has no conflict to resolve." };
   }
 
-  const snapshot = existing.conflictShopifySnapshot as unknown as ConflictSnapshot;
+  const shopifySnapshot = existing.conflictShopifySnapshot as unknown as ConflictSnapshot;
+  const appSnapshot = toAppSnapshot(existing);
+  const { selections } = input;
+  // Any field pulled from the app side means the merged result no longer
+  // matches what's live on Shopify — confirmed via AskUserQuestion: that
+  // means this resolution needs to push, same as today's "Keep app version"
+  // path. All-"shopify" needs no push at all (a pure convergence to what
+  // Shopify already has).
+  const needsPush = Object.values(selections).some((side) => side === "app");
   const now = new Date();
 
   await prisma.$transaction([
     prisma.product.update({
       where: { id: existing.id },
       data: {
-        title: snapshot.title,
-        description: snapshot.description,
-        imageUrl: snapshot.imageUrl,
-        imageUrls: snapshot.imageUrls,
-        price: snapshot.price,
-        status: snapshot.status,
-        tags: snapshot.tags,
-        collectionId: snapshot.collectionId,
-        collectionTitle: snapshot.collectionTitle,
-        seoTitle: snapshot.seoTitle,
-        seoDescription: snapshot.seoDescription,
-        lastSyncedAt: now,
+        title: selections.title === "app" ? appSnapshot.title : shopifySnapshot.title,
+        description: selections.description === "app" ? appSnapshot.description : shopifySnapshot.description,
+        price: selections.price === "app" ? appSnapshot.price : shopifySnapshot.price,
+        status: selections.status === "app" ? appSnapshot.status : shopifySnapshot.status,
+        tags: selections.tags === "app" ? appSnapshot.tags : shopifySnapshot.tags,
+        collectionId: selections.collection === "app" ? appSnapshot.collectionId : shopifySnapshot.collectionId,
+        collectionTitle:
+          selections.collection === "app" ? appSnapshot.collectionTitle : shopifySnapshot.collectionTitle,
+        seoTitle: selections.seoTitle === "app" ? appSnapshot.seoTitle : shopifySnapshot.seoTitle,
+        seoDescription:
+          selections.seoDescription === "app" ? appSnapshot.seoDescription : shopifySnapshot.seoDescription,
+        // Images were never surfaced as a choosable field in the dialog, so
+        // there's no owner signal to merge them by — only adopted from
+        // Shopify in the one case that fully matches the old "keep Shopify
+        // version" behavior (every field picked "shopify"); otherwise left
+        // untouched, since the app's current images are already correct for
+        // anything that stays "mine".
+        ...(needsPush
+          ? {}
+          : { imageUrl: shopifySnapshot.imageUrl, imageUrls: shopifySnapshot.imageUrls }),
         isConflicted: false,
         conflictAppSnapshot: Prisma.JsonNull,
         conflictShopifySnapshot: Prisma.JsonNull,
+        // Pure convergence to Shopify (no push needed) sets lastSyncedAt now,
+        // same as syncProducts/markProductPushed. Anything that needs a push
+        // instead bumps lastEditedAt — this is a real local edit not yet on
+        // Shopify; markProductPushed sets lastSyncedAt for real once the
+        // push actually succeeds, not before (a failed push should still
+        // look unsynced, not falsely "resolved").
+        ...(needsPush ? { lastEditedAt: now } : { lastSyncedAt: now }),
       },
     }),
     // Every Shopify-snapshot variant has a shopifyVariantId (it came from
     // ShopifyImportedVariant, which always has one) — upserts by the real
     // productId_shopifyVariantId compound unique, same as syncProducts,
-    // instead of the local id the app side may have used.
-    ...snapshot.variants
-      .filter((variant): variant is typeof variant & { shopifyVariantId: string } => variant.shopifyVariantId !== null)
-      .map((variant) =>
-        prisma.variant.upsert({
-          where: {
-            productId_shopifyVariantId: {
-              productId: existing.id,
-              shopifyVariantId: variant.shopifyVariantId,
-            },
-          },
-          create: {
-            accountId: input.accountId,
-            productId: existing.id,
-            shopifyVariantId: variant.shopifyVariantId,
-            optionName: variant.optionName,
-            price: variant.price,
-            inventory: variant.inventory,
-          },
-          update: {
-            optionName: variant.optionName,
-            price: variant.price,
-            inventory: variant.inventory,
-          },
-        })
-      ),
+    // instead of the local id the app side may have used. "app" needs no
+    // variant writes at all — the existing rows are already correct.
+    ...(selections.variants === "shopify"
+      ? shopifySnapshot.variants
+          .filter((variant): variant is typeof variant & { shopifyVariantId: string } => variant.shopifyVariantId !== null)
+          .map((variant) =>
+            prisma.variant.upsert({
+              where: {
+                productId_shopifyVariantId: {
+                  productId: existing.id,
+                  shopifyVariantId: variant.shopifyVariantId,
+                },
+              },
+              create: {
+                accountId: input.accountId,
+                productId: existing.id,
+                shopifyVariantId: variant.shopifyVariantId,
+                optionName: variant.optionName,
+                price: variant.price,
+                inventory: variant.inventory,
+              },
+              update: {
+                optionName: variant.optionName,
+                price: variant.price,
+                inventory: variant.inventory,
+              },
+            })
+          )
+      : []),
   ]);
 
-  return { success: true };
+  return { success: true, needsPush };
 }

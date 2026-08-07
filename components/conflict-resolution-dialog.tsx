@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { diffWords } from "diff";
 import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
-import { pushProduct, resolveConflictKeepShopify } from "@/app/(dashboard)/products/actions";
+import { resolveConflictWithSelections } from "@/app/(dashboard)/products/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,9 +17,24 @@ import {
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import { cn } from "@/lib/utils";
+import type { ConflictFieldSelections } from "@/lib/db/products";
 import type { ConflictSnapshot, Product, ProductStatus } from "@/types/product";
 
 type VariantSnapshot = ConflictSnapshot["variants"][number];
+type Side = "app" | "shopify";
+type FieldKey = keyof ConflictFieldSelections;
+
+const FIELD_KEYS: FieldKey[] = [
+  "title",
+  "description",
+  "price",
+  "status",
+  "tags",
+  "collection",
+  "seoTitle",
+  "seoDescription",
+  "variants",
+];
 
 function StatusPreview({ status }: { status: ProductStatus }) {
   if (status === "ACTIVE") {
@@ -37,7 +51,7 @@ function StatusPreview({ status }: { status: ProductStatus }) {
 // strikethrough, only in Shopify's text) mirror git diff's own convention —
 // reuses --success/--destructive rather than inventing new colors, per
 // ui-context.md's "never introduce a new color" rule.
-function renderWordDiff(oldText: string, newText: string, side: "app" | "shopify"): ReactNode {
+function renderWordDiff(oldText: string, newText: string, side: Side): ReactNode {
   const parts = diffWords(oldText, newText);
   return parts
     .filter((part) => (side === "app" ? !part.removed : !part.added))
@@ -61,31 +75,68 @@ function renderWordDiff(oldText: string, newText: string, side: "app" | "shopify
     });
 }
 
-// One labeled row of the diff. `differs` now only drives a thin left-border
-// "changed" gutter (like a git diff's change bar) instead of washing the
-// whole cell in --conflict — the word-level red/green highlighting inside
-// does the actual "what changed" work, so the row-level marker just needs to
-// say "look here," not compete with it for attention.
+// Per explicit user request: a tiny two-way toggle so each differing field
+// can be individually kept from either side, instead of only choosing one
+// side for the whole product. Rendered above a row's two columns, only when
+// that row actually differs — a field with nothing to choose between gets
+// no picker.
+function FieldPicker({ value, onChange }: { value: Side; onChange: (value: Side) => void }) {
+  return (
+    <div className="mb-1.5 flex justify-end gap-1">
+      <button
+        type="button"
+        onClick={() => onChange("app")}
+        className={cn(
+          "rounded px-1.5 py-0.5 text-label font-medium",
+          value === "app" ? "bg-primary-subtle text-primary" : "text-muted-foreground hover:text-foreground"
+        )}
+      >
+        Use mine
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("shopify")}
+        className={cn(
+          "rounded px-1.5 py-0.5 text-label font-medium",
+          value === "shopify" ? "bg-primary-subtle text-primary" : "text-muted-foreground hover:text-foreground"
+        )}
+      >
+        Use Shopify's
+      </button>
+    </div>
+  );
+}
+
+// One labeled row of the diff. `differs` drives a thin left-border "changed"
+// gutter (like a git diff's change bar) instead of washing the whole cell in
+// --conflict — the word-level red/green highlighting inside does the actual
+// "what changed" work, so the row-level marker just needs to say "look
+// here." `picker`, when present, renders above the two columns.
 function DiffRow({
   label,
   app,
   shopify,
   differs,
+  picker,
 }: {
   label: string;
   app: ReactNode;
   shopify: ReactNode;
   differs: boolean;
+  picker?: ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 border-t border-border py-3 first:border-t-0 first:pt-0">
-      <div className={cn("flex flex-col gap-1 rounded-r-md py-1 pl-2", differs && "border-l-2 border-conflict")}>
-        <p className="text-label font-medium text-muted-foreground">{label}</p>
-        <div className="text-sm break-words whitespace-pre-wrap text-foreground">{app}</div>
-      </div>
-      <div className={cn("flex flex-col gap-1 rounded-r-md py-1 pl-2", differs && "border-l-2 border-conflict")}>
-        <p className="text-label font-medium text-muted-foreground">{label}</p>
-        <div className="text-sm break-words whitespace-pre-wrap text-foreground">{shopify}</div>
+    <div className="border-t border-border py-3 first:border-t-0 first:pt-0">
+      {picker}
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+        <div className={cn("flex flex-col gap-1 rounded-r-md py-1 pl-2", differs && "border-l-2 border-conflict")}>
+          <p className="text-label font-medium text-muted-foreground">{label}</p>
+          <div className="text-sm break-words whitespace-pre-wrap text-foreground">{app}</div>
+        </div>
+        <div className={cn("flex flex-col gap-1 rounded-r-md py-1 pl-2", differs && "border-l-2 border-conflict")}>
+          <p className="text-label font-medium text-muted-foreground">{label}</p>
+          <div className="text-sm break-words whitespace-pre-wrap text-foreground">{shopify}</div>
+        </div>
       </div>
     </div>
   );
@@ -95,38 +146,69 @@ function DiffRow({
 // fields, description) — computes the word diff once and renders both
 // sides, falling back to an em dash for a genuinely empty field rather than
 // diffing against nothing.
+//
+// Per explicit user report: a price of "122" (Shopify's raw string) vs
+// "122.00" (this app's Decimal.toString(), always 2 decimal places per
+// @db.Decimal(10, 2) in the schema) is the same price — flagging it as a
+// difference was a false positive, not a real conflict. `numeric` opts a
+// field into comparing/rendering by parsed value instead of raw string
+// equality; every other field keeps plain string comparison.
+export function valuesDiffer(a: string, b: string, numeric: boolean): boolean {
+  if (!numeric) return a !== b;
+  if (a.length === 0 || b.length === 0) return a !== b;
+  const numA = Number(a);
+  const numB = Number(b);
+  if (Number.isNaN(numA) || Number.isNaN(numB)) return a !== b;
+  return numA !== numB;
+}
+
 function TextDiffRow({
   label,
   appText,
   shopifyText,
   mono = false,
+  numeric = false,
+  picker,
 }: {
   label: string;
   appText: string;
   shopifyText: string;
   mono?: boolean;
+  numeric?: boolean;
+  picker?: ReactNode;
 }) {
-  const differs = appText !== shopifyText;
+  const differs = valuesDiffer(appText, shopifyText, numeric);
+  // Numerically-equal-but-differently-formatted values ("122" vs "122.00")
+  // are shown normalized to the same text on both sides, rather than the
+  // two raw strings that made them look different in the first place.
+  const displayApp = numeric && !differs && appText.length > 0 ? Number(appText).toFixed(2) : appText;
+  const displayShopify =
+    numeric && !differs && shopifyText.length > 0 ? Number(shopifyText).toFixed(2) : shopifyText;
   const textClass = mono ? "font-mono text-table-data" : undefined;
   return (
     <DiffRow
       label={label}
       differs={differs}
+      picker={differs ? picker : undefined}
       app={
         <span className={textClass}>
-          {appText.length === 0 ? (
+          {displayApp.length === 0 ? (
             <span className="text-muted-foreground">—</span>
-          ) : (
+          ) : differs ? (
             renderWordDiff(shopifyText, appText, "app")
+          ) : (
+            displayApp
           )}
         </span>
       }
       shopify={
         <span className={textClass}>
-          {shopifyText.length === 0 ? (
+          {displayShopify.length === 0 ? (
             <span className="text-muted-foreground">—</span>
-          ) : (
+          ) : differs ? (
             renderWordDiff(shopifyText, appText, "shopify")
+          ) : (
+            displayShopify
           )}
         </span>
       }
@@ -175,7 +257,12 @@ function diffVariants(appVariants: VariantSnapshot[], shopifyVariants: VariantSn
       continue;
     }
     matchedIds.add(app.shopifyVariantId as string);
-    const changed = match.optionName !== app.optionName || match.price !== app.price || match.inventory !== app.inventory;
+    // valuesDiffer(..., true) for price, same false-positive fix as the
+    // top-level Price row — "122" vs "122.00" is not a real change.
+    const changed =
+      match.optionName !== app.optionName ||
+      valuesDiffer(match.price, app.price, true) ||
+      match.inventory !== app.inventory;
     entries.push({ kind: changed ? "changed" : "unchanged", app, shopify: match });
   }
   for (const shopify of shopifyVariants) {
@@ -251,23 +338,17 @@ function VariantsDiff({
 }
 
 // Unit 19: shows conflictAppSnapshot/conflictShopifySnapshot side by side
-// (app left, Shopify right, per ui-context.md's conflict resolution spec)
-// and applies the owner's chosen resolution. Shared between the product
-// list (components/product-table.tsx) and the product editor
-// (components/product-form.tsx) — both just pass the conflicted `product`.
+// (app left, Shopify right, per ui-context.md's conflict resolution spec).
+// Shared between the product list (components/product-table.tsx) and the
+// product editor (components/product-form.tsx) — both just pass the
+// conflicted `product`.
 //
-// Two resolution paths, deliberately asymmetric under the hood even though
-// the UI presents them as equal choices:
-// - "Keep Shopify version" is a pure local write (lib/db/products.ts's
-//   resolveConflictKeepShopify) since conflictShopifySnapshot already has
-//   everything needed — no Shopify call, no job, resolves synchronously.
-// - "Keep app version" reuses the existing pushProduct/pushOneProduct job
-//   path unchanged — the app's current record already IS the app's
-//   snapshot, so "keep app" just means "push it," and markProductPushed
-//   already clears the conflict fields on any successful push. This needs
-//   its own useJobPolling instance, separate from any other polling loop in
-//   the parent, matching the existing "don't cross-talk between flows"
-//   precedent in components/product-table.tsx.
+// Unit 19 follow-up, per explicit user request: real per-field resolution
+// instead of two wholesale buttons. Every differing field gets a picker
+// (default "keep mine"); the old "Keep Shopify version"/"Keep app version"
+// buttons are just the special cases of every picker pointing the same way,
+// now both reachable through one resolve action
+// (resolveConflictWithSelections) instead of two separate code paths.
 export function ConflictResolutionDialog({
   product,
   onOpenChange,
@@ -278,50 +359,119 @@ export function ConflictResolutionDialog({
   onResolved: (message: string) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const [isKeepingShopify, startKeepShopify] = useTransition();
-  const [isPushing, startPush] = useTransition();
+  const [isResolving, setIsResolving] = useState(false);
+  // Only ever holds entries for fields the owner has actually touched —
+  // everything else falls back to its default ("keep mine" for a field that
+  // differs, either side for one that doesn't) at resolve time. Keeps the
+  // "reset on a new product" effect below trivial.
+  const [selections, setSelections] = useState<Partial<Record<FieldKey, Side>>>({});
+
+  const appSnapshot = product?.conflictAppSnapshot ?? null;
+  const shopifySnapshot = product?.conflictShopifySnapshot ?? null;
+
+  // Fresh product (or dialog re-opened for a different one) — any leftover
+  // picks from a previously-resolved conflict shouldn't carry over.
+  useEffect(() => {
+    setSelections({});
+    setError(null);
+  }, [product?.id]);
+
+  const fieldDiffers = useMemo((): Record<FieldKey, boolean> | null => {
+    if (!appSnapshot || !shopifySnapshot) return null;
+    return {
+      title: valuesDiffer(appSnapshot.title, shopifySnapshot.title, false),
+      description: valuesDiffer(
+        htmlToPlainText(appSnapshot.description ?? ""),
+        htmlToPlainText(shopifySnapshot.description ?? ""),
+        false
+      ),
+      price: valuesDiffer(appSnapshot.price, shopifySnapshot.price, true),
+      status: appSnapshot.status !== shopifySnapshot.status,
+      tags: valuesDiffer(appSnapshot.tags.join(", "), shopifySnapshot.tags.join(", "), false),
+      collection: appSnapshot.collectionId !== shopifySnapshot.collectionId,
+      seoTitle: valuesDiffer(appSnapshot.seoTitle ?? "", shopifySnapshot.seoTitle ?? "", false),
+      seoDescription: valuesDiffer(appSnapshot.seoDescription ?? "", shopifySnapshot.seoDescription ?? "", false),
+      variants: diffVariants(appSnapshot.variants, shopifySnapshot.variants).some((entry) => entry.kind !== "unchanged"),
+    };
+  }, [appSnapshot, shopifySnapshot]);
+
+  // The value actually sent to the server for every field: whatever the
+  // owner explicitly picked; otherwise "app" for a field that genuinely
+  // differs (the default "keep mine"), or "shopify" for one that doesn't —
+  // the two sides are identical there, so it's an arbitrary-but-harmless
+  // fill that also keeps the needsPush preview below from treating an
+  // untouched, non-differing field as if it were a real edit.
+  function resolvedSelection(key: FieldKey): Side {
+    return selections[key] ?? (fieldDiffers?.[key] ? "app" : "shopify");
+  }
+
+  function buildFullSelections(): ConflictFieldSelections {
+    const result = {} as ConflictFieldSelections;
+    for (const key of FIELD_KEYS) {
+      result[key] = resolvedSelection(key);
+    }
+    return result;
+  }
+
+  const willPush = FIELD_KEYS.some((key) => resolvedSelection(key) === "app");
 
   const { isPolling: isPushPolling, start: startPushPolling } = useJobPolling({
     onSettled: (status, results) => {
+      setIsResolving(false);
       if (status === "SUCCEEDED") {
-        onResolved("Kept your app version and pushed it to Shopify");
+        onResolved("Resolved and pushed to Shopify");
       } else {
         const message = (results as { error?: string } | undefined)?.error ?? "Push failed";
         setError(message);
       }
     },
-    onError: (message) => setError(message),
+    onError: (message) => {
+      setIsResolving(false);
+      setError(message);
+    },
   });
 
-  const appSnapshot = product?.conflictAppSnapshot ?? null;
-  const shopifySnapshot = product?.conflictShopifySnapshot ?? null;
-  const isBusy = isKeepingShopify || isPushing || isPushPolling;
+  const isBusy = isResolving || isPushPolling;
 
-  function handleKeepShopify() {
-    if (!product) return;
-    setError(null);
-    startKeepShopify(async () => {
-      const result = await resolveConflictKeepShopify(product.id);
-      if (result && "error" in result) {
-        setError(result.error);
-        return;
-      }
-      onResolved("Kept the Shopify version");
-    });
+  function setField(key: FieldKey, value: Side) {
+    setSelections((current) => ({ ...current, [key]: value }));
   }
 
-  function handleKeepApp() {
+  function useAllMine() {
+    setSelections({});
+  }
+
+  function useAllShopify() {
+    if (!fieldDiffers) return;
+    const next: Partial<Record<FieldKey, Side>> = {};
+    for (const key of FIELD_KEYS) {
+      if (fieldDiffers[key]) next[key] = "shopify";
+    }
+    setSelections(next);
+  }
+
+  function handleResolve() {
     if (!product) return;
     setError(null);
-    startPush(async () => {
-      const result = await pushProduct(product.id);
+    setIsResolving(true);
+    (async () => {
+      const result = await resolveConflictWithSelections(product.id, buildFullSelections());
       if ("error" in result) {
+        setIsResolving(false);
         setError(result.error);
         return;
       }
-      toast.message("Pushing your version to Shopify...");
-      startPushPolling(result.jobId);
-    });
+      if (result.jobId) {
+        startPushPolling(result.jobId);
+        return;
+      }
+      setIsResolving(false);
+      onResolved("Resolved — Shopify's version already matched, nothing to push");
+    })();
+  }
+
+  function picker(key: FieldKey) {
+    return <FieldPicker value={resolvedSelection(key)} onChange={(value) => setField(key, value)} />;
   }
 
   return (
@@ -329,7 +479,6 @@ export function ConflictResolutionDialog({
       open={product !== null}
       onOpenChange={(open) => {
         if (!open && !isBusy) {
-          setError(null);
           onOpenChange(false);
         }
       }}
@@ -346,8 +495,8 @@ export function ConflictResolutionDialog({
         <DialogHeader>
           <DialogTitle>Resolve conflict: {product?.title}</DialogTitle>
           <DialogDescription>
-            This product changed in Dockit and on Shopify at the same time. Choose which version to
-            keep.{" "}
+            This product changed in Dockit and on Shopify at the same time. Pick which version to keep
+            for each field that differs, then resolve.{" "}
             <span className="text-success">Green</span> is only in your version,{" "}
             <span className="text-destructive line-through">red</span> is only on Shopify, and a{" "}
             <span className="border-l-2 border-conflict pl-1 text-conflict">purple bar</span> marks a
@@ -356,49 +505,80 @@ export function ConflictResolutionDialog({
         </DialogHeader>
 
         {appSnapshot && shopifySnapshot && (
-          <div className="max-h-[65vh] overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 pb-2">
-              <p className="text-sm font-semibold text-foreground">Your version (Dockit)</p>
-              <p className="text-sm font-semibold text-foreground">Shopify version</p>
+          <>
+            <div className="flex justify-end gap-3 text-label">
+              <button type="button" className="font-medium text-primary hover:underline" onClick={useAllMine}>
+                Use all mine
+              </button>
+              <button type="button" className="font-medium text-primary hover:underline" onClick={useAllShopify}>
+                Use all Shopify&apos;s
+              </button>
             </div>
-            <TextDiffRow label="Title" appText={appSnapshot.title} shopifyText={shopifySnapshot.title} />
-            <TextDiffRow
-              label="Description"
-              appText={htmlToPlainText(appSnapshot.description ?? "")}
-              shopifyText={htmlToPlainText(shopifySnapshot.description ?? "")}
-            />
-            <TextDiffRow label="Price" appText={appSnapshot.price} shopifyText={shopifySnapshot.price} mono />
-            <DiffRow
-              label="Status"
-              app={<StatusPreview status={appSnapshot.status} />}
-              shopify={<StatusPreview status={shopifySnapshot.status} />}
-              differs={appSnapshot.status !== shopifySnapshot.status}
-            />
-            <TextDiffRow
-              label="Tags"
-              appText={appSnapshot.tags.join(", ")}
-              shopifyText={shopifySnapshot.tags.join(", ")}
-            />
-            <TextDiffRow
-              label="Collection"
-              appText={appSnapshot.collectionTitle ?? ""}
-              shopifyText={shopifySnapshot.collectionTitle ?? ""}
-            />
-            <TextDiffRow
-              label="SEO title"
-              appText={appSnapshot.seoTitle ?? ""}
-              shopifyText={shopifySnapshot.seoTitle ?? ""}
-            />
-            <TextDiffRow
-              label="SEO description"
-              appText={appSnapshot.seoDescription ?? ""}
-              shopifyText={shopifySnapshot.seoDescription ?? ""}
-            />
-            <div className="border-t border-border py-3">
-              <p className="mb-2 text-label font-medium text-muted-foreground">Variants</p>
-              <VariantsDiff appVariants={appSnapshot.variants} shopifyVariants={shopifySnapshot.variants} />
+            <div className="max-h-[65vh] overflow-y-auto">
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 pb-2">
+                <p className="text-sm font-semibold text-foreground">Your version (Dockit)</p>
+                <p className="text-sm font-semibold text-foreground">Shopify version</p>
+              </div>
+              <TextDiffRow
+                label="Title"
+                appText={appSnapshot.title}
+                shopifyText={shopifySnapshot.title}
+                picker={picker("title")}
+              />
+              <TextDiffRow
+                label="Description"
+                appText={htmlToPlainText(appSnapshot.description ?? "")}
+                shopifyText={htmlToPlainText(shopifySnapshot.description ?? "")}
+                picker={picker("description")}
+              />
+              <TextDiffRow
+                label="Price"
+                appText={appSnapshot.price}
+                shopifyText={shopifySnapshot.price}
+                mono
+                numeric
+                picker={picker("price")}
+              />
+              <DiffRow
+                label="Status"
+                differs={fieldDiffers?.status ?? false}
+                picker={fieldDiffers?.status ? picker("status") : undefined}
+                app={<StatusPreview status={appSnapshot.status} />}
+                shopify={<StatusPreview status={shopifySnapshot.status} />}
+              />
+              <TextDiffRow
+                label="Tags"
+                appText={appSnapshot.tags.join(", ")}
+                shopifyText={shopifySnapshot.tags.join(", ")}
+                picker={picker("tags")}
+              />
+              <TextDiffRow
+                label="Collection"
+                appText={appSnapshot.collectionTitle ?? ""}
+                shopifyText={shopifySnapshot.collectionTitle ?? ""}
+                picker={picker("collection")}
+              />
+              <TextDiffRow
+                label="SEO title"
+                appText={appSnapshot.seoTitle ?? ""}
+                shopifyText={shopifySnapshot.seoTitle ?? ""}
+                picker={picker("seoTitle")}
+              />
+              <TextDiffRow
+                label="SEO description"
+                appText={appSnapshot.seoDescription ?? ""}
+                shopifyText={shopifySnapshot.seoDescription ?? ""}
+                picker={picker("seoDescription")}
+              />
+              <div className="border-t border-border py-3">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <p className="text-label font-medium text-muted-foreground">Variants</p>
+                  {fieldDiffers?.variants && picker("variants")}
+                </div>
+                <VariantsDiff appVariants={appSnapshot.variants} shopifyVariants={shopifySnapshot.variants} />
+              </div>
             </div>
-          </div>
+          </>
         )}
 
         {error && <p className="px-1 text-sm text-destructive">{error}</p>}
@@ -407,24 +587,16 @@ export function ConflictResolutionDialog({
           <Button variant="ghost" disabled={isBusy} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button variant="outline" disabled={isBusy} onClick={handleKeepShopify}>
-            {isKeepingShopify ? (
+          <Button disabled={isBusy} onClick={handleResolve}>
+            {isBusy ? (
               <>
                 <Loader2 className="size-4 animate-spin" />
-                Keeping Shopify version...
+                {willPush ? "Resolving & pushing..." : "Resolving..."}
               </>
+            ) : willPush ? (
+              "Resolve & push to Shopify"
             ) : (
-              "Keep Shopify version"
-            )}
-          </Button>
-          <Button variant="outline" disabled={isBusy} onClick={handleKeepApp}>
-            {isPushing || isPushPolling ? (
-              <>
-                <Loader2 className="size-4 animate-spin" />
-                Pushing your version...
-              </>
-            ) : (
-              "Keep app version & push"
+              "Resolve conflict"
             )}
           </Button>
         </DialogFooter>
