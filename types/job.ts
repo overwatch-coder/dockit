@@ -10,6 +10,10 @@ export type Job = {
   results: unknown;
   startedAt: Date | null;
   completedAt: Date | null;
+  // Unit 20: the job status indicator orders by/displays this ("started Xm
+  // ago") — not needed by any earlier caller, which is why it wasn't on the
+  // domain type until now even though the Prisma column has always existed.
+  createdAt: Date;
 };
 
 // Unit 16: the shape of Job.results for a batch push (lib/jobs/push.ts's

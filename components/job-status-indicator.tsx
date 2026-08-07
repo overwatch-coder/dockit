@@ -1,0 +1,177 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { CheckCircle2, Loader2, TriangleAlert, X, XCircle } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useLatestJobStatus } from "@/lib/hooks/use-latest-job-status";
+import { cn } from "@/lib/utils";
+import type { Job, JobType, PushBatchResultItem } from "@/types/job";
+
+const JOB_TYPE_LABEL: Record<JobType, string> = {
+  PUSH: "Push",
+  SYNC: "Sync",
+  DELETE: "Delete",
+};
+
+const JOB_TYPE_RUNNING_LABEL: Record<JobType, string> = {
+  PUSH: "Pushing…",
+  SYNC: "Syncing…",
+  DELETE: "Deleting…",
+};
+
+export type JobResultItem = { productId: string; success: boolean; detail?: string };
+export type JobResultDescription = { summary: string; items?: JobResultItem[] };
+
+// Unit 20: Job.results has 5 distinct shapes across the three job types
+// (see lib/jobs/push.ts, lib/jobs/import.ts, lib/jobs/delete.ts) — this is
+// the one place that has to know about all of them, so every caller
+// downstream (the popover below) can render one consistent view regardless
+// of which job produced it. Exported and pure so it's testable without
+// mounting the component; falls back to a generic message for any shape it
+// doesn't recognize rather than throwing.
+export function describeJobResult(job: Job): JobResultDescription {
+  const results = job.results;
+  if (!results || typeof results !== "object") {
+    return { summary: "Something went wrong." };
+  }
+  const r = results as Record<string, unknown>;
+
+  // Batch push: { items: PushBatchResultItem[] }
+  if (Array.isArray(r.items)) {
+    const items = r.items as PushBatchResultItem[];
+    const succeeded = items.filter((item) => item.success).length;
+    const failed = items.length - succeeded;
+    return {
+      summary: `${succeeded} of ${items.length} product${items.length === 1 ? "" : "s"} pushed${
+        failed > 0 ? ` — ${failed} failed` : ""
+      }.`,
+      items: items.map((item) => ({
+        productId: item.productId,
+        success: item.success,
+        detail: item.success ? undefined : item.error,
+      })),
+    };
+  }
+
+  // Single push/delete: bare { productId, shopifyProductId } or
+  // { productId, failedStep, error } — no wrapper, distinguished by whether
+  // `error` is present (single-item jobs never settle PARTIAL, only FAILED).
+  if (typeof r.productId === "string") {
+    const isFailure = typeof r.error === "string";
+    return {
+      summary: isFailure ? `${JOB_TYPE_LABEL[job.type]} failed for one product.` : `${JOB_TYPE_LABEL[job.type]} succeeded.`,
+      items: [{ productId: r.productId, success: !isFailure, detail: isFailure ? (r.error as string) : undefined }],
+    };
+  }
+
+  // Sync: { syncedCount, conflictedCount, errorCount }
+  if (typeof r.syncedCount === "number") {
+    const parts = [`${r.syncedCount} synced`];
+    if (typeof r.conflictedCount === "number" && r.conflictedCount > 0) parts.push(`${r.conflictedCount} conflicted`);
+    if (typeof r.errorCount === "number" && r.errorCount > 0) parts.push(`${r.errorCount} failed`);
+    return { summary: `${parts.join(", ")}.` };
+  }
+
+  // Store import on connect: { importedCount }
+  if (typeof r.importedCount === "number") {
+    return { summary: `${r.importedCount} product${r.importedCount === 1 ? "" : "s"} imported.` };
+  }
+
+  // Generic sync/import failure: { error }
+  if (typeof r.error === "string") {
+    return { summary: r.error };
+  }
+
+  return { summary: "Something went wrong." };
+}
+
+// Unit 20: the persistent top-bar indicator (ui-context.md's Layout
+// Patterns) — mounted once in app/(dashboard)/layout.tsx's header, always
+// present, unlike lib/hooks/use-job-polling.ts's per-trigger polling which
+// stops the moment its owning component unmounts (e.g. the owner navigates
+// away mid-push). Renders nothing for an idle/successful store — only a
+// running job or an unresolved PARTIAL/FAILED one is worth ambient
+// attention; a clean success already got its moment via the triggering
+// page's own toast.
+export function JobStatusIndicator() {
+  const { job } = useLatestJobStatus();
+  const [dismissedJobId, setDismissedJobId] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  if (!job || job.status === "SUCCEEDED" || job.id === dismissedJobId) {
+    return null;
+  }
+
+  if (job.status === "PENDING" || job.status === "RUNNING") {
+    return (
+      <div className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 text-label text-foreground-muted">
+        <Loader2 className="size-3.5 animate-spin" />
+        {JOB_TYPE_RUNNING_LABEL[job.type]}
+      </div>
+    );
+  }
+
+  // PARTIAL or FAILED — persists until the owner dismisses it or a new job
+  // starts (dismissedJobId only ever matches this exact job's id), per
+  // ui-context.md's own word "persistent" and the reason the link exists at
+  // all: the owner might not be on the page that started this job anymore.
+  const isFailed = job.status === "FAILED";
+  const description = describeJobResult(job);
+
+  return (
+    <div className="flex items-center gap-1">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          render={
+            <button
+              type="button"
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-label font-medium",
+                isFailed
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : "border-warning/30 bg-warning/10 text-warning"
+              )}
+            />
+          }
+        >
+          <TriangleAlert className="size-3.5" />
+          {JOB_TYPE_LABEL[job.type]} {isFailed ? "failed" : "partially failed"}
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80">
+          <p className="text-sm text-foreground">{description.summary}</p>
+          {description.items && description.items.length > 0 && (
+            <div className="mt-2 flex max-h-64 flex-col gap-1.5 overflow-y-auto">
+              {description.items.map((item) => (
+                <Link
+                  key={item.productId}
+                  href={`/products/${item.productId}`}
+                  onClick={() => setOpen(false)}
+                  className="flex items-start gap-2 rounded-md border border-border px-2 py-1.5 text-sm hover:bg-primary-subtle"
+                >
+                  {item.success ? (
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
+                  ) : (
+                    <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+                  )}
+                  <span className="flex flex-col overflow-hidden">
+                    <span className="truncate text-foreground">View product</span>
+                    {item.detail && <span className="truncate text-destructive">{item.detail}</span>}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
+      <button
+        type="button"
+        aria-label="Dismiss"
+        onClick={() => setDismissedJobId(job.id)}
+        className="rounded-full p-1 text-foreground-subtle hover:bg-surface hover:text-foreground"
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+  );
+}

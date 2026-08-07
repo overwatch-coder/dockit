@@ -21,7 +21,7 @@ import {
 import type { ConflictFieldSelections } from "@/lib/db/products";
 import { syncProductVariants as syncProductVariantsInDb } from "@/lib/db/variants";
 import { getStoresForAccount, getStoreToken } from "@/lib/db/stores";
-import { createJob, getJobById } from "@/lib/db/jobs";
+import { createJob, getJobById, getLatestJobForStore } from "@/lib/db/jobs";
 import {
   deleteProductImage as deleteProductImageFromBlob,
   isBlobUrl,
@@ -42,7 +42,7 @@ import { variantFormSchema } from "@/lib/validation/variant";
 import type { AiSuggestion, ProductDescriptionSuggestion } from "@/lib/validation/ai-suggestion";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import type { Collection } from "@/types/collection";
-import type { JobStatus } from "@/types/job";
+import type { Job, JobStatus } from "@/types/job";
 
 // Matches the shape components/variant-list.tsx submits: id is either a
 // real variant id or a client-generated temporary id for a not-yet-created
@@ -662,4 +662,25 @@ export async function getPushJobStatus(
   }
 
   return { status: job.status, results: job.results };
+}
+
+// Unit 20: backs the persistent job status indicator (components/job-status-indicator.tsx)
+// — unlike getPushJobStatus above (poll a caller-known jobId until it
+// settles), this discovers whatever the most recent job is on its own, so
+// the indicator can show a job's status even when it wasn't the component
+// that triggered it (e.g. after navigating to a different page mid-push).
+// Same "first connected store" scoping as pushAllDrafts/syncStore above. No
+// store connected is a normal idle state (nothing to show), not an error.
+export async function getLatestJobStatus(): Promise<{ job: Job | null } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const stores = await getStoresForAccount(account.id);
+  const store = stores[0];
+  if (!store) {
+    return { job: null };
+  }
+
+  const job = await getLatestJobForStore(account.id, store.id);
+  return { job };
 }

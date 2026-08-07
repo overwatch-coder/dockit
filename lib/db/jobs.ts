@@ -10,6 +10,7 @@ type JobRecord = {
   results: unknown;
   startedAt: Date | null;
   completedAt: Date | null;
+  createdAt: Date;
 };
 
 function toDomainJob(job: JobRecord): Job {
@@ -21,6 +22,7 @@ function toDomainJob(job: JobRecord): Job {
     results: job.results,
     startedAt: job.startedAt,
     completedAt: job.completedAt,
+    createdAt: job.createdAt,
   };
 }
 
@@ -43,6 +45,23 @@ export async function createJob(input: {
 // pattern — used by the push button's polling server action.
 export async function getJobById(accountId: string, jobId: string): Promise<Job | null> {
   const job = await prisma.job.findFirst({ where: { id: jobId, accountId } });
+  return job ? toDomainJob(job) : null;
+}
+
+// Unit 20: backs the persistent job status indicator — the single most
+// recent job for a store, regardless of its status, so the indicator can
+// tell "currently running" (PENDING/RUNNING) apart from "just finished, and
+// the owner might not have seen it" (PARTIAL/FAILED) from "nothing to show"
+// (SUCCEEDED, or no job ever run). storeId-scoped the same way every other
+// job query in this file already is; `getStoresForAccount(...)[0]` ("first
+// connected store") resolves storeId at the call site, same convention as
+// pushAllDrafts/syncStore (app/(dashboard)/products/actions.ts) pending
+// Unit 21's real store switcher.
+export async function getLatestJobForStore(accountId: string, storeId: string): Promise<Job | null> {
+  const job = await prisma.job.findFirst({
+    where: { accountId, storeId },
+    orderBy: { createdAt: "desc" },
+  });
   return job ? toDomainJob(job) : null;
 }
 
