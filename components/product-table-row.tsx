@@ -12,7 +12,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { ProductStatusBadge } from "@/components/product-status-badge";
+import { shopifyThumbnailUrl } from "@/lib/shopify/image-url";
 import type { Product, ProductStatus } from "@/types/product";
+
+// 2x the 40px (size-10) display box, for retina — see lib/shopify/image-url.ts
+// for why this exists at all (was the actual cause of the reported scroll
+// lag: the <img> below used to request product.imageUrl's full original
+// resolution, CSS-downscaled, so every row's decode work landed right as it
+// scrolled into view).
+const THUMBNAIL_SIZE = 80;
 
 const lastSyncedFormatter = new Intl.DateTimeFormat("en-US", {
   dateStyle: "medium",
@@ -68,10 +76,11 @@ export const ProductTableRow = memo(function ProductTableRow({
         {product.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- Shopify CDN host isn't guaranteed constant across every store
           <img
-            src={product.imageUrl}
+            src={shopifyThumbnailUrl(product.imageUrl, THUMBNAIL_SIZE)}
             alt={product.title}
             className="size-10 rounded-sm border border-border object-cover"
             loading="lazy"
+            decoding="async"
           />
         ) : (
           <div className="flex size-10 items-center justify-center rounded-sm border border-border bg-muted">

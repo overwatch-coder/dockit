@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ActionConfirmationModal, type ActionConfirmationVariant } from "@/components/action-confirmation-modal";
 import { ChangeStatusDialog } from "@/components/change-status-dialog";
 import { ConflictResolutionDialog } from "@/components/conflict-resolution-dialog";
@@ -289,6 +290,26 @@ export function ProductTable({
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Per explicit user request: conflicted products were easy to miss,
+          buried in a "Status" dropdown alongside Draft/Active — a tab is a
+          single click instead of open-dropdown-then-pick, and stays visible
+          as a persistent option rather than a value the owner has to
+          remember exists. Wired to the exact same updateParams call the old
+          Select used, so getPaginatedProductsForStore's statusFilter
+          handling (already supports "CONFLICT") needed no changes.
+          Filtering stays exclusive — "All" keeps its normal newest-first
+          order, no reordering surprises. */}
+      <Tabs
+        value={initialStatusFilter}
+        onValueChange={(value) => updateParams({ status: value ?? "all", page: 1 })}
+      >
+        <TabsList>
+          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="DRAFT">Draft</TabsTrigger>
+          <TabsTrigger value="ACTIVE">Active</TabsTrigger>
+          <TabsTrigger value="CONFLICT">Conflict</TabsTrigger>
+        </TabsList>
+      </Tabs>
       <div className="flex flex-wrap items-center gap-2">
         <Input
           placeholder="Search by title..."
@@ -296,20 +317,6 @@ export function ProductTable({
           onChange={(event) => setSearchText(event.target.value)}
           className="max-w-64"
         />
-        <Select
-          value={initialStatusFilter}
-          onValueChange={(value) => updateParams({ status: value ?? "all", page: 1 })}
-        >
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="DRAFT">Draft</SelectItem>
-            <SelectItem value="ACTIVE">Active</SelectItem>
-            <SelectItem value="CONFLICT">Conflict</SelectItem>
-          </SelectContent>
-        </Select>
         <Select
           value={initialCategoryFilter}
           onValueChange={(value) => updateParams({ category: value ?? "all", page: 1 })}
