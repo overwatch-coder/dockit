@@ -159,6 +159,9 @@ const PRODUCT_SET_MUTATION = `
     productSet(synchronous: true, input: $input, identifier: $identifier) {
       product {
         id
+        category {
+          id
+        }
         variants(first: 100) {
           nodes { id title }
         }
@@ -382,7 +385,9 @@ export async function pushProductToShopify(
 
   const result = await postGraphQL<{
     productSet: {
-      product: { id: string; variants: { nodes: { id: string; title: string }[] } } | null;
+      product:
+        | { id: string; category: { id: string } | null; variants: { nodes: { id: string; title: string }[] } }
+        | null;
       userErrors: { field: string[] | null; message: string; code: string }[];
     };
   }>(shopDomain, accessToken, PRODUCT_SET_MUTATION, variables);
@@ -394,6 +399,21 @@ export async function pushProductToShopify(
   }
   if (!product) {
     return { success: false, error: "Shopify returned no product from productSet" };
+  }
+
+  // Diagnostic, not a hard failure: Shopify has a documented history of
+  // productSet returning success with userErrors empty while silently not
+  // applying the category field (community-reported, not something this
+  // app's own request shape controls) — logging a mismatch here surfaces it
+  // server-side immediately instead of only being discoverable by manually
+  // comparing against Shopify admin later.
+  if (input.categoryId) {
+    const echoedCategoryId = product.category ? toBareId(product.category.id) : null;
+    if (echoedCategoryId !== input.categoryId) {
+      console.error(
+        `pushProductToShopify: category mismatch after productSet — sent ${input.categoryId}, Shopify echoed back ${echoedCategoryId ?? "null"} for product ${toBareId(product.id)}`
+      );
+    }
   }
 
   const shopifyProductId = toBareId(product.id);

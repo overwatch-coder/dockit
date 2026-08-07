@@ -413,6 +413,24 @@ export function ProductForm({
 
   const fieldErrors = state && "fieldErrors" in state ? state.fieldErrors : undefined;
 
+  // Rendered at two different positions depending on mode — see the two
+  // call sites below.
+  const statusField = (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor="status">Status</Label>
+      <Select name="status" value={status} onValueChange={(value) => setStatus(value as ProductStatus)}>
+        <SelectTrigger id="status" className="max-w-40">
+          <SelectValue>{(value: string | null) => (value === "ACTIVE" ? "Active" : "Draft")}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="DRAFT">Draft</SelectItem>
+          <SelectItem value="ACTIVE">Active</SelectItem>
+        </SelectContent>
+      </Select>
+      {fieldErrors?.status && <p className="text-sm text-destructive">{fieldErrors.status}</p>}
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-8">
       {/* Unit 19: closes the gap where Save/Republish below previously had
@@ -529,19 +547,13 @@ export function ProductForm({
             {fieldErrors?.price && <p className="text-sm text-destructive">{fieldErrors.price}</p>}
           </div>
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="status">Status</Label>
-            <Select name="status" value={status} onValueChange={(value) => setStatus(value as ProductStatus)}>
-              <SelectTrigger id="status" className="max-w-40">
-                <SelectValue>{(value: string | null) => (value === "ACTIVE" ? "Active" : "Draft")}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="DRAFT">Draft</SelectItem>
-                <SelectItem value="ACTIVE">Active</SelectItem>
-              </SelectContent>
-            </Select>
-            {fieldErrors?.status && <p className="text-sm text-destructive">{fieldErrors.status}</p>}
-          </div>
+          {/* Per explicit user request: in edit mode, Status moves to the very
+              end of the form (rendered below, after variants) so it reads as
+              the final "flip this live" action rather than being buried
+              mid-form between Price and the SEO/collection/category fields.
+              Create mode keeps it here — there's nothing after it there
+              worth burying it behind. */}
+          {mode === "create" && statusField}
 
           {mode === "edit" && product && (
             <>
@@ -670,6 +682,8 @@ export function ProductForm({
 
               <VariantList variants={variants} onChange={setVariants} />
               <input type="hidden" name="variants" value={JSON.stringify(variants)} />
+
+              {statusField}
             </>
           )}
 
