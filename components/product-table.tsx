@@ -166,6 +166,17 @@ export function ProductTable({
     [allProducts]
   );
 
+  // Per explicit user request: a small count on the Conflict tab itself, so
+  // the owner can see at a glance how many products need resolving without
+  // switching tabs first. Store-wide (allProducts, not the current page/
+  // filter's records) since the point is visibility regardless of which tab
+  // is currently active — same source dashboard-overview.tsx's own
+  // "Conflicts" stat card already reads from.
+  const conflictCount = useMemo(
+    () => allProducts.filter((product) => product.isConflicted).length,
+    [allProducts]
+  );
+
   const [pushResultsItems, setPushResultsItems] = useState<PushBatchResultItem[] | null>(null);
 
   // Unit 16 follow-up, per explicit user request: a toast alone wasn't a
@@ -307,7 +318,14 @@ export function ProductTable({
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="DRAFT">Draft</TabsTrigger>
           <TabsTrigger value="ACTIVE">Active</TabsTrigger>
-          <TabsTrigger value="CONFLICT">Conflict</TabsTrigger>
+          <TabsTrigger value="CONFLICT">
+            Conflict
+            {conflictCount > 0 && (
+              <span className="ml-1.5 rounded-full bg-conflict/15 px-1.5 py-0.5 text-label font-medium text-conflict">
+                {conflictCount}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
       </Tabs>
       <div className="flex flex-wrap items-center gap-2">

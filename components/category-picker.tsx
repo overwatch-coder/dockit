@@ -9,6 +9,19 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { ShopifyTaxonomyCategory } from "@/lib/shopify/taxonomy";
 
 const SEARCH_DEBOUNCE_MS = 300;
+const BREADCRUMB_SEGMENTS_SHOWN = 2;
+
+// Per explicit user request: once a category is selected, the trigger shows
+// only the last two breadcrumb segments ("Clothing > Shirts & Tops") rather
+// than Shopify's full path ("Apparel & Accessories > Clothing > Shirts &
+// Tops") — the leaf segments are what actually distinguishes the choice day
+// to day. Search results (below) keep the full fullName, since disambiguating
+// between similarly-named leaves in different branches while picking is
+// exactly when the full path matters.
+export function formatCategoryBreadcrumb(fullName: string, segments = BREADCRUMB_SEGMENTS_SHOWN): string {
+  const parts = fullName.split(">").map((part) => part.trim());
+  return parts.slice(-segments).join(" > ");
+}
 
 // New (Shopify Product Category unit): unlike components/product-form.tsx's
 // Collection <Select>, Shopify's real taxonomy (~10,000 categories) is far
@@ -70,8 +83,11 @@ export function CategoryPicker({
       <PopoverTrigger
         render={<Button type="button" variant="outline" className="w-full max-w-96 justify-between font-normal" />}
       >
-        <span className={categoryFullName ? "truncate" : "truncate text-foreground-subtle"}>
-          {categoryFullName || "No category"}
+        <span
+          className={categoryFullName ? "truncate" : "truncate text-foreground-subtle"}
+          title={categoryFullName || undefined}
+        >
+          {categoryFullName ? formatCategoryBreadcrumb(categoryFullName) : "No category"}
         </span>
         <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
       </PopoverTrigger>
