@@ -19,6 +19,7 @@ function toPushInput(product: Product): PushProductInput {
     seoDescription: product.seoDescription,
     price: product.price,
     collectionId: product.collectionId,
+    categoryId: product.categoryId,
     imageUrls: product.imageUrls,
     variants: product.variants.map((variant) => ({
       id: variant.id,

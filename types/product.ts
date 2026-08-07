@@ -25,6 +25,8 @@ export type ConflictSnapshot = {
   tags: string[];
   collectionId: string | null;
   collectionTitle: string | null;
+  categoryId: string | null;
+  categoryFullName: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   variants: { shopifyVariantId: string | null; optionName: string; price: string; inventory: number }[];
@@ -43,6 +45,8 @@ export type Product = {
   tags: string[];
   collectionId: string | null;
   collectionTitle: string | null;
+  categoryId: string | null;
+  categoryFullName: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   isConflicted: boolean;

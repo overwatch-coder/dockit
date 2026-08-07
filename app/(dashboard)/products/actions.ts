@@ -29,6 +29,7 @@ import {
 } from "@/lib/blob/products";
 import { decryptAccessToken } from "@/lib/shopify/oauth";
 import { fetchAllCollections } from "@/lib/shopify/collections";
+import { searchTaxonomyCategories, type ShopifyTaxonomyCategory } from "@/lib/shopify/taxonomy";
 import {
   generateProductDescription as generateProductDescriptionSuggestion,
   suggestProductSeo as generateProductSuggestion,
@@ -200,6 +201,8 @@ export async function updateProduct(
     status: parsed.status,
     collectionId: parsed.collectionId || null,
     collectionTitle: parsed.collectionTitle || null,
+    categoryId: parsed.categoryId || null,
+    categoryFullName: parsed.categoryFullName || null,
     tags: tagsInput,
     seoTitle: parsed.seoTitle || null,
     seoDescription: parsed.seoDescription || null,
@@ -296,9 +299,19 @@ export async function removeProductImage(
 // revalidatePath — per architecture.md invariant 7, AI-generated content is
 // only ever returned as a suggestion; it's written to the product record
 // the same way any other edit is, only when the owner presses Save.
-export async function suggestProductSeo(
-  productId: string
-): Promise<{ success: true; data: AiSuggestion } | { error: string }> {
+//
+// New (Shopify Product Category unit): the model's structured output only
+// ever contains a plain-text categoryGuess (lib/ai/suggestions.ts) — it's
+// never shown Shopify's real ~10,000-category taxonomy. That guess is
+// resolved into a real category here, server-side, by searching the actual
+// taxonomy and taking the top match. This resolution step is best-effort:
+// a search failure or zero results just means no category is suggested,
+// never a failed SEO suggestion overall (same "fails open" convention
+// app/(dashboard)/products/[id]/page.tsx already uses for collections).
+export async function suggestProductSeo(productId: string): Promise<
+  | { success: true; data: AiSuggestion & { categoryId: string | null; categoryFullName: string | null } }
+  | { error: string }
+> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
@@ -311,8 +324,9 @@ export async function suggestProductSeo(
   // open to an empty list rather than blocking the suggestion entirely.
   let collections: Collection[] = [];
   const storeToken = await getStoreToken(account.id, product.storeId);
+  let accessToken: string | null = null;
   if (storeToken) {
-    const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
+    accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
     const result = await fetchAllCollections(storeToken.shopifyDomain, accessToken);
     if (result.success) {
       collections = result.data;
@@ -330,7 +344,54 @@ export async function suggestProductSeo(
     return { error: suggestion.error };
   }
 
-  return { success: true, data: suggestion.data };
+  let categoryId: string | null = null;
+  let categoryFullName: string | null = null;
+  if (suggestion.data.categoryGuess && storeToken && accessToken) {
+    const categoryResult = await searchTaxonomyCategories(
+      storeToken.shopifyDomain,
+      accessToken,
+      suggestion.data.categoryGuess,
+      1
+    );
+    if (categoryResult.success && categoryResult.data[0]) {
+      categoryId = categoryResult.data[0].id;
+      categoryFullName = categoryResult.data[0].fullName;
+    }
+  }
+
+  return { success: true, data: { ...suggestion.data, categoryId, categoryFullName } };
+}
+
+// New (Shopify Product Category unit): backs the product editor's manual
+// category combobox — a live search against Shopify's real taxonomy, since
+// (unlike the small pre-fetched collections list above) the full taxonomy
+// is far too large to load wholesale. storeId-scoped rather than
+// productId-scoped since the category field only ever appears in edit mode,
+// where the caller already has the product's storeId on hand (same
+// resolution getStoreToken already tenant-scopes by accountId+storeId).
+export async function searchProductCategories(
+  storeId: string,
+  query: string
+): Promise<{ success: true; data: ShopifyTaxonomyCategory[] } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!query.trim()) {
+    return { success: true, data: [] };
+  }
+
+  const storeToken = await getStoreToken(account.id, storeId);
+  if (!storeToken) {
+    return { error: "This store isn't connected to Shopify." };
+  }
+
+  const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
+  const result = await searchTaxonomyCategories(storeToken.shopifyDomain, accessToken, query.trim());
+  if (!result.success) {
+    return { error: result.error };
+  }
+
+  return { success: true, data: result.data };
 }
 
 // Unit 16: generates or improves a product description via AI. Deliberately

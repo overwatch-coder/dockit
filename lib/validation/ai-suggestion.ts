@@ -9,6 +9,11 @@ export const aiSuggestionSchema = z.object({
   seoDescription: z.string().trim().min(1),
   tags: z.array(z.string().trim().min(1)).max(20),
   collectionId: z.string().trim().nullable(),
+  // A plain-text guess ("Dog Beds"), not an id — the model is never shown
+  // Shopify's real ~10,000-category taxonomy, so this is only a search hint
+  // the server resolves against the real taxonomy afterward (see
+  // suggestProductSeo in app/(dashboard)/products/actions.ts).
+  categoryGuess: z.string().trim().nullable(),
 });
 
 export type AiSuggestion = z.infer<typeof aiSuggestionSchema>;

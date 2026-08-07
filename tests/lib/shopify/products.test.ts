@@ -14,6 +14,7 @@ function productNode(overrides: Partial<{
   imageUrl: string | null;
   images: string[];
   collection: { id: string; title: string } | null;
+  category: { id: string; fullName: string } | null;
   seo: { title: string | null; description: string | null };
 }> = {}) {
   return {
@@ -37,6 +38,13 @@ function productNode(overrides: Partial<{
           ? []
           : [{ node: overrides.collection ?? { id: "gid://shopify/Collection/5", title: "Shirts" } }],
     },
+    category:
+      overrides.category === null
+        ? null
+        : (overrides.category ?? {
+            id: "gid://shopify/TaxonomyCategory/sg-4-17-2-17",
+            fullName: "Apparel & Accessories > Clothing > Shirts & Tops",
+          }),
     seo: overrides.seo ?? { title: "Test Product | Shop", description: "A great test product." },
     priceRangeV2: { minVariantPrice: { amount: overrides.price ?? "19.99" } },
     variants: {
@@ -89,6 +97,8 @@ describe("fetchAllProducts", () => {
           tags: ["tag1"],
           collectionId: "5",
           collectionTitle: "Shirts",
+          categoryId: "sg-4-17-2-17",
+          categoryFullName: "Apparel & Accessories > Clothing > Shirts & Tops",
           seoTitle: "Test Product | Shop",
           seoDescription: "A great test product.",
           variants: [
@@ -209,6 +219,21 @@ describe("fetchAllProducts", () => {
     if (result.success) {
       expect(result.data[0].collectionId).toBeNull();
       expect(result.data[0].collectionTitle).toBeNull();
+    }
+  });
+
+  test("maps a product with no taxonomy category to null categoryId/categoryFullName", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      pageResponse([productNode({ category: null })], false, null)
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllProducts("my-store.myshopify.com", "shpat_test_token");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data[0].categoryId).toBeNull();
+      expect(result.data[0].categoryFullName).toBeNull();
     }
   });
 

@@ -113,6 +113,13 @@ model Product {
   // (select field, AI suggestion) is still Unit 13 — this only reflects the
   // product's existing primary collection from Shopify.
   collectionTitle  String?
+  categoryId       String?
+  // Shopify's own ready-made breadcrumb string for categoryId (e.g.
+  // "Apparel & Accessories > Clothing > Shirts & Tops"), read-only
+  // denormalized display copy — same "always write both together" pairing
+  // as collectionId/collectionTitle above, just for Shopify's separate
+  // standardized Product Taxonomy rather than a merchant-defined collection.
+  categoryFullName String?
   seoTitle         String?
   seoDescription   String?
 

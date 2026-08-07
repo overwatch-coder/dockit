@@ -16,6 +16,8 @@ type ProductRecord = {
   tags: string[];
   collectionId: string | null;
   collectionTitle: string | null;
+  categoryId: string | null;
+  categoryFullName: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   isConflicted: boolean;
@@ -49,6 +51,8 @@ function toDomainProduct(product: ProductRecord): Product {
     tags: product.tags,
     collectionId: product.collectionId,
     collectionTitle: product.collectionTitle,
+    categoryId: product.categoryId,
+    categoryFullName: product.categoryFullName,
     seoTitle: product.seoTitle,
     seoDescription: product.seoDescription,
     isConflicted: product.isConflicted,
@@ -258,6 +262,11 @@ export async function updateProduct(input: {
   // rather than diffed field-by-field.
   collectionId?: string | null;
   collectionTitle?: string | null;
+  // Shopify's separate standardized Product Taxonomy category — same
+  // "always write together, null clears it" convention as collectionId/
+  // collectionTitle above.
+  categoryId?: string | null;
+  categoryFullName?: string | null;
   tags?: string[];
   // Unit 14: Shopify's own SEO title/description, distinct from the main
   // title/description — manually editable and/or AI-suggested, same
@@ -281,6 +290,8 @@ export async function updateProduct(input: {
       status: input.status,
       collectionId: input.collectionId ?? null,
       collectionTitle: input.collectionTitle ?? null,
+      categoryId: input.categoryId ?? null,
+      categoryFullName: input.categoryFullName ?? null,
       tags: input.tags ?? [],
       seoTitle: input.seoTitle ?? null,
       seoDescription: input.seoDescription ?? null,
@@ -524,6 +535,8 @@ export async function importProducts(input: {
         tags: product.tags,
         collectionId: product.collectionId,
         collectionTitle: product.collectionTitle,
+        categoryId: product.categoryId,
+        categoryFullName: product.categoryFullName,
         seoTitle: product.seoTitle,
         seoDescription: product.seoDescription,
         lastSyncedAt: now,
@@ -538,6 +551,8 @@ export async function importProducts(input: {
         tags: product.tags,
         collectionId: product.collectionId,
         collectionTitle: product.collectionTitle,
+        categoryId: product.categoryId,
+        categoryFullName: product.categoryFullName,
         seoTitle: product.seoTitle,
         seoDescription: product.seoDescription,
         lastSyncedAt: now,
@@ -600,6 +615,8 @@ function toAppSnapshot(existing: {
   tags: string[];
   collectionId: string | null;
   collectionTitle: string | null;
+  categoryId: string | null;
+  categoryFullName: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   variants: {
@@ -619,6 +636,8 @@ function toAppSnapshot(existing: {
     tags: existing.tags,
     collectionId: existing.collectionId,
     collectionTitle: existing.collectionTitle,
+    categoryId: existing.categoryId,
+    categoryFullName: existing.categoryFullName,
     seoTitle: existing.seoTitle,
     seoDescription: existing.seoDescription,
     variants: existing.variants.map((variant) => ({
@@ -645,6 +664,8 @@ function toShopifySnapshot(product: ShopifyImportedProduct): ConflictSnapshot {
     tags: product.tags,
     collectionId: product.collectionId,
     collectionTitle: product.collectionTitle,
+    categoryId: product.categoryId,
+    categoryFullName: product.categoryFullName,
     seoTitle: product.seoTitle,
     seoDescription: product.seoDescription,
     variants: product.variants.map((variant) => ({
@@ -731,6 +752,8 @@ export async function syncProducts(input: {
           tags: product.tags,
           collectionId: product.collectionId,
           collectionTitle: product.collectionTitle,
+          categoryId: product.categoryId,
+          categoryFullName: product.categoryFullName,
           seoTitle: product.seoTitle,
           seoDescription: product.seoDescription,
           lastSyncedAt: now,
@@ -745,6 +768,8 @@ export async function syncProducts(input: {
           tags: product.tags,
           collectionId: product.collectionId,
           collectionTitle: product.collectionTitle,
+          categoryId: product.categoryId,
+          categoryFullName: product.categoryFullName,
           seoTitle: product.seoTitle,
           seoDescription: product.seoDescription,
           lastSyncedAt: now,
@@ -813,6 +838,7 @@ export type ConflictFieldSelections = {
   status: "app" | "shopify";
   tags: "app" | "shopify";
   collection: "app" | "shopify"; // collectionId + collectionTitle move together
+  category: "app" | "shopify"; // categoryId + categoryFullName move together
   seoTitle: "app" | "shopify";
   seoDescription: "app" | "shopify";
   variants: "app" | "shopify";
@@ -861,6 +887,9 @@ export async function resolveConflictWithSelections(input: {
         collectionId: selections.collection === "app" ? appSnapshot.collectionId : shopifySnapshot.collectionId,
         collectionTitle:
           selections.collection === "app" ? appSnapshot.collectionTitle : shopifySnapshot.collectionTitle,
+        categoryId: selections.category === "app" ? appSnapshot.categoryId : shopifySnapshot.categoryId,
+        categoryFullName:
+          selections.category === "app" ? appSnapshot.categoryFullName : shopifySnapshot.categoryFullName,
         seoTitle: selections.seoTitle === "app" ? appSnapshot.seoTitle : shopifySnapshot.seoTitle,
         seoDescription:
           selections.seoDescription === "app" ? appSnapshot.seoDescription : shopifySnapshot.seoDescription,

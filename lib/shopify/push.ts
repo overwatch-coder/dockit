@@ -18,6 +18,7 @@ export type PushProductInput = {
   seoDescription: string | null;
   price: string; // only used when variants is empty
   collectionId: string | null; // bare id; null = never touch collection membership
+  categoryId: string | null; // bare TaxonomyCategory id; null = never touch category
   imageUrls: string[]; // full current gallery, Blob and/or Shopify-CDN mixed
   variants: {
     id: string;
@@ -41,7 +42,10 @@ export type PushProductResult = {
 type PushResult = { success: true; data: PushProductResult } | { success: false; error: string };
 type LocationResult = { success: true; data: string } | { success: false; error: string };
 
-function toGid(type: "Product" | "ProductVariant" | "Collection" | "Location", bareId: string): string {
+function toGid(
+  type: "Product" | "ProductVariant" | "Collection" | "Location" | "TaxonomyCategory",
+  bareId: string
+): string {
   return bareId.startsWith("gid://") ? bareId : `gid://shopify/${type}/${bareId}`;
 }
 
@@ -355,6 +359,13 @@ export async function pushProductToShopify(
   // (it only ever models one "primary" collection per product).
   if (input.collectionId) {
     productSetInput.collections = [toGid("Collection", input.collectionId)];
+  }
+
+  // Same "only write when we have an opinion" convention as collectionId
+  // above — sending no category field at all leaves whatever's already on
+  // Shopify untouched, rather than risking clearing it.
+  if (input.categoryId) {
+    productSetInput.category = toGid("TaxonomyCategory", input.categoryId);
   }
 
   if (blobImageUrls.length > 0) {

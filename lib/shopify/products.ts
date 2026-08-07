@@ -19,6 +19,8 @@ export type ShopifyImportedProduct = {
   tags: string[];
   collectionId: string | null;
   collectionTitle: string | null;
+  categoryId: string | null;
+  categoryFullName: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   variants: ShopifyImportedVariant[];
@@ -48,6 +50,9 @@ type RawProductNode = {
   // a read-only "primary collection" display for the product list's Category
   // column.
   collections: { edges: { node: { id: string; title: string } }[] };
+  // Shopify's separate standardized Product Taxonomy category, distinct
+  // from collections above — null when the product has never had one set.
+  category: { id: string; fullName: string } | null;
   seo: { title: string | null; description: string | null };
   priceRangeV2: { minVariantPrice: { amount: string } };
   variants: { edges: { node: RawVariantNode }[] };
@@ -89,6 +94,8 @@ function toImportedProduct(node: RawProductNode): ShopifyImportedProduct {
     tags: node.tags,
     collectionId: primaryCollection ? toBareId(primaryCollection.id) : null,
     collectionTitle: primaryCollection?.title ?? null,
+    categoryId: node.category ? toBareId(node.category.id) : null,
+    categoryFullName: node.category?.fullName ?? null,
     seoTitle: node.seo.title,
     seoDescription: node.seo.description,
     variants: node.variants.edges.map(({ node: variant }) => ({
@@ -127,6 +134,10 @@ const PRODUCTS_QUERY = `
                 title
               }
             }
+          }
+          category {
+            id
+            fullName
           }
           seo {
             title

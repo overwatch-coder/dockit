@@ -20,6 +20,7 @@ function baseInput(overrides: Partial<PushProductInput> = {}): PushProductInput 
     seoDescription: null,
     price: "19.99",
     collectionId: null,
+    categoryId: null,
     imageUrls: [],
     variants: [],
     ...overrides,

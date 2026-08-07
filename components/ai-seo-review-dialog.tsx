@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TagInput } from "@/components/tag-input";
 import type { Collection } from "@/types/collection";
 
-export type AiSuggestedField = "seoTitle" | "seoDescription" | "tags" | "collection";
+export type AiSuggestedField = "seoTitle" | "seoDescription" | "tags" | "collection" | "category";
 
 export interface CurrentSeoState {
   seoTitle: string;
@@ -26,6 +26,8 @@ export interface CurrentSeoState {
   tags: string[];
   collectionId: string;
   collectionTitle: string;
+  categoryId: string;
+  categoryFullName: string;
 }
 
 export interface SuggestedSeoState {
@@ -33,6 +35,8 @@ export interface SuggestedSeoState {
   seoDescription: string;
   tags: string[];
   collectionId: string | null;
+  categoryId: string | null;
+  categoryFullName: string | null;
 }
 
 interface AiSeoReviewDialogProps {
@@ -60,6 +64,7 @@ export function AiSeoReviewDialog({
     seoDescription: true,
     tags: true,
     collection: true,
+    category: true,
   });
 
   const [seoTitle, setSeoTitle] = useState(suggested.seoTitle);
@@ -85,6 +90,7 @@ export function AiSeoReviewDialog({
         seoDescription: Boolean(suggested.seoDescription),
         tags: Boolean(suggested.tags.length),
         collection: Boolean(suggested.collectionId),
+        category: Boolean(suggested.categoryId),
       });
     }
   }
@@ -105,6 +111,8 @@ export function AiSeoReviewDialog({
       tags: current.tags,
       collectionId: current.collectionId,
       collectionTitle: current.collectionTitle,
+      categoryId: current.categoryId,
+      categoryFullName: current.categoryFullName,
     };
 
     if (selectedFields.seoTitle) {
@@ -123,6 +131,11 @@ export function AiSeoReviewDialog({
       finalState.collectionId = collectionId;
       finalState.collectionTitle = suggestedCollectionTitle;
       appliedFields.push("collection");
+    }
+    if (selectedFields.category) {
+      finalState.categoryId = suggested.categoryId ?? "";
+      finalState.categoryFullName = suggested.categoryFullName ?? "";
+      appliedFields.push("category");
     }
 
     onAccept(finalState, appliedFields);
@@ -232,6 +245,41 @@ export function AiSeoReviewDialog({
                 <span className="text-xs text-primary font-medium">Suggested Match</span>
                 <span className="text-sm text-foreground bg-primary-subtle/40 p-2 rounded border border-primary/30">
                   {suggestedCollectionTitle || <span className="italic text-muted-foreground">No matching collection</span>}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Category Row — Shopify's separate standardized Product
+              Taxonomy, distinct from Collection above. The suggestion is
+              already a real taxonomy match (resolved server-side from the
+              AI's plain-text guess), so this is a read-only "Suggested
+              Match," same as Collection's, not an inline-editable field. */}
+          <div className="flex flex-col gap-2 border border-border rounded-lg p-4 bg-surface">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="chk-category"
+                  checked={selectedFields.category}
+                  onCheckedChange={() => toggleField("category")}
+                  disabled={!suggested.categoryId}
+                />
+                <Label htmlFor="chk-category" className="font-semibold cursor-pointer">
+                  Category
+                </Label>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-1">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Current</span>
+                <span className="text-sm text-foreground bg-background p-2 rounded border border-border">
+                  {current.categoryFullName || <span className="italic text-muted-foreground">No category</span>}
+                </span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-primary font-medium">Suggested Match</span>
+                <span className="text-sm text-foreground bg-primary-subtle/40 p-2 rounded border border-primary/30">
+                  {suggested.categoryFullName || <span className="italic text-muted-foreground">No matching category</span>}
                 </span>
               </div>
             </div>

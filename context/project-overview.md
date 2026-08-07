@@ -34,11 +34,11 @@ This application is a custom product management dashboard for a Shopify store ow
 
 **Product management**
 - Create, edit, and delete products
-- Fields: title, description, price, variants (with per-variant price and inventory), images, SEO title/description, tags, collection assignment, draft/active status
+- Fields: title, description, price, variants (with per-variant price and inventory), images, SEO title/description, tags, collection assignment, Shopify Product Category (standardized taxonomy, manual search or AI-assisted), draft/active status
 - Image upload to Vercel Blob during draft state
 
 **AI assistance**
-- One-click generation of SEO fields, tags, and collection suggestion
+- One-click generation of SEO fields, tags, collection suggestion, and Shopify Product Category suggestion (a plain-text AI guess resolved server-side against Shopify's real taxonomy search, so the model is never shown the full ~10,000-category list)
 - Uses Vercel AI SDK with OpenAI and Groq as initial providers
 - All AI output is editable before saving or pushing
 
@@ -53,6 +53,7 @@ This application is a custom product management dashboard for a Shopify store ow
 - Product CRUD (create, read, update, delete) for a single connected Shopify store, extendable to multiple stores per account
 - Variants with per-variant price and inventory
 - Collection assignment (manual or AI-suggested)
+- Shopify Product Category assignment (manual taxonomy search or AI-suggested)
 - SEO fields and tags, AI-generated and editable
 - Draft/active status control
 - Draft-then-push workflow to Shopify

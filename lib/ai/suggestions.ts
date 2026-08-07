@@ -49,7 +49,8 @@ Write:
 - seoTitle: a concise SEO title (around 60 characters) suitable for a search engine result snippet.
 - seoDescription: a concise SEO description (around 155 characters) suitable for a search engine result snippet.
 - tags: 3 to 8 relevant tags for this product.
-- collectionId: the id of the single best-matching collection from the candidate list above, exactly as given, or null if none fit. Never invent an id that isn't in the candidate list.`;
+- collectionId: the id of the single best-matching collection from the candidate list above, exactly as given, or null if none fit. Never invent an id that isn't in the candidate list.
+- categoryGuess: a short plain-text guess of this product's real-world category (e.g. "Dog Beds", "Men's Running Shoes"), or null if you can't tell. This is just a search hint used to look up a real category afterward, not a final answer — don't invent a full breadcrumb path, just the most specific plain category name you're confident in.`;
 
   try {
     const { output } = await generateText({

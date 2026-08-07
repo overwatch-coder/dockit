@@ -15,6 +15,7 @@ import {
   uploadProductImage,
 } from "@/app/(dashboard)/products/actions";
 import { ActionConfirmationModal } from "@/components/action-confirmation-modal";
+import { CategoryPicker } from "@/components/category-picker";
 import { ConflictResolutionDialog } from "@/components/conflict-resolution-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -112,6 +113,8 @@ export function ProductForm({
   const [variants, setVariants] = useState<DraftVariant[]>(() => toDraftVariants(product));
   const [collectionId, setCollectionId] = useState(product?.collectionId ?? "");
   const [collectionTitle, setCollectionTitle] = useState(product?.collectionTitle ?? "");
+  const [categoryId, setCategoryId] = useState(product?.categoryId ?? "");
+  const [categoryFullName, setCategoryFullName] = useState(product?.categoryFullName ?? "");
   const [tags, setTags] = useState<string[]>(product?.tags ?? []);
   const [seoTitle, setSeoTitle] = useState(product?.seoTitle ?? "");
   const [seoDescription, setSeoDescription] = useState(product?.seoDescription ?? "");
@@ -208,6 +211,10 @@ export function ProductForm({
       setCollectionId(accepted.collectionId);
       setCollectionTitle(accepted.collectionTitle);
     }
+    if (appliedFields.includes("category")) {
+      setCategoryId(accepted.categoryId);
+      setCategoryFullName(accepted.categoryFullName);
+    }
     setAiSuggested(new Set(appliedFields));
     toast.success("SEO suggestions applied — review before saving");
   }
@@ -226,6 +233,7 @@ export function ProductForm({
       descriptionHtml,
       variants,
       collectionId,
+      categoryId,
       tags,
       seoTitle,
       seoDescription,
@@ -625,6 +633,27 @@ export function ProductForm({
               <div
                 className={cn(
                   "flex flex-col gap-2 rounded-lg p-2",
+                  aiSuggested.has("category") && "bg-primary-subtle"
+                )}
+              >
+                <Label>Category</Label>
+                <CategoryPicker
+                  storeId={product.storeId}
+                  categoryId={categoryId}
+                  categoryFullName={categoryFullName}
+                  onChange={(nextId, nextFullName) => {
+                    clearSuggested("category");
+                    setCategoryId(nextId);
+                    setCategoryFullName(nextFullName);
+                  }}
+                />
+                <input type="hidden" name="categoryId" value={categoryId} />
+                <input type="hidden" name="categoryFullName" value={categoryFullName} />
+              </div>
+
+              <div
+                className={cn(
+                  "flex flex-col gap-2 rounded-lg p-2",
                   aiSuggested.has("tags") && "bg-primary-subtle"
                 )}
               >
@@ -814,6 +843,8 @@ export function ProductForm({
             tags,
             collectionId,
             collectionTitle,
+            categoryId,
+            categoryFullName,
           }}
           suggested={pendingSeoSuggestion}
           collections={collections}

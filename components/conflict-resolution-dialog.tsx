@@ -31,6 +31,7 @@ const FIELD_KEYS: FieldKey[] = [
   "status",
   "tags",
   "collection",
+  "category",
   "seoTitle",
   "seoDescription",
   "variants",
@@ -389,6 +390,7 @@ export function ConflictResolutionDialog({
       status: appSnapshot.status !== shopifySnapshot.status,
       tags: valuesDiffer(appSnapshot.tags.join(", "), shopifySnapshot.tags.join(", "), false),
       collection: appSnapshot.collectionId !== shopifySnapshot.collectionId,
+      category: appSnapshot.categoryId !== shopifySnapshot.categoryId,
       seoTitle: valuesDiffer(appSnapshot.seoTitle ?? "", shopifySnapshot.seoTitle ?? "", false),
       seoDescription: valuesDiffer(appSnapshot.seoDescription ?? "", shopifySnapshot.seoDescription ?? "", false),
       variants: diffVariants(appSnapshot.variants, shopifySnapshot.variants).some((entry) => entry.kind !== "unchanged"),
@@ -557,6 +559,12 @@ export function ConflictResolutionDialog({
                 appText={appSnapshot.collectionTitle ?? ""}
                 shopifyText={shopifySnapshot.collectionTitle ?? ""}
                 picker={picker("collection")}
+              />
+              <TextDiffRow
+                label="Category"
+                appText={appSnapshot.categoryFullName ?? ""}
+                shopifyText={shopifySnapshot.categoryFullName ?? ""}
+                picker={picker("category")}
               />
               <TextDiffRow
                 label="SEO title"

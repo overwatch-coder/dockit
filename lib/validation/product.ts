@@ -21,6 +21,11 @@ export const productFormSchema = z.object({
   // importProducts already uses.
   collectionId: z.string().trim().optional(),
   collectionTitle: z.string().trim().optional(),
+  // Shopify's separate standardized Product Taxonomy category — same "empty
+  // string means unset, write both together" convention as collectionId/
+  // collectionTitle above.
+  categoryId: z.string().trim().optional(),
+  categoryFullName: z.string().trim().optional(),
   // Unit 14: Shopify's own SEO title/description — distinct from the main
   // title/description above, manually editable and/or AI-suggested. Empty
   // string means "not set."
