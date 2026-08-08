@@ -16,7 +16,7 @@ type TaxonomySearchResult =
   | { success: true; data: ShopifyTaxonomyCategory[] }
   | { success: false; error: string };
 
-type RawTaxonomyCategoryNode = { id: string; name: string; fullName: string };
+type RawTaxonomyCategoryNode = { id: string; name: string; fullName: string; isLeaf: boolean };
 
 type RawTaxonomyResponse = {
   data?: {
@@ -37,6 +37,7 @@ const TAXONOMY_SEARCH_QUERY = `
             id
             name
             fullName
+            isLeaf
           }
         }
       }
@@ -50,6 +51,19 @@ const TAXONOMY_SEARCH_QUERY = `
 // small merchant-defined collections list, so this is a single bounded
 // search page instead of a full cursor-paginated fetch. Mirrors
 // collections.ts's request shape (same endpoint/headers) otherwise.
+//
+// Leaf-only, per a live bug report: a category picked from search results
+// was saving locally and pushing with no Shopify error, but never actually
+// showing up as the product's category in Shopify admin. Shopify's own
+// taxonomy is hierarchical — "Apparel & Accessories" and "Clothing" are
+// real, searchable nodes too, but they're broader groupings, not something
+// a product is meant to be filed directly under (Shopify's help docs give
+// examples like "Apparel & Accessories > Clothing > Clothing Tops > Shirts"
+// — always the most specific node). Only a leaf node (no children) is the
+// "actual" category a product can be usefully assigned to; over-fetches by
+// 3x and filters to isLeaf so a broad/ambiguous search term still returns a
+// full page of genuinely assignable results instead of getting starved by
+// filtering after the fact.
 export async function searchTaxonomyCategories(
   shopDomain: string,
   accessToken: string,
@@ -65,7 +79,7 @@ export async function searchTaxonomyCategories(
       },
       body: JSON.stringify({
         query: TAXONOMY_SEARCH_QUERY,
-        variables: { search: query, first: limit },
+        variables: { search: query, first: limit * 3 },
       }),
     });
 
@@ -81,7 +95,10 @@ export async function searchTaxonomyCategories(
 
     return {
       success: true,
-      data: edges.map(({ node }) => ({ id: toBareId(node.id), name: node.name, fullName: node.fullName })),
+      data: edges
+        .filter(({ node }) => node.isLeaf)
+        .slice(0, limit)
+        .map(({ node }) => ({ id: toBareId(node.id), name: node.name, fullName: node.fullName })),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
