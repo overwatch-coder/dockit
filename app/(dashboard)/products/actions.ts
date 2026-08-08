@@ -89,6 +89,8 @@ function parseProductForm(
     status: formData.get("status"),
     collectionId: formData.get("collectionId") ?? undefined,
     collectionTitle: formData.get("collectionTitle") ?? undefined,
+    categoryId: formData.get("categoryId") ?? undefined,
+    categoryFullName: formData.get("categoryFullName") ?? undefined,
     seoTitle: formData.get("seoTitle") ?? undefined,
     seoDescription: formData.get("seoDescription") ?? undefined,
   });
