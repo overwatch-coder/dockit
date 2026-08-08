@@ -59,16 +59,23 @@ const TAXONOMY_SEARCH_QUERY = `
 // real, searchable nodes too, but they're broader groupings, not something
 // a product is meant to be filed directly under (Shopify's help docs give
 // examples like "Apparel & Accessories > Clothing > Clothing Tops > Shirts"
-// — always the most specific node). Only a leaf node (no children) is the
-// "actual" category a product can be usefully assigned to; over-fetches by
-// 3x and filters to isLeaf so a broad/ambiguous search term still returns a
-// full page of genuinely assignable results instead of getting starved by
-// filtering after the fact.
+// — always the most specific node).
+//
+// Follow-up, per a live report that a plain, common leaf like "Shirts"
+// (documented by Shopify itself as a real leaf under Clothing Tops) didn't
+// show up searching "shirt": Shopify's own relevance ranking for a broad
+// single-word search can bury a plain-named leaf well past the first ~30
+// raw matches, so a light 3x over-fetch was still starving the leaf filter
+// before it ever saw the result worth keeping. Widened substantially —
+// over-fetches 10x the requested limit (capped at 200, Shopify's per-page
+// max is 250) and returns up to 20 leaf matches by default (was 10) — a
+// single extra GraphQL page cost, not a pagination loop, so still one
+// request either way.
 export async function searchTaxonomyCategories(
   shopDomain: string,
   accessToken: string,
   query: string,
-  limit = 10
+  limit = 20
 ): Promise<TaxonomySearchResult> {
   try {
     const response = await fetch(`https://${shopDomain}/admin/api/${ADMIN_API_VERSION}/graphql.json`, {
@@ -79,7 +86,7 @@ export async function searchTaxonomyCategories(
       },
       body: JSON.stringify({
         query: TAXONOMY_SEARCH_QUERY,
-        variables: { search: query, first: limit * 3 },
+        variables: { search: query, first: Math.min(limit * 10, 200) },
       }),
     });
 
