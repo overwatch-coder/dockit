@@ -1,6 +1,8 @@
+import { cookies } from "next/headers";
 import { auth } from "@clerk/nextjs/server";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
-import { getStoresForAccount } from "@/lib/db/stores";
+import { getActiveStoreForAccount, getStoresForAccount } from "@/lib/db/stores";
+import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import { getProductsForStore } from "@/lib/db/products";
 import { AutoDismissBanner } from "@/components/auto-dismiss-banner";
 import { ConnectStoreEmptyState } from "@/components/connect-store-empty-state";
@@ -37,7 +39,8 @@ export default async function DashboardPage({
     );
   }
 
-  const currentStore = stores[0];
+  const cookieStoreId = (await cookies()).get(ACTIVE_STORE_COOKIE_NAME)?.value ?? null;
+  const currentStore = getActiveStoreForAccount(stores, cookieStoreId)!;
   const products = await getProductsForStore(account.id, currentStore.id);
 
   return (

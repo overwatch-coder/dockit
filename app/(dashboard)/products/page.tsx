@@ -1,17 +1,18 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Plus } from "lucide-react";
 import { auth } from "@clerk/nextjs/server";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
-import { getStoresForAccount } from "@/lib/db/stores";
+import { getActiveStoreForAccount, getStoresForAccount } from "@/lib/db/stores";
+import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import { getPaginatedProductsForStore, getProductSummariesForStore, getStoreCategories } from "@/lib/db/products";
 import { Button } from "@/components/ui/button";
 import { ProductTable } from "@/components/product-table";
 import { PushAllDraftsButton } from "@/components/push-all-drafts-button";
 import { SyncStoreButton } from "@/components/sync-store-button";
 
-// Unit 8: real product list, read-only. Scoped to the first connected store
-// for now — Unit 21 wires this to the store switcher's actual selection.
+// Unit 8: real product list, read-only. Scoped to the active store (Unit 21).
 // No store connected is handled by redirecting to /dashboard, since that's
 // where the "Connect store" entry points live (Unit 5) — this page doesn't
 // duplicate that empty state.
@@ -34,7 +35,8 @@ export default async function ProductsPage({
     redirect("/dashboard");
   }
 
-  const currentStore = stores[0];
+  const cookieStoreId = (await cookies()).get(ACTIVE_STORE_COOKIE_NAME)?.value ?? null;
+  const currentStore = getActiveStoreForAccount(stores, cookieStoreId)!;
   const params = await searchParams;
 
   const rawPage = params.page ? parseInt(params.page, 10) : 1;

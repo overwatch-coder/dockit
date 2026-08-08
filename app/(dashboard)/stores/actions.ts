@@ -6,7 +6,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
-import { deleteStore, isShopDomainConnected } from "@/lib/db/stores";
+import { deleteStore, getStoresForAccount, isShopDomainConnected } from "@/lib/db/stores";
+import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import {
   buildAuthorizeUrl,
   checkShopExists,
@@ -63,6 +64,31 @@ export async function connectStore(
   redirect(buildAuthorizeUrl(shopDomain, nonce));
 }
 
+// Unit 21: sets the active-store cookie after validating storeId actually
+// belongs to the caller's account — never trusts a client-supplied id
+// on its own, same defensive stance as every other store-scoped query in
+// this codebase (architecture.md's Invariants #3).
+export async function setActiveStore(storeId: string): Promise<{ error: string } | undefined> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const stores = await getStoresForAccount(account.id);
+  if (!stores.some((store) => store.id === storeId)) {
+    return { error: "That store isn't connected to this account." };
+  }
+
+  const cookieStore = await cookies();
+  cookieStore.set(ACTIVE_STORE_COOKIE_NAME, storeId, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 365,
+    path: "/",
+  });
+
+  revalidatePath("/", "layout");
+}
+
 export async function disconnectStore(storeId: string): Promise<{ error: string } | undefined> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -72,5 +98,16 @@ export async function disconnectStore(storeId: string): Promise<{ error: string 
     return { error: "That store is already disconnected." };
   }
 
-  revalidatePath("/dashboard");
+  // If the store just removed was the active one, clear the cookie so the
+  // next read falls through to getActiveStoreForAccount's own fallback
+  // (first remaining store, or null) instead of pointing at a dead id.
+  const cookieStore = await cookies();
+  if (cookieStore.get(ACTIVE_STORE_COOKIE_NAME)?.value === storeId) {
+    cookieStore.delete(ACTIVE_STORE_COOKIE_NAME);
+  }
+
+  // Layout-wide (not just "/dashboard") — the store switcher (and the store
+  // list it renders) lives in the shared sidebar, so removal needs to
+  // refresh regardless of which page it was triggered from (Unit 21).
+  revalidatePath("/", "layout");
 }

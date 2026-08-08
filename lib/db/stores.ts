@@ -99,6 +99,25 @@ export async function getStoreToken(
   return { shopifyDomain: store.shopifyDomain, accessTokenEncrypted: store.token.accessTokenEncrypted };
 }
 
+// Resolves "the active store" for every server entry point that used to
+// hardcode getStoresForAccount(...)[0] ("first connected store") — Unit 21.
+// Pure (no next/headers import here): callers read the active-store-id
+// cookie themselves (same pattern app/(dashboard)/stores/actions.ts already
+// uses) and pass its raw value in, so this stays a plain, testable function.
+// Falls back to the first store (createdAt asc, same order getStoresForAccount
+// returns) whenever the cookie is unset, stale (points at a deleted store),
+// or tampered with (points at a store belonging to a different account) —
+// never trusts the cookie value on its own.
+export function getActiveStoreForAccount(stores: Store[], cookieStoreId: string | null): Store | null {
+  if (cookieStoreId) {
+    const matched = stores.find((store) => store.id === cookieStoreId);
+    if (matched) {
+      return matched;
+    }
+  }
+  return stores[0] ?? null;
+}
+
 // Uses deleteMany (not delete) so the accountId scope is enforced by the
 // query itself, not a separate ownership check the caller could forget.
 // ShopifyToken/Product/Job rows for this store cascade-delete via the

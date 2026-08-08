@@ -22,19 +22,35 @@ vi.mock("@/lib/db/accounts", () => ({
   }),
 }));
 
-vi.mock("@/lib/db/stores", () => ({
-  getStoresForAccount: vi.fn().mockResolvedValue([
-    {
-      id: "store_test",
-      shopifyDomain: "my-shopify-store.myshopify.com",
-      name: "My Shopify Store",
-      connectedAt: new Date(),
-    },
-  ]),
+vi.mock("@/lib/db/stores", () => {
+  const testStore = {
+    id: "store_test",
+    shopifyDomain: "my-shopify-store.myshopify.com",
+    name: "My Shopify Store",
+    connectedAt: new Date(),
+  };
+  return {
+    getStoresForAccount: vi.fn().mockResolvedValue([testStore]),
+    getActiveStoreForAccount: vi.fn().mockReturnValue(testStore),
+  };
+});
+
+vi.mock("next/headers", () => ({
+  cookies: vi.fn().mockResolvedValue({ get: () => undefined }),
+}));
+
+vi.mock("@/lib/active-store-cookie", () => ({
+  ACTIVE_STORE_COOKIE_NAME: "active-store-id",
+}));
+
+vi.mock("@/app/(dashboard)/stores/actions", () => ({
+  setActiveStore: vi.fn(),
+  connectStore: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard",
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
 describe("AppSidebar", () => {

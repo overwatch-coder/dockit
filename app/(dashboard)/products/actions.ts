@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
+import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import {
   addProductImage as addProductImageInDb,
   createProduct as createProductInDb,
@@ -20,7 +22,7 @@ import {
 } from "@/lib/db/products";
 import type { ConflictFieldSelections } from "@/lib/db/products";
 import { syncProductVariants as syncProductVariantsInDb } from "@/lib/db/variants";
-import { getStoresForAccount, getStoreToken } from "@/lib/db/stores";
+import { getActiveStoreForAccount, getStoresForAccount, getStoreToken } from "@/lib/db/stores";
 import { createJob, getJobById, getLatestJobForStore } from "@/lib/db/jobs";
 import {
   deleteProductImage as deleteProductImageFromBlob,
@@ -478,17 +480,25 @@ export async function pushSelectedProducts(
   return { jobId: job.id, count: eligibleIds.length };
 }
 
+// Unit 21: resolves the active store the same way every server entry point
+// now does — reads the active-store-id cookie (set by
+// app/(dashboard)/stores/actions.ts's setActiveStore) and validates it
+// against this account's actual stores via getActiveStoreForAccount, falling
+// back to the first connected store if the cookie is unset/stale/tampered.
+async function resolveActiveStore(accountId: string) {
+  const stores = await getStoresForAccount(accountId);
+  const cookieStoreId = (await cookies()).get(ACTIVE_STORE_COOKIE_NAME)?.value ?? null;
+  return getActiveStoreForAccount(stores, cookieStoreId);
+}
+
 // Unit 16 follow-up: the no-selection counterpart to pushSelectedProducts —
-// pushes every product for the current store that's never reached Shopify.
-// Store scope matches products/page.tsx's own "first connected store"
-// convention (Unit 21 replaces both with the real switcher selection). Zero
-// eligible products is a typed error, not a job — nothing to enqueue.
+// pushes every product for the active store that's never reached Shopify.
+// Zero eligible products is a typed error, not a job — nothing to enqueue.
 export async function pushAllDrafts(): Promise<{ jobId: string; count: number } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
-  const stores = await getStoresForAccount(account.id);
-  const store = stores[0];
+  const store = await resolveActiveStore(account.id);
   if (!store) {
     return { error: "Connect a store first." };
   }
@@ -508,17 +518,15 @@ export async function pushAllDrafts(): Promise<{ jobId: string; count: number } 
 // catalog into the database. A product with an unpushed local edit
 // (lastEditedAt after lastSyncedAt) is left untouched by the job itself
 // (lib/db/products.ts's syncProducts/shouldSkipSync), not flagged as a
-// Conflict yet (that's Unit 18). Store scope matches pushAllDrafts' own
-// "first connected store" convention (Unit 21 replaces both with the real
-// switcher selection). Creates the Job row itself, same as every other
+// Conflict yet (that's Unit 18). Store scope resolves the active store, same
+// as pushAllDrafts above. Creates the Job row itself, same as every other
 // dashboard-button-triggered job, so the button can poll it (invariant 4:
 // never calls Shopify here, only enqueues).
 export async function syncStore(): Promise<{ jobId: string } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
-  const stores = await getStoresForAccount(account.id);
-  const store = stores[0];
+  const store = await resolveActiveStore(account.id);
   if (!store) {
     return { error: "Connect a store first." };
   }
@@ -671,14 +679,13 @@ export async function getPushJobStatus(
 // settles), this discovers whatever the most recent job is on its own, so
 // the indicator can show a job's status even when it wasn't the component
 // that triggered it (e.g. after navigating to a different page mid-push).
-// Same "first connected store" scoping as pushAllDrafts/syncStore above. No
-// store connected is a normal idle state (nothing to show), not an error.
+// Same active-store resolution as pushAllDrafts/syncStore above. No store
+// connected is a normal idle state (nothing to show), not an error.
 export async function getLatestJobStatus(): Promise<{ job: Job | null } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
-  const stores = await getStoresForAccount(account.id);
-  const store = stores[0];
+  const store = await resolveActiveStore(account.id);
   if (!store) {
     return { job: null };
   }
