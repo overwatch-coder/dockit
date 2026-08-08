@@ -1,148 +1,66 @@
-import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
-import Image from "next/image";
-import Link from "next/link";
-import { PenLine, RefreshCw, Sparkles, Store } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { ThemeToggle } from "@/components/theme-toggle";
-
-// Minimal marketing landing page for signed-out visitors — a deliberate
-// pivot from the earlier "just improve the sign-in screen" decision, per
-// explicit user request. Kept restrained per ui-context.md's tokens/rules
-// (no new colors, no gradients) even though the page's *content* is now
-// marketing-shaped (hero/value-prop/how-it-works/footer) rather than the
-// dashboard's utilitarian layout. See ui-context.md's "Public Landing Page"
-// section for the scope note this required.
-const VALUE_PROPS = [
-  {
-    icon: PenLine,
-    title: "Draft first, publish on your terms",
-    description: "Edit title, description, price, variants, and images as drafts before anything reaches Shopify.",
-  },
-  {
-    icon: Sparkles,
-    title: "AI-assisted SEO & tags",
-    description: "Generate SEO fields, tags, and a suggested collection with one click — always editable before you save.",
-  },
-  {
-    icon: RefreshCw,
-    title: "Two-way sync, no surprises",
-    description: "Pull changes made directly in Shopify back into the app, with conflicts flagged instead of silently overwritten.",
-  },
-  {
-    icon: Store,
-    title: "Built for more than one store",
-    description: "One account, multiple connected stores — switch between them without losing context.",
-  },
-];
+import { LandingHeader } from "@/components/landing/landing-header";
+import { Hero } from "@/components/landing/hero";
+import { FeatureCards } from "@/components/landing/feature-cards";
+import { AppShowcase } from "@/components/landing/app-showcase";
+import { LandingFooter } from "@/components/landing/footer";
 
 const STEPS = [
-  { step: "1", title: "Connect your store", description: "Shopify OAuth — no manual API tokens to copy around." },
-  { step: "2", title: "Edit as drafts", description: "Update products, variants, and SEO fields inside Dockit." },
-  { step: "3", title: "Push or sync", description: "Push drafts to Shopify, or pull its changes back, whenever you're ready." },
+  {
+    step: "01",
+    title: "Connect your Shopify Store",
+    description: "Connect via secure Shopify OAuth in seconds — no manual API keys or tokens required.",
+  },
+  {
+    step: "02",
+    title: "Draft & Generate with AI",
+    description: "Edit titles, variants, and generate SEO tags and product categories with one click.",
+  },
+  {
+    step: "03",
+    title: "Push or Sync with Conflict Guard",
+    description: "Push changes to Shopify when ready, or pull store updates back with automatic conflict detection.",
+  },
 ];
-
-function HeaderAuthControls() {
-  return (
-    <div className="flex items-center gap-3">
-      <Show when="signed-out">
-        {/* forceRedirectUrl is required here, not just the app-wide
-            NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL env var — Clerk's
-            sign-in/up flow captures the page the button was clicked from
-            (this landing page, "/") as the post-auth destination, which
-            takes precedence over the fallback env default. forceRedirectUrl
-            always wins regardless of where auth was initiated from. */}
-        <SignInButton forceRedirectUrl="/dashboard">
-          <Button variant="ghost">Sign in</Button>
-        </SignInButton>
-        <SignUpButton forceRedirectUrl="/dashboard">
-          <Button>Get started</Button>
-        </SignUpButton>
-      </Show>
-      <Show when="signed-in">
-        <UserButton />
-        <Button nativeButton={false} render={<Link href="/dashboard" />}>
-          Go to dashboard
-        </Button>
-      </Show>
-      <ThemeToggle />
-    </div>
-  );
-}
 
 export default function Home() {
   return (
-    <div className="flex flex-1 flex-col bg-background font-sans">
-      <header className="border-b border-border">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-2">
-            <Image src="/logo.svg" alt="" width={28} height={28} className="rounded-[10px]" />
-            <span className="text-section-heading font-semibold text-foreground">Dockit</span>
-          </div>
-          <HeaderAuthControls />
-        </div>
-      </header>
+    <div className="flex min-h-screen flex-col bg-background font-sans text-foreground">
+      <LandingHeader />
 
       <main className="flex-1">
-        <section className="mx-auto flex max-w-3xl flex-col items-center gap-6 px-6 py-24 text-center">
-          <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-            Manage your Shopify products without living in Shopify admin
-          </h1>
-          <p className="max-w-xl text-base text-muted-foreground">
-            Draft product content, generate SEO and tags with AI, and push to Shopify on your
-            schedule — with changes made directly in Shopify synced back and conflicts flagged,
-            never silently overwritten.
-          </p>
-          <div className="flex items-center gap-3">
-            <Show when="signed-out">
-              <SignUpButton forceRedirectUrl="/dashboard">
-                <Button size="lg">Get started</Button>
-              </SignUpButton>
-              <SignInButton forceRedirectUrl="/dashboard">
-                <Button variant="outline" size="lg">
-                  Sign in
-                </Button>
-              </SignInButton>
-            </Show>
-            <Show when="signed-in">
-              <Button nativeButton={false} size="lg" render={<Link href="/dashboard" />}>
-                Go to dashboard
-              </Button>
-            </Show>
-          </div>
-        </section>
+        <Hero />
+        <FeatureCards />
+        <AppShowcase />
 
-        <section className="border-t border-border bg-surface">
-          <div className="mx-auto grid max-w-5xl grid-cols-1 gap-8 px-6 py-16 sm:grid-cols-2 lg:grid-cols-4">
-            {VALUE_PROPS.map(({ icon: Icon, title, description }) => (
-              <div key={title} className="flex flex-col gap-3">
-                <Icon className="size-5 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-                <p className="text-sm text-muted-foreground">{description}</p>
-              </div>
-            ))}
-          </div>
-        </section>
+        {/* How It Works Step Section */}
+        <section id="how-it-works" className="border-t border-border py-20 bg-surface/20">
+          <div className="mx-auto max-w-6xl px-6">
+            <div className="text-center">
+              <h2 className="text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl">
+                How Dockit Works
+              </h2>
+              <p className="mx-auto mt-4 max-w-xl text-base text-foreground-muted">
+                Three simple steps to supercharge your Shopify product management workflow.
+              </p>
+            </div>
 
-        <section className="mx-auto max-w-5xl px-6 py-16">
-          <h2 className="text-section-heading font-semibold text-foreground">How it works</h2>
-          <div className="mt-8 grid grid-cols-1 gap-8 sm:grid-cols-3">
-            {STEPS.map(({ step, title, description }) => (
-              <div key={step} className="flex flex-col gap-2">
-                <span className="text-sm font-mono text-primary">{step}</span>
-                <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-                <p className="text-sm text-muted-foreground">{description}</p>
-              </div>
-            ))}
+            <div className="mt-16 grid grid-cols-1 gap-8 sm:grid-cols-3">
+              {STEPS.map(({ step, title, description }) => (
+                <div
+                  key={step}
+                  className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-8 shadow-sm transition-all hover:border-primary/40"
+                >
+                  <span className="font-mono text-2xl font-extrabold text-primary">{step}</span>
+                  <h3 className="text-lg font-bold text-foreground">{title}</h3>
+                  <p className="text-sm text-foreground-muted leading-relaxed">{description}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
       </main>
 
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-6 text-sm text-muted-foreground">
-          <span>© {new Date().getFullYear()} Dockit</span>
-          <span>A product dashboard for Shopify store owners</span>
-        </div>
-      </footer>
+      <LandingFooter />
     </div>
   );
 }
