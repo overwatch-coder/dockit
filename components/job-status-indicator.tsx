@@ -86,20 +86,40 @@ export function describeJobResult(job: Job): JobResultDescription {
   return { summary: "Something went wrong." };
 }
 
+const TERMINAL_STATUS_STYLE: Record<"SUCCEEDED" | "PARTIAL" | "FAILED", string> = {
+  SUCCEEDED: "border-success/30 bg-success/10 text-success",
+  PARTIAL: "border-warning/30 bg-warning/10 text-warning",
+  FAILED: "border-destructive/30 bg-destructive/10 text-destructive",
+};
+
+const TERMINAL_STATUS_LABEL: Record<"SUCCEEDED" | "PARTIAL" | "FAILED", string> = {
+  SUCCEEDED: "complete",
+  PARTIAL: "partially failed",
+  FAILED: "failed",
+};
+
 // Unit 20: the persistent top-bar indicator (ui-context.md's Layout
 // Patterns) — mounted once in app/(dashboard)/layout.tsx's header, always
 // present, unlike lib/hooks/use-job-polling.ts's per-trigger polling which
 // stops the moment its owning component unmounts (e.g. the owner navigates
-// away mid-push). Renders nothing for an idle/successful store — only a
-// running job or an unresolved PARTIAL/FAILED one is worth ambient
-// attention; a clean success already got its moment via the triggering
-// page's own toast.
+// away mid-push). Renders nothing only when there's genuinely no job to
+// show (idle store, or this exact job was dismissed).
+//
+// Follow-up, per explicit user feedback from live use: this originally also
+// hid a clean SUCCEEDED job, on the assumption the triggering page's own
+// toast already covered that moment — but that toast never fires if the
+// owner has navigated away, which is exactly this indicator's reason to
+// exist. A sync/push finishing with zero feedback anywhere read as "it just
+// disappeared, did it even work?". Every terminal status (SUCCEEDED,
+// PARTIAL, FAILED) now renders a pill that persists until the owner
+// dismisses it or a new job supersedes it — only the in-flight
+// PENDING/RUNNING state is transient/non-interactive.
 export function JobStatusIndicator() {
   const { job } = useLatestJobStatus();
   const [dismissedJobId, setDismissedJobId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
-  if (!job || job.status === "SUCCEEDED" || job.id === dismissedJobId) {
+  if (!job || job.id === dismissedJobId) {
     return null;
   }
 
@@ -112,12 +132,14 @@ export function JobStatusIndicator() {
     );
   }
 
-  // PARTIAL or FAILED — persists until the owner dismisses it or a new job
-  // starts (dismissedJobId only ever matches this exact job's id), per
-  // ui-context.md's own word "persistent" and the reason the link exists at
-  // all: the owner might not be on the page that started this job anymore.
-  const isFailed = job.status === "FAILED";
+  // SUCCEEDED, PARTIAL, or FAILED — persists until the owner dismisses it or
+  // a new job starts (dismissedJobId only ever matches this exact job's
+  // id), per ui-context.md's own word "persistent" and the reason the link
+  // exists at all: the owner might not be on the page that started this job
+  // anymore.
+  const status = job.status;
   const description = describeJobResult(job);
+  const StatusIcon = status === "SUCCEEDED" ? CheckCircle2 : TriangleAlert;
 
   return (
     <div className="flex items-center gap-1">
@@ -128,15 +150,13 @@ export function JobStatusIndicator() {
               type="button"
               className={cn(
                 "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-label font-medium",
-                isFailed
-                  ? "border-destructive/30 bg-destructive/10 text-destructive"
-                  : "border-warning/30 bg-warning/10 text-warning"
+                TERMINAL_STATUS_STYLE[status]
               )}
             />
           }
         >
-          <TriangleAlert className="size-3.5" />
-          {JOB_TYPE_LABEL[job.type]} {isFailed ? "failed" : "partially failed"}
+          <StatusIcon className="size-3.5" />
+          {JOB_TYPE_LABEL[job.type]} {TERMINAL_STATUS_LABEL[status]}
         </PopoverTrigger>
         <PopoverContent align="end" className="w-80">
           <p className="text-sm text-foreground">{description.summary}</p>
