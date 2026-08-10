@@ -1,5 +1,15 @@
 import { toBareId } from "./products";
 import { postShopifyGraphQL } from "./client";
+// Unit 22 follow-up: this file used to keep its own private isBlobOrigin,
+// an exact duplicate of lib/blob/products.ts's isBlobUrl (same
+// .public.blob.vercel-storage.com hostname check) — lib/blob/products.ts is
+// already this codebase's one designated owner of "what counts as a Blob
+// URL" (the same isolation role lib/shopify/ plays for Shopify and lib/db/
+// plays for Prisma), and lib/jobs/push.ts already imports both isBlobUrl and
+// this file's own pushProductToShopify side by side, so importing a pure
+// predicate across that boundary is already an established, safe pattern —
+// not a boundary violation, just normal reuse of a classification helper.
+import { isBlobUrl } from "@/lib/blob/products";
 
 // Unit 15: everything needed to push one product's current app-side state
 // onto Shopify via the productSet mutation (verified against shopify.dev
@@ -46,14 +56,6 @@ function toGid(
   bareId: string
 ): string {
   return bareId.startsWith("gid://") ? bareId : `gid://shopify/${type}/${bareId}`;
-}
-
-function isBlobOrigin(url: string): boolean {
-  try {
-    return new URL(url).hostname.endsWith(".public.blob.vercel-storage.com");
-  } catch {
-    return false;
-  }
 }
 
 // Not exported — every lib/shopify/ file makes one or more GraphQL calls via
@@ -268,7 +270,7 @@ export async function pushProductToShopify(
   // unnecessary (the image is already attached either way), so this is the
   // conservative choice, verified empirically against the real connected
   // store as part of this unit's live verification pass.
-  const blobImageUrls = input.imageUrls.filter(isBlobOrigin);
+  const blobImageUrls = input.imageUrls.filter(isBlobUrl);
 
   let beforeMediaIds = new Set<string>();
   if (blobImageUrls.length > 0 && productGidForLookups) {
@@ -433,7 +435,7 @@ export async function pushProductToShopify(
   // entry replaced in place with its newly promoted CDN url, each
   // already-Shopify entry left untouched.
   let blobIndex = 0;
-  const mediaUrls = input.imageUrls.map((url) => (isBlobOrigin(url) ? (newMediaUrls[blobIndex++] ?? url) : url));
+  const mediaUrls = input.imageUrls.map((url) => (isBlobUrl(url) ? (newMediaUrls[blobIndex++] ?? url) : url));
 
   return {
     success: true,
