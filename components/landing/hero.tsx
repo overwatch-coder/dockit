@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
+import { SignInButton, SignUpButton, Show } from "@clerk/nextjs";
 import { ArrowRight, Sparkles, ShieldCheck, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FloatingBadge } from "@/components/landing/floating-badge";
@@ -18,15 +18,22 @@ export function Hero() {
           <span className="text-foreground-muted font-normal">Draft & Sync Engine</span>
         </div>
 
-        {/* Hero Content Container with Floating 3D Speech Bubbles */}
+        {/* Hero Content Container */}
         <div className="relative mt-8">
-          <FloatingBadge variant="left-foreground" />
-          <FloatingBadge variant="right-background" />
+          {/*
+            Badges are scoped to this headline-only wrapper (not the full
+            content block) so they're vertically centered on the headline
+            and never drift down over the subheadline on wide viewports.
+          */}
+          <div className="relative">
+            <FloatingBadge variant="left-foreground" />
+            <FloatingBadge variant="right-background" />
 
-          {/* Large Headline — Solid Colors */}
-          <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl md:text-7xl">
-            One Task <span className="text-primary">at a Time</span>
-          </h1>
+            {/* Large Headline — Solid Colors */}
+            <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl md:text-7xl">
+              One Task <span className="text-primary">at a Time</span>
+            </h1>
+          </div>
 
           {/* Subheadline / Descriptive text */}
           <p className="mx-auto mt-6 max-w-2xl text-base text-foreground-muted sm:text-lg md:text-xl leading-relaxed">

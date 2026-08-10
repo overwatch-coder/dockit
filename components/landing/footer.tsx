@@ -8,17 +8,9 @@ import { Button } from "@/components/ui/button";
 
 export function LandingFooter() {
   return (
-    <footer className="relative overflow-hidden bg-background pt-20">
-      {/* Sphere / Rising Sun Horizon Container */}
-      <div className="relative mx-auto max-w-6xl px-6 pb-20 text-center">
-        {/* Curved Oval Sphere Dome Background with Horizon Glow */}
-        <div
-          className="absolute left-1/2 top-0 -z-10 h-[380px] w-[180%] sm:w-[140%] md:w-[120%] -translate-x-1/2 rounded-t-[100%] border-t-2 border-primary/40 bg-surface shadow-[0_-25px_60px_rgba(91,95,239,0.12)]"
-          aria-hidden="true"
-        />
-
-        {/* Rising Sun Horizon Content */}
-        <div className="relative z-10 mx-auto max-w-2xl pt-12">
+    <footer className="border-t border-border bg-surface/20 pt-20">
+      <div className="mx-auto max-w-6xl px-6 pb-20 text-center">
+        <div className="mx-auto max-w-2xl">
           <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold text-primary">
             <Sparkles className="size-3.5" /> Start Managing Smarter Today
           </div>
