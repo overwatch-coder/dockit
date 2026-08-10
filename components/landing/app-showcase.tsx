@@ -165,29 +165,27 @@ export function AppShowcase() {
           </p>
         </div>
 
-        {/* Tilted Perspective Container */}
-        <div className="relative mt-14 flex justify-center [perspective:1200px]">
-          <div
-            className="w-full max-w-5xl overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-2xl transition-all duration-700 hover:[transform:perspective(1200px)_rotateX(6deg)_rotateY(-2deg)_scale(0.98)]"
-            style={{
-              transform: "perspective(1200px) rotateX(10deg) rotateY(-3deg) scale(0.97)",
-              transformOrigin: "center top",
-            }}
-          >
+        {/*
+          Tilted Perspective Container — the 3D tilt only applies from `sm`
+          up; on narrow phones a tilted, cropped card reads as broken, so
+          mobile gets a flat, untransformed card instead.
+        */}
+        <div className="relative mt-14 flex justify-center sm:[perspective:1200px]">
+          <div className="w-full max-w-5xl origin-top overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-2xl transition-all duration-700 sm:[transform:perspective(1200px)_rotateX(10deg)_rotateY(-3deg)_scale(0.97)] sm:hover:[transform:perspective(1200px)_rotateX(6deg)_rotateY(-2deg)_scale(0.98)]">
             {/* Desktop Window Title Bar */}
-            <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-3">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-2 border-b border-border bg-surface px-4 py-3">
+              <div className="flex shrink-0 items-center gap-2">
                 <span className="size-3 rounded-full bg-red-500/80" />
                 <span className="size-3 rounded-full bg-yellow-500/80" />
                 <span className="size-3 rounded-full bg-green-500/80" />
               </div>
-              <div className="flex items-center gap-2 rounded-md bg-background px-3 py-1 text-xs text-muted-foreground border border-border transition-all">
-                <Search className="size-3 text-muted-foreground/70" />
-                <span className="font-mono text-[11px]">{getUrl()}</span>
+              <div className="hidden min-w-0 items-center gap-2 truncate rounded-md border border-border bg-background px-3 py-1 text-xs text-muted-foreground transition-all sm:flex">
+                <Search className="size-3 shrink-0 text-muted-foreground/70" />
+                <span className="truncate font-mono text-[11px]">{getUrl()}</span>
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+              <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground font-mono">
                 <span className="size-2 rounded-full bg-success animate-pulse" />
-                <span>Shopify Connected</span>
+                <span className="hidden sm:inline">Shopify Connected</span>
               </div>
             </div>
 
@@ -290,12 +288,13 @@ export function AppShowcase() {
                       </div>
                     </div>
 
-                    {/* Filter Tabs Bar */}
-                    <div className="mt-4 flex items-center justify-between border-b border-border pb-3">
+                    {/* Filter Tabs Bar — horizontally scrollable so it never
+                        overflows/clips on narrow phone widths */}
+                    <div className="mt-4 flex items-center justify-between overflow-x-auto border-b border-border pb-3">
                       <div className="flex items-center gap-2 text-xs">
                         <button
                           onClick={() => setActiveFilter("all")}
-                          className={`rounded-md px-2.5 py-1 font-semibold transition-colors border ${
+                          className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 font-semibold transition-colors border ${
                             activeFilter === "all"
                               ? "bg-surface text-foreground border-border"
                               : "border-transparent text-muted-foreground hover:text-foreground"
@@ -305,7 +304,7 @@ export function AppShowcase() {
                         </button>
                         <button
                           onClick={() => setActiveFilter("drafts")}
-                          className={`rounded-md px-2.5 py-1 font-semibold transition-colors border ${
+                          className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 font-semibold transition-colors border ${
                             activeFilter === "drafts"
                               ? "bg-surface text-foreground border-border"
                               : "border-transparent text-muted-foreground hover:text-foreground"
@@ -315,7 +314,7 @@ export function AppShowcase() {
                         </button>
                         <button
                           onClick={() => setActiveFilter("synced")}
-                          className={`rounded-md px-2.5 py-1 font-semibold transition-colors border ${
+                          className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 font-semibold transition-colors border ${
                             activeFilter === "synced"
                               ? "bg-surface text-foreground border-border"
                               : "border-transparent text-muted-foreground hover:text-foreground"
@@ -325,7 +324,7 @@ export function AppShowcase() {
                         </button>
                         <button
                           onClick={() => setActiveFilter("conflicts")}
-                          className={`rounded-md px-2.5 py-1 font-semibold transition-colors border flex items-center gap-1 ${
+                          className={`shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 font-semibold transition-colors border flex items-center gap-1 ${
                             activeFilter === "conflicts"
                               ? "bg-surface text-foreground border-border"
                               : "border-transparent text-muted-foreground hover:text-foreground"
