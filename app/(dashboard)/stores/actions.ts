@@ -23,6 +23,15 @@ const shopDomainSchema = z
   .min(1, "Enter your store's domain")
   .transform(normalizeShopDomainInput);
 
+// Unit 22 follow-up: setActiveStore/disconnectStore's storeId params were
+// only ever validated by *membership* (does this account actually own a
+// store with this id), never by *format* — a non-string-shaped value would
+// have reached that membership check (or deleteStore's Prisma call) as
+// whatever raw value a direct request supplied. Same
+// "validate every server action input with a schema" rule as
+// app/(dashboard)/products/actions.ts's identical idSchema.
+const idSchema = z.string().trim().min(1, "Missing id.");
+
 export type ConnectStoreState = { error: string } | undefined;
 
 export async function connectStore(
@@ -72,6 +81,10 @@ export async function setActiveStore(storeId: string): Promise<{ error: string }
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
+  if (!idSchema.safeParse(storeId).success) {
+    return { error: "Invalid store." };
+  }
+
   const stores = await getStoresForAccount(account.id);
   if (!stores.some((store) => store.id === storeId)) {
     return { error: "That store isn't connected to this account." };
@@ -92,6 +105,10 @@ export async function setActiveStore(storeId: string): Promise<{ error: string }
 export async function disconnectStore(storeId: string): Promise<{ error: string } | undefined> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(storeId).success) {
+    return { error: "Invalid store." };
+  }
 
   const { deleted } = await deleteStore({ accountId: account.id, storeId });
   if (!deleted) {

@@ -1,4 +1,5 @@
-const ADMIN_API_VERSION = "2026-07";
+import { postShopifyGraphQL, type ShopifyRequestResult } from "./client";
+
 const PAGE_SIZE = 50;
 
 export type ShopifyImportedVariant = {
@@ -58,12 +59,14 @@ type RawProductNode = {
   variants: { edges: { node: RawVariantNode }[] };
 };
 
+type RawProductsPage = {
+  edges: { node: RawProductNode }[];
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+};
+
 type RawProductsResponse = {
   data?: {
-    products?: {
-      edges: { node: RawProductNode }[];
-      pageInfo: { hasNextPage: boolean; endCursor: string | null };
-    };
+    products?: RawProductsPage;
   };
 };
 
@@ -181,24 +184,20 @@ export async function fetchAllProducts(
 
   try {
     do {
-      const response = await fetch(`https://${shopDomain}/admin/api/${ADMIN_API_VERSION}/graphql.json`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": accessToken,
-        },
-        body: JSON.stringify({
-          query: PRODUCTS_QUERY,
-          variables: { first: PAGE_SIZE, after },
-        }),
-      });
+      const result: ShopifyRequestResult<RawProductsResponse> = await postShopifyGraphQL<RawProductsResponse>(
+        shopDomain,
+        accessToken,
+        PRODUCTS_QUERY,
+        { first: PAGE_SIZE, after }
+      );
 
-      if (!response.ok) {
-        return { success: false, error: `Product import fetch failed with status ${response.status}` };
+      if (!result.ok) {
+        return result.reason === "http-error"
+          ? { success: false, error: `Product import fetch failed with status ${result.status}` }
+          : { success: false, error: `Product import request failed: ${result.message}` };
       }
 
-      const body = (await response.json()) as RawProductsResponse;
-      const page = body.data?.products;
+      const page: RawProductsPage | undefined = result.body.data?.products;
       if (!page) {
         return { success: false, error: "Product import fetch returned an unexpected response shape" };
       }

@@ -1,6 +1,6 @@
 import { toBareId } from "./products";
+import { postShopifyGraphQL, type ShopifyRequestResult } from "./client";
 
-const ADMIN_API_VERSION = "2026-07";
 const PAGE_SIZE = 100;
 
 export type ShopifyCollection = {
@@ -14,12 +14,14 @@ type CollectionsFetchResult =
 
 type RawCollectionNode = { id: string; title: string };
 
+type RawCollectionsPage = {
+  edges: { node: RawCollectionNode }[];
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+};
+
 type RawCollectionsResponse = {
   data?: {
-    collections?: {
-      edges: { node: RawCollectionNode }[];
-      pageInfo: { hasNextPage: boolean; endCursor: string | null };
-    };
+    collections?: RawCollectionsPage;
   };
 };
 
@@ -54,24 +56,20 @@ export async function fetchAllCollections(
 
   try {
     do {
-      const response = await fetch(`https://${shopDomain}/admin/api/${ADMIN_API_VERSION}/graphql.json`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": accessToken,
-        },
-        body: JSON.stringify({
-          query: COLLECTIONS_QUERY,
-          variables: { first: PAGE_SIZE, after },
-        }),
-      });
+      const result: ShopifyRequestResult<RawCollectionsResponse> = await postShopifyGraphQL<RawCollectionsResponse>(
+        shopDomain,
+        accessToken,
+        COLLECTIONS_QUERY,
+        { first: PAGE_SIZE, after }
+      );
 
-      if (!response.ok) {
-        return { success: false, error: `Collections fetch failed with status ${response.status}` };
+      if (!result.ok) {
+        return result.reason === "http-error"
+          ? { success: false, error: `Collections fetch failed with status ${result.status}` }
+          : { success: false, error: `Collections fetch request failed: ${result.message}` };
       }
 
-      const body = (await response.json()) as RawCollectionsResponse;
-      const page = body.data?.collections;
+      const page: RawCollectionsPage | undefined = result.body.data?.collections;
       if (!page) {
         return { success: false, error: "Collections fetch returned an unexpected response shape" };
       }

@@ -177,14 +177,16 @@ export const pushBatchJob = inngest.createFunction(
     await step.run("mark-running", () => updateJobStatus({ accountId, jobId, status: "RUNNING" }));
 
     const items: PushBatchResultItem[] = [];
-    // Sequential, not Promise.all: lib/shopify/push.ts's postGraphQL only
-    // retries once on a single request's 429 with no broader backoff —
-    // firing many products' multi-call push sequences at Shopify
-    // concurrently within one job run would multiply that risk with
-    // nothing to absorb it. Each product gets its own step id
-    // (`push-product-${productId}`), so Inngest memoizes it individually —
-    // if this function is retried after a crash mid-batch, already-
-    // succeeded products aren't re-pushed.
+    // Sequential, not Promise.all: even with Unit 22's shared
+    // lib/shopify/client.ts now absorbing individual rate-limit responses
+    // with retry-with-backoff, that budget is shared across the whole store
+    // — firing many products' multi-call push sequences at Shopify
+    // concurrently within one job run would still burn through it faster
+    // than sequential requests do, just with each one separately eating its
+    // own retries instead of naturally pacing against the shared limit.
+    // Each product gets its own step id (`push-product-${productId}`), so
+    // Inngest memoizes it individually — if this function is retried after
+    // a crash mid-batch, already-succeeded products aren't re-pushed.
     for (const productId of productIds) {
       const result = await step.run(`push-product-${productId}`, () =>
         pushOneProduct({ accountId, storeId, productId })

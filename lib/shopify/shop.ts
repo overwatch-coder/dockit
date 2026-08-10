@@ -1,4 +1,4 @@
-const ADMIN_API_VERSION = "2026-07";
+import { postShopifyGraphQL } from "./client";
 
 type ShopNameResult = { success: true; data: { name: string } } | { success: false; error: string };
 
@@ -11,20 +11,15 @@ export async function fetchShopName(
   accessToken: string
 ): Promise<ShopNameResult> {
   try {
-    const response = await fetch(`https://${shopDomain}/admin/api/${ADMIN_API_VERSION}/graphql.json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": accessToken,
-      },
-      body: JSON.stringify({ query: "{ shop { name } }" }),
-    });
+    const result = await postShopifyGraphQL<unknown>(shopDomain, accessToken, "{ shop { name } }", {});
 
-    if (!response.ok) {
-      return { success: false, error: `Shop name lookup failed with status ${response.status}` };
+    if (!result.ok) {
+      return result.reason === "http-error"
+        ? { success: false, error: `Shop name lookup failed with status ${result.status}` }
+        : { success: false, error: `Shop name lookup request failed: ${result.message}` };
     }
 
-    const body: unknown = await response.json();
+    const body: unknown = result.body;
     const name =
       typeof body === "object" &&
       body !== null &&

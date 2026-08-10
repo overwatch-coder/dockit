@@ -57,6 +57,55 @@ const variantsFieldSchema = z.array(variantFormSchema.extend({ id: z.string().mi
 // JSON field, parsed and fully replaced on each save rather than diffed.
 const tagsFieldSchema = z.array(z.string().trim().min(1)).max(20, "No more than 20 tags");
 
+// Unit 22 follow-up: setProductsStatus's `status` param is called directly
+// (not via FormData, so productFormSchema's own `status: z.enum(...)` never
+// runs against it) and flows straight into updateProductsStatusInDb's
+// Prisma write — an invalid value would previously reach Prisma's real
+// ProductStatus enum column unchecked, throwing an unhandled exception
+// instead of the typed error every other bad-input path in this file
+// returns. Same DRAFT/ACTIVE set productFormSchema already validates.
+const productStatusSchema = z.enum(["DRAFT", "ACTIVE"]);
+
+// Unit 22 follow-up: every action below that takes a bare id (productId,
+// storeId, jobId) or an id array was previously trusting its TypeScript
+// parameter type alone at runtime — code-standards.md's "all server action
+// inputs are validated with a schema" rule doesn't carve out an exception
+// for non-FormData actions, and a server action is a real POST endpoint
+// regardless of how the client happens to call it, so a malformed direct
+// request (not just a form field) is exactly what this rule is guarding
+// against. Every one of these ids is already re-validated for *ownership*
+// downstream (an accountId-scoped lookup that returns a typed "not found"
+// for a bogus id), so this isn't closing a data-isolation gap — it's making
+// sure a malformed value fails with the same typed `{ error }` shape every
+// other bad-input path here already returns, instead of an unhandled
+// exception from whatever Prisma/downstream call happens to choke on it
+// first.
+const idSchema = z.string().trim().min(1, "Missing id.");
+const idsSchema = z.array(idSchema);
+
+// Unit 22 follow-up: resolveConflictWithSelections' `selections` param was
+// completely unvalidated — a plain object literal type with ten "app" |
+// "shopify" fields, called directly rather than via FormData. Each field
+// already degrades safely today (resolveConflictWithSelectionsInDb reads it
+// via a plain `=== "app"` ternary, so any other value already falls through
+// to the Shopify side rather than crashing), but that's a happy accident of
+// how the ternary happens to be written, not a validated contract — a real
+// schema makes the actual constraint explicit instead of relying on every
+// future reader noticing the ternary's fallback behavior.
+const conflictSideSchema = z.enum(["app", "shopify"]);
+const conflictFieldSelectionsSchema = z.object({
+  title: conflictSideSchema,
+  description: conflictSideSchema,
+  price: conflictSideSchema,
+  status: conflictSideSchema,
+  tags: conflictSideSchema,
+  collection: conflictSideSchema,
+  category: conflictSideSchema,
+  seoTitle: conflictSideSchema,
+  seoDescription: conflictSideSchema,
+  variants: conflictSideSchema,
+}) satisfies z.ZodType<ConflictFieldSelections>;
+
 // Deletes from the app's own database only — there is no Shopify delete
 // mutation yet (lib/shopify/products.ts only reads). If the product still
 // exists on Shopify, a future sync would simply re-import it. Used for both
@@ -64,6 +113,10 @@ const tagsFieldSchema = z.array(z.string().trim().min(1)).max(20, "No more than 
 export async function deleteProducts(productIds: string[]): Promise<{ error: string } | undefined> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idsSchema.safeParse(productIds).success) {
+    return { error: "Invalid product selection." };
+  }
 
   const { deletedCount } = await deleteProductsFromDb({ accountId: account.id, productIds });
   if (deletedCount === 0) {
@@ -123,6 +176,10 @@ export async function createProduct(
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
+  if (!idSchema.safeParse(storeId).success) {
+    return { error: "Invalid store." };
+  }
+
   const parsed = parseProductForm(formData);
   if ("fieldErrors" in parsed) {
     return parsed;
@@ -158,6 +215,10 @@ export async function updateProduct(
 ): Promise<ProductFormState> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(productId).success) {
+    return { error: "Invalid product." };
+  }
 
   const parsed = parseProductForm(formData);
   if ("fieldErrors" in parsed) {
@@ -196,7 +257,7 @@ export async function updateProduct(
     tagsInput = parsedTags.data;
   }
 
-  const product = await updateProductInDb({
+  const result = await updateProductInDb({
     accountId: account.id,
     productId,
     title: parsed.title,
@@ -211,8 +272,13 @@ export async function updateProduct(
     seoTitle: parsed.seoTitle || null,
     seoDescription: parsed.seoDescription || null,
   });
-  if (!product) {
-    return { error: "This product no longer exists." };
+  if (!result.success) {
+    return {
+      error:
+        result.reason === "conflicted"
+          ? "This product has an unresolved sync conflict. Resolve it before saving."
+          : "This product no longer exists.",
+    };
   }
 
   const variantsResult = await syncProductVariantsInDb({
@@ -245,6 +311,10 @@ export async function uploadProductImage(
 ): Promise<{ error: string } | undefined> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(productId).success) {
+    return { error: "Invalid product." };
+  }
 
   const file = formData.get("image");
   if (!(file instanceof File) || file.size === 0) {
@@ -282,6 +352,10 @@ export async function removeProductImage(
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
+  if (!idSchema.safeParse(productId).success || !idSchema.safeParse(url).success) {
+    return { error: "Invalid request." };
+  }
+
   if (isBlobUrl(url)) {
     const deleted = await deleteProductImageFromBlob(url);
     if (!deleted.success) {
@@ -318,6 +392,10 @@ export async function suggestProductSeo(productId: string): Promise<
 > {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(productId).success) {
+    return { error: "Invalid product." };
+  }
 
   const product = await getProductById(account.id, productId);
   if (!product) {
@@ -380,6 +458,9 @@ export async function searchProductCategories(
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
+  if (!idSchema.safeParse(storeId).success) {
+    return { error: "Invalid store." };
+  }
   if (!query.trim()) {
     return { success: true, data: [] };
   }
@@ -428,13 +509,29 @@ export async function generateProductDescription(input: {
 // invariants 4/5). The Job row is created here (not inside pushProductJob,
 // unlike the import job's own pattern) so its id can be returned
 // synchronously for the Push button's polling.
+//
+// Unit 22 follow-up: components/product-form.tsx already disables the
+// Republish button while `product.isConflicted` is true, but — unlike
+// pushSelectedProducts/setProductsStatus below, which both filter through
+// getEligibleUnsyncedProducts/getProductsForStatusSync (`isConflicted:
+// false`) — this single-product path had no server-side check at all,
+// meaning it would happily push the app's current (pre-resolution) state
+// over whatever the flagged Shopify-side conflicting change was. Brought in
+// line with the same already-established rule the batch paths enforce.
 export async function pushProduct(productId: string): Promise<{ jobId: string } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
+  if (!idSchema.safeParse(productId).success) {
+    return { error: "Invalid product." };
+  }
+
   const product = await getProductById(account.id, productId);
   if (!product) {
     return { error: "This product no longer exists." };
+  }
+  if (product.isConflicted) {
+    return { error: "This product has an unresolved sync conflict. Resolve it before pushing." };
   }
 
   const job = await createJob({ accountId: account.id, storeId: product.storeId, type: "PUSH" });
@@ -464,6 +561,9 @@ export async function pushSelectedProducts(
 
   if (productIds.length === 0) {
     return { error: "No products selected." };
+  }
+  if (!idsSchema.safeParse(productIds).success) {
+    return { error: "Invalid product selection." };
   }
 
   const eligible = await getEligibleUnsyncedProducts(account.id, productIds);
@@ -561,6 +661,12 @@ export async function setProductsStatus(
   if (productIds.length === 0) {
     return { error: "No products selected." };
   }
+  if (!idsSchema.safeParse(productIds).success) {
+    return { error: "Invalid product selection." };
+  }
+  if (!productStatusSchema.safeParse(status).success) {
+    return { error: "Invalid status." };
+  }
 
   const { updatedCount } = await updateProductsStatusInDb({ accountId: account.id, productIds, status });
   if (updatedCount === 0) {
@@ -602,6 +708,10 @@ export async function deleteProductEverywhere(productId: string): Promise<{ jobI
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
+  if (!idSchema.safeParse(productId).success) {
+    return { error: "Invalid product." };
+  }
+
   const product = await getProductById(account.id, productId);
   if (!product) {
     return { error: "This product no longer exists." };
@@ -630,7 +740,16 @@ export async function resolveConflictWithSelections(
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
-  const result = await resolveConflictWithSelectionsInDb({ accountId: account.id, productId, selections });
+  const parsedSelections = conflictFieldSelectionsSchema.safeParse(selections);
+  if (!idSchema.safeParse(productId).success || !parsedSelections.success) {
+    return { error: "Invalid request." };
+  }
+
+  const result = await resolveConflictWithSelectionsInDb({
+    accountId: account.id,
+    productId,
+    selections: parsedSelections.data,
+  });
   if (!result.success) {
     return { error: result.error };
   }
@@ -665,6 +784,10 @@ export async function getPushJobStatus(
 ): Promise<{ status: JobStatus; results: unknown } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(jobId).success) {
+    return { error: "Job not found." };
+  }
 
   const job = await getJobById(account.id, jobId);
   if (!job) {

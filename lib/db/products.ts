@@ -246,9 +246,21 @@ export async function createProduct(input: {
 
 // Unit 10: edits a product's core fields (title, description, price,
 // status). Account-scoped ownership check first (same pattern as
-// getProductById) so a foreign/missing id returns null instead of silently
-// updating nothing or throwing. Bumps lastEditedAt for conflict detection
-// (context/architecture.md invariant 6).
+// getProductById) so a foreign/missing id returns a typed failure instead of
+// silently updating nothing or throwing. Bumps lastEditedAt for conflict
+// detection (context/architecture.md invariant 6).
+//
+// Unit 22 follow-up: components/product-form.tsx already disables the Save
+// button while `product.isConflicted` is true (the owner must resolve via
+// resolveConflictWithSelections first), but that was only ever enforced
+// client-side — this function itself would happily overwrite a conflicted
+// product's app-side fields with no server-side check at all, the same gap
+// pushProduct (app/(dashboard)/products/actions.ts) had for the single-
+// product push path. Both getEligibleUnsyncedProducts and
+// getProductsForStatusSync already filter `isConflicted: false` for the
+// batch/status-sync paths, so this brings the single-product save path in
+// line with that same already-established rule instead of leaving it as the
+// one place a conflicted product could still be silently edited.
 export async function updateProduct(input: {
   accountId: string;
   productId: string;
@@ -273,12 +285,18 @@ export async function updateProduct(input: {
   // "always write, default to null" convention as collectionId/collectionTitle.
   seoTitle?: string | null;
   seoDescription?: string | null;
-}): Promise<Product | null> {
+}): Promise<
+  | { success: true; product: Product }
+  | { success: false; reason: "not-found" | "conflicted" }
+> {
   const existing = await prisma.product.findFirst({
     where: { id: input.productId, accountId: input.accountId },
   });
   if (!existing) {
-    return null;
+    return { success: false, reason: "not-found" };
+  }
+  if (existing.isConflicted) {
+    return { success: false, reason: "conflicted" };
   }
 
   const product = await prisma.product.update({
@@ -299,7 +317,7 @@ export async function updateProduct(input: {
     },
     include: { variants: true },
   });
-  return toDomainProduct(product);
+  return { success: true, product: toDomainProduct(product) };
 }
 
 // Unit 12: appends a newly uploaded draft image (Vercel Blob URL) to the

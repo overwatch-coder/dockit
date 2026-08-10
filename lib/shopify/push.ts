@@ -1,6 +1,15 @@
 import { toBareId } from "./products";
-
-const ADMIN_API_VERSION = "2026-07";
+import { postShopifyGraphQL } from "./client";
+// Unit 22 follow-up: this file used to keep its own private isBlobOrigin,
+// an exact duplicate of lib/blob/products.ts's isBlobUrl (same
+// .public.blob.vercel-storage.com hostname check) — lib/blob/products.ts is
+// already this codebase's one designated owner of "what counts as a Blob
+// URL" (the same isolation role lib/shopify/ plays for Shopify and lib/db/
+// plays for Prisma), and lib/jobs/push.ts already imports both isBlobUrl and
+// this file's own pushProductToShopify side by side, so importing a pure
+// predicate across that boundary is already an established, safe pattern —
+// not a boundary violation, just normal reuse of a classification helper.
+import { isBlobUrl } from "@/lib/blob/products";
 
 // Unit 15: everything needed to push one product's current app-side state
 // onto Shopify via the productSet mutation (verified against shopify.dev
@@ -49,78 +58,54 @@ function toGid(
   return bareId.startsWith("gid://") ? bareId : `gid://shopify/${type}/${bareId}`;
 }
 
-function isBlobOrigin(url: string): boolean {
-  try {
-    return new URL(url).hostname.endsWith(".public.blob.vercel-storage.com");
-  } catch {
-    return false;
-  }
-}
-
-// Not exported — every lib/shopify/ file so far (products.ts, collections.ts)
-// makes one GraphQL call per exported function via an inline fetch; push.ts
-// needs several distinct calls (locations, the mutation, a media read-back
-// retry), so this small private helper avoids repeating the fetch/headers/
-// error-shape boilerplate four times within this one file. Not shared across
-// files — each file still owns its own ADMIN_API_VERSION constant, matching
-// the existing convention.
+// Not exported — every lib/shopify/ file makes one or more GraphQL calls via
+// the shared lib/shopify/client.ts transport (which owns retry-with-backoff
+// for rate limits); push.ts needs several distinct calls (locations, the
+// mutation, a media read-back retry), so this small private helper avoids
+// repeating THIS file's own error-shape boilerplate (sanitizing top-level
+// GraphQL errors, checking for `data`) four times within this one file.
 async function postGraphQL<T>(
   shopDomain: string,
   accessToken: string,
   query: string,
   variables: Record<string, unknown>
 ): Promise<{ success: true; data: T } | { success: false; error: string }> {
-  try {
-    const response = await fetch(`https://${shopDomain}/admin/api/${ADMIN_API_VERSION}/graphql.json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": accessToken,
-      },
-      body: JSON.stringify({ query, variables }),
-    });
+  const result = await postShopifyGraphQL<{ data?: T; errors?: { message: string }[] }>(
+    shopDomain,
+    accessToken,
+    query,
+    variables
+  );
 
-    // Scope call: a single narrow retry-once on a 429, not general backoff —
-    // no existing lib/shopify/ function has retry logic yet (fetchAllProducts,
-    // fetchAllCollections are both retry-free), so full exponential backoff
-    // is beyond established precedent for this codebase.
-    // TODO: generalize rate-limit retry once a second mutation needs it.
-    if (response.status === 429) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      return postGraphQL<T>(shopDomain, accessToken, query, variables);
-    }
-
-    if (!response.ok) {
-      return { success: false, error: `Shopify request failed with status ${response.status}` };
-    }
-
-    const body = (await response.json()) as { data?: T; errors?: { message: string }[] };
-    if (body.errors?.length) {
-      // Top-level GraphQL `errors` (as opposed to productSet's own
-      // `userErrors`) are always protocol-level failures — malformed
-      // variables, schema/type mismatches, auth issues — never messages
-      // Shopify wrote for end-user display (e.g. "Variable $input of type
-      // ProductSetInput! was provided invalid value for
-      // variants.0.optionValues..."). Logging the real message server-side
-      // and returning a generic one keeps that GraphQL-internal detail out
-      // of the push results dialog the owner actually sees. `userErrors`
-      // (handled separately in pushProductToShopify, below) ARE meant for
-      // display and are left untouched.
-      const technicalMessage = body.errors.map((e) => e.message).join("; ");
-      console.error(`Shopify GraphQL error (${shopDomain}): ${technicalMessage}`);
-      return {
-        success: false,
-        error: "Shopify rejected the request due to invalid product data. Check the title, price, and variants, then try again.",
-      };
-    }
-    if (!body.data) {
-      return { success: false, error: "Shopify response had no data" };
-    }
-    return { success: true, data: body.data };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return { success: false, error: `Shopify request failed: ${message}` };
+  if (!result.ok) {
+    return result.reason === "http-error"
+      ? { success: false, error: `Shopify request failed with status ${result.status}` }
+      : { success: false, error: `Shopify request failed: ${result.message}` };
   }
+
+  const body = result.body;
+  if (body.errors?.length) {
+    // Top-level GraphQL `errors` (as opposed to productSet's own
+    // `userErrors`) are always protocol-level failures — malformed
+    // variables, schema/type mismatches, auth issues — never messages
+    // Shopify wrote for end-user display (e.g. "Variable $input of type
+    // ProductSetInput! was provided invalid value for
+    // variants.0.optionValues..."). Logging the real message server-side
+    // and returning a generic one keeps that GraphQL-internal detail out
+    // of the push results dialog the owner actually sees. `userErrors`
+    // (handled separately in pushProductToShopify, below) ARE meant for
+    // display and are left untouched.
+    const technicalMessage = body.errors.map((e) => e.message).join("; ");
+    console.error(`Shopify GraphQL error (${shopDomain}): ${technicalMessage}`);
+    return {
+      success: false,
+      error: "Shopify rejected the request due to invalid product data. Check the title, price, and variants, then try again.",
+    };
+  }
+  if (!body.data) {
+    return { success: false, error: "Shopify response had no data" };
+  }
+  return { success: true, data: body.data };
 }
 
 const LOCATIONS_QUERY = `
@@ -285,7 +270,7 @@ export async function pushProductToShopify(
   // unnecessary (the image is already attached either way), so this is the
   // conservative choice, verified empirically against the real connected
   // store as part of this unit's live verification pass.
-  const blobImageUrls = input.imageUrls.filter(isBlobOrigin);
+  const blobImageUrls = input.imageUrls.filter(isBlobUrl);
 
   let beforeMediaIds = new Set<string>();
   if (blobImageUrls.length > 0 && productGidForLookups) {
@@ -450,7 +435,7 @@ export async function pushProductToShopify(
   // entry replaced in place with its newly promoted CDN url, each
   // already-Shopify entry left untouched.
   let blobIndex = 0;
-  const mediaUrls = input.imageUrls.map((url) => (isBlobOrigin(url) ? (newMediaUrls[blobIndex++] ?? url) : url));
+  const mediaUrls = input.imageUrls.map((url) => (isBlobUrl(url) ? (newMediaUrls[blobIndex++] ?? url) : url));
 
   return {
     success: true,
