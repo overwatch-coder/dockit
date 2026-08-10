@@ -1,6 +1,5 @@
 import { toBareId } from "./products";
-
-const ADMIN_API_VERSION = "2026-07";
+import { postShopifyGraphQL } from "./client";
 
 export type ShopifyTaxonomyCategory = {
   id: string;
@@ -78,24 +77,20 @@ export async function searchTaxonomyCategories(
   limit = 20
 ): Promise<TaxonomySearchResult> {
   try {
-    const response = await fetch(`https://${shopDomain}/admin/api/${ADMIN_API_VERSION}/graphql.json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": accessToken,
-      },
-      body: JSON.stringify({
-        query: TAXONOMY_SEARCH_QUERY,
-        variables: { search: query, first: Math.min(limit * 10, 200) },
-      }),
-    });
+    const result = await postShopifyGraphQL<RawTaxonomyResponse>(
+      shopDomain,
+      accessToken,
+      TAXONOMY_SEARCH_QUERY,
+      { search: query, first: Math.min(limit * 10, 200) }
+    );
 
-    if (!response.ok) {
-      return { success: false, error: `Taxonomy search failed with status ${response.status}` };
+    if (!result.ok) {
+      return result.reason === "http-error"
+        ? { success: false, error: `Taxonomy search failed with status ${result.status}` }
+        : { success: false, error: `Taxonomy search request failed: ${result.message}` };
     }
 
-    const body = (await response.json()) as RawTaxonomyResponse;
-    const edges = body.data?.taxonomy?.categories?.edges;
+    const edges = result.body.data?.taxonomy?.categories?.edges;
     if (!edges) {
       return { success: false, error: "Taxonomy search returned an unexpected response shape" };
     }

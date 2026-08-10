@@ -57,6 +57,15 @@ const variantsFieldSchema = z.array(variantFormSchema.extend({ id: z.string().mi
 // JSON field, parsed and fully replaced on each save rather than diffed.
 const tagsFieldSchema = z.array(z.string().trim().min(1)).max(20, "No more than 20 tags");
 
+// Unit 22 follow-up: setProductsStatus's `status` param is called directly
+// (not via FormData, so productFormSchema's own `status: z.enum(...)` never
+// runs against it) and flows straight into updateProductsStatusInDb's
+// Prisma write — an invalid value would previously reach Prisma's real
+// ProductStatus enum column unchecked, throwing an unhandled exception
+// instead of the typed error every other bad-input path in this file
+// returns. Same DRAFT/ACTIVE set productFormSchema already validates.
+const productStatusSchema = z.enum(["DRAFT", "ACTIVE"]);
+
 // Deletes from the app's own database only — there is no Shopify delete
 // mutation yet (lib/shopify/products.ts only reads). If the product still
 // exists on Shopify, a future sync would simply re-import it. Used for both
@@ -196,7 +205,7 @@ export async function updateProduct(
     tagsInput = parsedTags.data;
   }
 
-  const product = await updateProductInDb({
+  const result = await updateProductInDb({
     accountId: account.id,
     productId,
     title: parsed.title,
@@ -211,8 +220,13 @@ export async function updateProduct(
     seoTitle: parsed.seoTitle || null,
     seoDescription: parsed.seoDescription || null,
   });
-  if (!product) {
-    return { error: "This product no longer exists." };
+  if (!result.success) {
+    return {
+      error:
+        result.reason === "conflicted"
+          ? "This product has an unresolved sync conflict. Resolve it before saving."
+          : "This product no longer exists.",
+    };
   }
 
   const variantsResult = await syncProductVariantsInDb({
@@ -428,6 +442,15 @@ export async function generateProductDescription(input: {
 // invariants 4/5). The Job row is created here (not inside pushProductJob,
 // unlike the import job's own pattern) so its id can be returned
 // synchronously for the Push button's polling.
+//
+// Unit 22 follow-up: components/product-form.tsx already disables the
+// Republish button while `product.isConflicted` is true, but — unlike
+// pushSelectedProducts/setProductsStatus below, which both filter through
+// getEligibleUnsyncedProducts/getProductsForStatusSync (`isConflicted:
+// false`) — this single-product path had no server-side check at all,
+// meaning it would happily push the app's current (pre-resolution) state
+// over whatever the flagged Shopify-side conflicting change was. Brought in
+// line with the same already-established rule the batch paths enforce.
 export async function pushProduct(productId: string): Promise<{ jobId: string } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -435,6 +458,9 @@ export async function pushProduct(productId: string): Promise<{ jobId: string } 
   const product = await getProductById(account.id, productId);
   if (!product) {
     return { error: "This product no longer exists." };
+  }
+  if (product.isConflicted) {
+    return { error: "This product has an unresolved sync conflict. Resolve it before pushing." };
   }
 
   const job = await createJob({ accountId: account.id, storeId: product.storeId, type: "PUSH" });
@@ -560,6 +586,9 @@ export async function setProductsStatus(
 
   if (productIds.length === 0) {
     return { error: "No products selected." };
+  }
+  if (!productStatusSchema.safeParse(status).success) {
+    return { error: "Invalid status." };
   }
 
   const { updatedCount } = await updateProductsStatusInDb({ accountId: account.id, productIds, status });

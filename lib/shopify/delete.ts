@@ -1,4 +1,4 @@
-const ADMIN_API_VERSION = "2026-07";
+import { postShopifyGraphQL } from "./client";
 
 export type DeleteProductResult = { success: true } | { success: false; error: string };
 
@@ -40,23 +40,20 @@ export async function deleteProductFromShopify(
   shopifyProductId: string
 ): Promise<DeleteProductResult> {
   try {
-    const response = await fetch(`https://${shopDomain}/admin/api/${ADMIN_API_VERSION}/graphql.json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": accessToken,
-      },
-      body: JSON.stringify({
-        query: PRODUCT_DELETE_MUTATION,
-        variables: { input: { id: toGid(shopifyProductId) } },
-      }),
-    });
+    const result = await postShopifyGraphQL<RawDeleteResponse>(
+      shopDomain,
+      accessToken,
+      PRODUCT_DELETE_MUTATION,
+      { input: { id: toGid(shopifyProductId) } }
+    );
 
-    if (!response.ok) {
-      return { success: false, error: `Shopify request failed with status ${response.status}` };
+    if (!result.ok) {
+      return result.reason === "http-error"
+        ? { success: false, error: `Shopify request failed with status ${result.status}` }
+        : { success: false, error: `Shopify request failed: ${result.message}` };
     }
 
-    const body = (await response.json()) as RawDeleteResponse;
+    const body = result.body;
 
     // Same principle as lib/shopify/push.ts's postGraphQL: top-level
     // GraphQL `errors` are protocol-level failures never meant for
@@ -67,12 +64,12 @@ export async function deleteProductFromShopify(
       return { success: false, error: "Shopify rejected the delete request. Try again in a moment." };
     }
 
-    const result = body.data?.productDelete;
-    if (!result) {
+    const deleteResult = body.data?.productDelete;
+    if (!deleteResult) {
       return { success: false, error: "Shopify response had no data" };
     }
-    if (result.userErrors.length > 0) {
-      return { success: false, error: result.userErrors.map((e) => e.message).join("; ") };
+    if (deleteResult.userErrors.length > 0) {
+      return { success: false, error: deleteResult.userErrors.map((e) => e.message).join("; ") };
     }
 
     // A null deletedProductId with no userErrors typically means the
