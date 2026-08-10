@@ -332,7 +332,7 @@ export function AppShowcase() {
                           }`}
                         >
                           Conflicts{" "}
-                          <span className="rounded-full bg-conflict/15 px-1.5 py-0.2 text-[10px] text-conflict font-bold">
+                          <span className="rounded-full bg-conflict/15 px-1.5 py-0.5 text-[10px] text-conflict font-bold">
                             1
                           </span>
                         </button>
