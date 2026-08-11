@@ -11,6 +11,7 @@ import {
   addProductImage as addProductImageInDb,
   createProduct as createProductInDb,
   deleteProducts as deleteProductsFromDb,
+  duplicateProduct as duplicateProductInDb,
   getEligibleUnsyncedProducts,
   getProductById,
   getProductsForStatusSync,
@@ -23,7 +24,7 @@ import {
 import type { ConflictFieldSelections } from "@/lib/db/products";
 import { syncProductVariants as syncProductVariantsInDb } from "@/lib/db/variants";
 import { getActiveStoreForAccount, getStoresForAccount, getStoreToken } from "@/lib/db/stores";
-import { createJob, getJobById, getLatestJobForStore } from "@/lib/db/jobs";
+import { createJob, getJobById, getLatestJobForStore, updateJobStatus } from "@/lib/db/jobs";
 import {
   deleteProductImage as deleteProductImageFromBlob,
   isBlobUrl,
@@ -125,6 +126,29 @@ export async function deleteProducts(productIds: string[]): Promise<{ error: str
 
   revalidatePath("/products");
   revalidatePath("/dashboard");
+}
+
+// Unit 23: creates a new local-only draft from an existing product. The
+// database helper owns the copy/reset rules; this action only authenticates,
+// validates, calls it, and refreshes the product views.
+export async function duplicateProduct(
+  productId: string
+): Promise<{ productId: string } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(productId).success) {
+    return { error: "Invalid product." };
+  }
+
+  const product = await duplicateProductInDb({ accountId: account.id, productId });
+  if (!product) {
+    return { error: "This product no longer exists." };
+  }
+
+  revalidatePath("/products");
+  revalidatePath("/dashboard");
+  return { productId: product.id };
 }
 
 export type ProductFormState =
@@ -632,12 +656,23 @@ export async function syncStore(): Promise<{ jobId: string } | { error: string }
   }
 
   const job = await createJob({ accountId: account.id, storeId: store.id, type: "SYNC" });
-  await triggerStoreSync({
-    accountId: account.id,
-    storeId: store.id,
-    shopifyDomain: store.shopifyDomain,
-    jobId: job.id,
-  });
+  try {
+    await triggerStoreSync({
+      accountId: account.id,
+      storeId: store.id,
+      shopifyDomain: store.shopifyDomain,
+      jobId: job.id,
+    });
+  } catch (error) {
+    // The local Inngest Dev Server (or the production queue) can be
+    // unavailable before the event is accepted. Do not let that transport
+    // failure escape the Server Action and crash the whole dashboard; record
+    // the already-created Job as failed so it cannot remain PENDING forever.
+    console.error(`syncStore: failed to enqueue job ${job.id} for store ${store.id}`, error);
+    const message = "Unable to start the sync. Check the job queue and try again.";
+    await updateJobStatus({ accountId: account.id, jobId: job.id, status: "FAILED", results: { error: message } });
+    return { error: message };
+  }
 
   return { jobId: job.id };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { CheckCircle2, Loader2, TriangleAlert, X, XCircle } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -98,6 +98,31 @@ const TERMINAL_STATUS_LABEL: Record<"SUCCEEDED" | "PARTIAL" | "FAILED", string> 
   FAILED: "failed",
 };
 
+const DISMISSED_JOB_STORAGE_KEY = "dockit.dismissed-job-id";
+const DISMISSED_JOB_EVENT = "dockit:dismissed-job-changed";
+
+function subscribeToDismissedJob(callback: () => void): () => void {
+  window.addEventListener("storage", callback);
+  window.addEventListener(DISMISSED_JOB_EVENT, callback);
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener(DISMISSED_JOB_EVENT, callback);
+  };
+}
+
+function getDismissedJobId(): string | null {
+  return window.localStorage.getItem(DISMISSED_JOB_STORAGE_KEY);
+}
+
+function getServerDismissedJobId(): null {
+  return null;
+}
+
+function dismissJob(jobId: string): void {
+  window.localStorage.setItem(DISMISSED_JOB_STORAGE_KEY, jobId);
+  window.dispatchEvent(new Event(DISMISSED_JOB_EVENT));
+}
+
 // Unit 20: the persistent top-bar indicator (ui-context.md's Layout
 // Patterns) — mounted once in app/(dashboard)/layout.tsx's header, always
 // present, unlike lib/hooks/use-job-polling.ts's per-trigger polling which
@@ -116,7 +141,15 @@ const TERMINAL_STATUS_LABEL: Record<"SUCCEEDED" | "PARTIAL" | "FAILED", string> 
 // PENDING/RUNNING state is transient/non-interactive.
 export function JobStatusIndicator() {
   const { job } = useLatestJobStatus();
-  const [dismissedJobId, setDismissedJobId] = useState<string | null>(null);
+  // A layout remounts on dashboard navigation, so component state alone
+  // would resurrect a just-dismissed completion pill. Keeping only the job
+  // id in local storage preserves that dismissal across pages/reloads; a
+  // newly-created manual sync has a different id and therefore appears.
+  const dismissedJobId = useSyncExternalStore(
+    subscribeToDismissedJob,
+    getDismissedJobId,
+    getServerDismissedJobId
+  );
   const [open, setOpen] = useState(false);
 
   if (!job || job.id === dismissedJobId) {
@@ -187,7 +220,7 @@ export function JobStatusIndicator() {
       <button
         type="button"
         aria-label="Dismiss"
-        onClick={() => setDismissedJobId(job.id)}
+        onClick={() => dismissJob(job.id)}
         className="rounded-full p-1 text-foreground-subtle hover:bg-surface hover:text-foreground"
       >
         <X className="size-3.5" />

@@ -31,6 +31,14 @@ describe("variantFormSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("reports a helpful validation message for a non-numeric inventory value", () => {
+    const result = variantFormSchema.safeParse({ optionName: "Small", price: "10.00", inventory: "NaN" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toBe("Inventory must be a whole number");
+    }
+  });
+
   it("coerces a numeric string inventory", () => {
     const result = variantFormSchema.safeParse({ optionName: "Small", price: "10.00", inventory: "5" });
     expect(result.success).toBe(true);

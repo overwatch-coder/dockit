@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { ExternalLink, Eye, EyeOff, ImageOff, MoreHorizontal, Pencil, Trash2, TriangleAlert } from "lucide-react";
+import { Copy, ExternalLink, Eye, EyeOff, ImageOff, MoreHorizontal, Pencil, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -38,6 +38,7 @@ interface ProductTableRowProps {
   isSelected: boolean;
   onToggleSelect: (productId: string) => void;
   onEdit: (product: Product) => void;
+  onDuplicate: (productId: string) => void;
   onChangeStatus: (productId: string, title: string, currentStatus: ProductStatus) => void;
   onDelete: (productId: string, title: string) => void;
   onDeleteShopify: (productId: string, title: string) => void;
@@ -50,6 +51,7 @@ export const ProductTableRow = memo(function ProductTableRow({
   isSelected,
   onToggleSelect,
   onEdit,
+  onDuplicate,
   onChangeStatus,
   onDelete,
   onDeleteShopify,
@@ -112,6 +114,10 @@ export const ProductTableRow = memo(function ProductTableRow({
             <DropdownMenuItem onClick={() => (product.isConflicted ? onResolveConflict(product) : onEdit(product))}>
               <Pencil className="size-4" />
               Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onDuplicate(product.id)}>
+              <Copy className="size-4" />
+              Duplicate
             </DropdownMenuItem>
             {product.shopifyProductId && (
               <DropdownMenuItem

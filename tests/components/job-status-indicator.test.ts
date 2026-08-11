@@ -1,6 +1,15 @@
-import { describe, expect, test } from "vitest";
-import { describeJobResult } from "@/components/job-status-indicator";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { createElement } from "react";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { JobStatusIndicator, describeJobResult } from "@/components/job-status-indicator";
+import { useLatestJobStatus } from "@/lib/hooks/use-latest-job-status";
 import type { Job } from "@/types/job";
+
+vi.mock("@/lib/hooks/use-latest-job-status", () => ({
+  useLatestJobStatus: vi.fn(),
+}));
+
+const mockedUseLatestJobStatus = vi.mocked(useLatestJobStatus);
 
 function baseJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -97,5 +106,28 @@ describe("describeJobResult", () => {
   test("falls back to a generic message for null or unrecognized results", () => {
     expect(describeJobResult(baseJob({ results: null })).summary).toBe("Something went wrong.");
     expect(describeJobResult(baseJob({ results: { weird: "shape" } })).summary).toBe("Something went wrong.");
+  });
+});
+
+describe("JobStatusIndicator dismissal", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    mockedUseLatestJobStatus.mockReturnValue({ job: baseJob({ type: "SYNC", status: "SUCCEEDED" }) });
+  });
+
+  test("keeps a completed job dismissed after the header remounts, until a new job starts", () => {
+    const { unmount } = render(createElement(JobStatusIndicator));
+
+    expect(screen.getByText("Sync complete")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByText("Sync complete")).not.toBeInTheDocument();
+
+    unmount();
+    const { rerender: rerenderAfterRemount } = render(createElement(JobStatusIndicator));
+    expect(screen.queryByText("Sync complete")).not.toBeInTheDocument();
+
+    mockedUseLatestJobStatus.mockReturnValue({ job: baseJob({ id: "job-2", type: "SYNC", status: "PENDING" }) });
+    rerenderAfterRemount(createElement(JobStatusIndicator));
+    expect(screen.getByText("Syncing…")).toBeInTheDocument();
   });
 });

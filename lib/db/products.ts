@@ -216,6 +216,66 @@ export async function getProductById(accountId: string, productId: string): Prom
   return product ? toDomainProduct(product) : null;
 }
 
+export function duplicateProductTitle(title: string): string {
+  return `${title.trim()} Copy`;
+}
+
+// Unit 23: copies the product's current app-side catalog state into a new
+// local-only draft. Image URLs are intentionally reused as references rather
+// than uploaded again; the new product gets fresh local ids for itself and
+// its variants, while Shopify ids/sync/conflict state are reset so it can be
+// pushed independently later.
+export async function duplicateProduct(input: {
+  accountId: string;
+  productId: string;
+}): Promise<Product | null> {
+  const source = await prisma.product.findFirst({
+    where: { id: input.productId, accountId: input.accountId },
+    include: { variants: true },
+  });
+  if (!source) {
+    return null;
+  }
+
+  const product = await prisma.product.create({
+    data: {
+      accountId: input.accountId,
+      storeId: source.storeId,
+      shopifyProductId: null,
+      title: duplicateProductTitle(source.title),
+      description: source.description,
+      imageUrl: source.imageUrl,
+      imageUrls: source.imageUrls,
+      price: source.price,
+      status: "DRAFT",
+      tags: source.tags,
+      collectionId: source.collectionId,
+      collectionTitle: source.collectionTitle,
+      categoryId: source.categoryId,
+      categoryFullName: source.categoryFullName,
+      seoTitle: source.seoTitle,
+      seoDescription: source.seoDescription,
+      lastEditedAt: new Date(),
+      lastSyncedAt: null,
+      isConflicted: false,
+      conflictAppSnapshot: Prisma.JsonNull,
+      conflictShopifySnapshot: Prisma.JsonNull,
+      variants: {
+        create: source.variants.map((variant) => ({
+          accountId: input.accountId,
+          shopifyVariantId: null,
+          optionName: variant.optionName,
+          price: variant.price,
+          inventory: variant.inventory,
+        })),
+      },
+    },
+    include: { variants: true },
+  });
+
+  return toDomainProduct(product);
+}
+
 // Unit 10: a brand-new local-only draft — shopifyProductId stays null until
 // a future push (Units 15-17) creates it on Shopify. Postgres treats each
 // null as distinct for the storeId+shopifyProductId unique constraint, so

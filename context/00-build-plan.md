@@ -111,3 +111,55 @@ Dependencies: Units 5, 8, 20.
 **Unit 22: Error handling and rate limit pass**
 What it builds: Retry-with-backoff for Shopify rate limits inside `lib/shopify/`, and a review pass across all server actions and jobs confirming every error path from `code-standards.md` and every invariant from `architecture.md` is actually satisfied, not just the happy path.
 Dependencies: all previous units.
+
+## Phase L: Catalog Productivity
+
+Proposed after v1 shipped, per explicit owner request. Unit 23 is complete; Units 24–28 remain for review before implementation.
+
+**Unit 23: Product duplication**
+What it builds: A "Duplicate" action on an existing product (product list row menu and/or the editor) that creates a new local-only draft copying the original's title (suffixed "Copy"), description, price, variants, tags, collection, category, and SEO fields. Images are duplicated as references to the same URLs, not re-uploaded to Blob. The new draft's `shopifyProductId` stays null, same as any other newly created product — a duplicate is never automatically pushed.
+Dependencies: Unit 10.
+
+**Unit 24: Bulk AI generation**
+What it builds: A bulk counterpart to Unit 14's single-product "Suggest SEO & tags" — select multiple products from the list, queue an AI suggestion for each through the existing `lib/ai/` path, and review/apply results per product before anything is saved. Suggestions are never auto-applied to any product in the batch (`architecture.md` invariant 7 still applies per product, not just to a single-product flow).
+Dependencies: Units 8, 14.
+
+**Unit 25: Variant-level images**
+What it builds: Lets a variant reference one specific image from the product's gallery (e.g. one photo per color option) instead of every variant implicitly sharing the whole gallery. Touches the variant editor (an image picker per row) and the push mutation's media-to-variant linking on Shopify's side (exact mutation shape to be verified against shopify.dev before implementing, per `ai-workflow-rules.md` #15 — not assumed up front).
+Dependencies: Units 11, 12, 15.
+
+**Unit 26: CSV catalog export**
+What it builds: An "Export CSV" action on the product list that downloads the current (optionally filtered) catalog view as a CSV file — title, price, status, category, tags, variant summary, last-synced timestamp. Read-only; adds no new server-side state.
+Dependencies: Unit 8.
+
+**Unit 27: CSV catalog import**
+What it builds: An "Import CSV" flow that reads an uploaded CSV file and bulk-creates local draft products from it, reusing Unit 10's create path per row and surfacing per-row validation errors (malformed price, missing title, etc.) up front before anything is saved, rather than after a partial import. Imported products are drafts like any other — never auto-pushed to Shopify.
+Dependencies: Unit 10.
+
+**Unit 28: Select-all-across-pages for bulk actions**
+What it builds: Extends the product list's existing page-scoped bulk selection (deliberately deferred during the earlier pagination work) with a "Select all N products matching this filter" option, so bulk actions (push, status change, delete) can apply across every matching product, not just the rows on the current page.
+Dependencies: Unit 8.
+
+## Phase M: History and Insights
+
+Proposed after v1 shipped, per explicit owner request. Not yet started — added to the plan for review before any unit here begins.
+
+**Unit 29: Per-product activity log**
+What it builds: A timeline on the product editor showing what happened and when — edited, pushed, synced, conflict flagged/resolved — built from a new lightweight event-log table (a schema change, requiring explicit approval per `ai-workflow-rules.md` #16 before `prisma/schema.prisma` is touched) plus the `lastEditedAt`/`lastSyncedAt` timestamps already on the product.
+Dependencies: Units 10, 15, 17, 19.
+
+**Unit 30: Low-stock and pricing sanity alerts**
+What it builds: A dashboard callout surfacing products with unusually low variant inventory or a price that looks like a data-entry mistake (e.g. zero, or implausibly low relative to the store's typical range), computed entirely from data already on `Product`/`Variant` — no new external calls.
+Dependencies: Unit 8.
+
+## Phase N: Access and Scheduling
+
+Proposed after v1 shipped, per explicit owner request. Not yet started — added to the plan for review before any unit here begins.
+
+**Unit 31: Staff accounts**
+What it builds: Activates the `AccountRole` field `architecture.md`'s schema already reserves for this (`v1 has a single role (owner) per account`) — a second role (e.g. "editor") that can edit and save products but not push, sync, delete, or manage store connections, plus an invite flow for the owner to add a staff member to their account.
+Dependencies: Units 3, 4.
+
+**Unit 32: Scheduled publishing**
+What it builds: Lets a draft product be scheduled to flip to Active and push automatically at a future date/time, instead of a manual status toggle. Needs a new background scheduling mechanism beyond the existing click-triggered job queue (e.g. a periodic check against a new `scheduledFor` field) — the first job in this app not triggered directly by an owner's click.
+Dependencies: Units 6, 10, 15.

@@ -87,9 +87,13 @@ export function VariantList({
               </TableCell>
               <TableCell>
                 <Input
+                  type="number"
                   value={variant.inventory}
                   onChange={(event) => updateRow(variant.id, { inventory: event.target.value })}
                   inputMode="numeric"
+                  min="0"
+                  step="1"
+                  required
                   className="font-mono"
                   aria-label="Inventory"
                 />

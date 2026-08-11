@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { shouldSkipSync } from "@/lib/db/products";
+import { duplicateProductTitle, shouldSkipSync } from "@/lib/db/products";
+
+describe("duplicateProductTitle", () => {
+  it("adds the Copy suffix to the source title", () => {
+    expect(duplicateProductTitle("Adu Denim Shirt")).toBe("Adu Denim Shirt Copy");
+  });
+
+  it("trims surrounding whitespace before adding the suffix", () => {
+    expect(duplicateProductTitle("  Adu Denim Shirt  ")).toBe("Adu Denim Shirt Copy");
+  });
+});
 
 describe("shouldSkipSync", () => {
   it("returns false when the product has never been synced", () => {

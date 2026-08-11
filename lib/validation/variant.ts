@@ -12,7 +12,11 @@ export const variantFormSchema = z.object({
     .refine((value) => /^\d+(\.\d{1,2})?$/.test(value) && Number(value) >= 0, {
       message: "Enter a valid, non-negative price",
     }),
-  inventory: z.coerce.number().int("Inventory must be a whole number").min(0, "Inventory can't be negative"),
+  inventory: z
+    .coerce
+    .number("Inventory must be a whole number")
+    .int("Inventory must be a whole number")
+    .min(0, "Inventory can't be negative"),
 });
 
 export type VariantFormInput = z.infer<typeof variantFormSchema>;

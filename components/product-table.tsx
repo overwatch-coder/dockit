@@ -16,7 +16,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
-import { pushSelectedProducts } from "@/app/(dashboard)/products/actions";
+import { duplicateProduct, pushSelectedProducts } from "@/app/(dashboard)/products/actions";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -193,6 +193,7 @@ export function ProductTable({
   } | null>(null);
 
   const [isPushPending, startPushTransition] = useTransition();
+  const [isDuplicatePending, startDuplicateTransition] = useTransition();
   const { isPolling: isPushPolling, start: startPushPolling } = useJobPolling({
     onSettled: (status, results) => {
       const items = (results as PushBatchResults | undefined)?.items ?? [];
@@ -269,6 +270,22 @@ export function ProductTable({
       router.push(`/products/${product.id}`);
     },
     [router]
+  );
+
+  const handleDuplicate = useCallback(
+    (productId: string) => {
+      if (isDuplicatePending) return;
+      startDuplicateTransition(async () => {
+        const result = await duplicateProduct(productId);
+        if ("error" in result) {
+          toast.error(result.error);
+          return;
+        }
+        toast.success("Product duplicated");
+        router.push(`/products/${result.productId}`);
+      });
+    },
+    [isDuplicatePending, router]
   );
 
   const handleChangeStatus = useCallback(
@@ -444,6 +461,7 @@ export function ProductTable({
               isSelected={selectedIds.has(product.id)}
               onToggleSelect={handleToggleSelect}
               onEdit={handleEdit}
+              onDuplicate={handleDuplicate}
               onChangeStatus={handleChangeStatus}
               onDelete={handleDelete}
               onDeleteShopify={handleDeleteShopify}
