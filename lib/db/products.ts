@@ -216,6 +216,51 @@ export async function getProductById(accountId: string, productId: string): Prom
   return product ? toDomainProduct(product) : null;
 }
 
+export async function getProductsByIds(accountId: string, productIds: string[]): Promise<Product[]> {
+  const products = await prisma.product.findMany({
+    where: { accountId, id: { in: productIds } },
+    include: { variants: true },
+  });
+  return products.map(toDomainProduct);
+}
+
+// Unit 24: persists only the suggestions the owner explicitly accepts from
+// the bulk-review dialog. Suggestions are generated separately and never
+// reach this function until that explicit confirmation. Conflicted products
+// are excluded so a bulk acceptance cannot overwrite pending resolution.
+export async function applyBulkAiSuggestions(input: {
+  accountId: string;
+  suggestions: {
+    productId: string;
+    seoTitle: string;
+    seoDescription: string;
+    tags: string[];
+    collectionId: string | null;
+    collectionTitle: string | null;
+    categoryId: string | null;
+    categoryFullName: string | null;
+  }[];
+}): Promise<{ updatedCount: number }> {
+  const results = await prisma.$transaction(
+    input.suggestions.map((suggestion) =>
+      prisma.product.updateMany({
+        where: { id: suggestion.productId, accountId: input.accountId, isConflicted: false },
+        data: {
+          seoTitle: suggestion.seoTitle || null,
+          seoDescription: suggestion.seoDescription || null,
+          tags: suggestion.tags,
+          collectionId: suggestion.collectionId,
+          collectionTitle: suggestion.collectionTitle,
+          categoryId: suggestion.categoryId,
+          categoryFullName: suggestion.categoryFullName,
+          lastEditedAt: new Date(),
+        },
+      })
+    )
+  );
+  return { updatedCount: results.reduce((count, result) => count + result.count, 0) };
+}
+
 export function duplicateProductTitle(title: string): string {
   return `${title.trim()} Copy`;
 }

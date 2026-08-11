@@ -9,11 +9,13 @@ import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
 import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import {
   addProductImage as addProductImageInDb,
+  applyBulkAiSuggestions as applyBulkAiSuggestionsInDb,
   createProduct as createProductInDb,
   deleteProducts as deleteProductsFromDb,
   duplicateProduct as duplicateProductInDb,
   getEligibleUnsyncedProducts,
   getProductById,
+  getProductsByIds,
   getProductsForStatusSync,
   getUnsyncedProductIdsForStore,
   removeProductImage as removeProductImageInDb,
@@ -45,6 +47,7 @@ import { variantFormSchema } from "@/lib/validation/variant";
 import type { AiSuggestion, ProductDescriptionSuggestion } from "@/lib/validation/ai-suggestion";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import type { Collection } from "@/types/collection";
+import type { BulkAiGenerationResult, BulkAiReviewItem } from "@/types/bulk-ai";
 import type { Job, JobStatus } from "@/types/job";
 
 // Matches the shape components/variant-list.tsx submits: id is either a
@@ -83,6 +86,20 @@ const productStatusSchema = z.enum(["DRAFT", "ACTIVE"]);
 // first.
 const idSchema = z.string().trim().min(1, "Missing id.");
 const idsSchema = z.array(idSchema);
+const bulkAiReviewItemSchema = z.object({
+  productId: idSchema,
+  title: z.string(),
+  imageUrl: z.string().nullable(),
+  imageUrls: z.array(z.string()),
+  seoTitle: z.string().trim(),
+  seoDescription: z.string().trim(),
+  tags: tagsFieldSchema,
+  collectionId: z.string().trim().nullable(),
+  collectionTitle: z.string().trim().nullable(),
+  categoryId: z.string().trim().nullable(),
+  categoryFullName: z.string().trim().nullable(),
+}) satisfies z.ZodType<BulkAiReviewItem>;
+const bulkAiReviewItemsSchema = z.array(bulkAiReviewItemSchema).min(1, "Select at least one suggestion.");
 
 // Unit 22 follow-up: resolveConflictWithSelections' `selections` param was
 // completely unvalidated — a plain object literal type with ten "app" |
@@ -466,6 +483,88 @@ export async function suggestProductSeo(productId: string): Promise<
   }
 
   return { success: true, data: { ...suggestion.data, categoryId, categoryFullName } };
+}
+
+// Unit 24: generates suggestions sequentially through the existing
+// single-product AI path. Generation returns review data only; no product is
+// written until applyBulkAiSuggestions below receives the owner's explicit
+// acceptance from the bulk-review dialog.
+export async function generateBulkProductSeoSuggestions(
+  productIds: string[]
+): Promise<{ success: true; data: BulkAiGenerationResult } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (productIds.length === 0 || !idsSchema.safeParse(productIds).success) {
+    return { error: "Select at least one product." };
+  }
+
+  const products = await getProductsByIds(account.id, productIds);
+  if (products.length === 0) {
+    return { error: "Those products no longer exist." };
+  }
+  const storeId = products[0]!.storeId;
+  if (products.some((product) => product.storeId !== storeId)) {
+    return { error: "Bulk suggestions can only be generated for one store at a time." };
+  }
+
+  let collections: Collection[] = [];
+  const storeToken = await getStoreToken(account.id, storeId);
+  if (storeToken) {
+    const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
+    const collectionResult = await fetchAllCollections(storeToken.shopifyDomain, accessToken);
+    if (collectionResult.success) collections = collectionResult.data;
+  }
+
+  const suggestions: BulkAiReviewItem[] = [];
+  const failures: BulkAiGenerationResult["failures"] = [];
+  for (const product of products) {
+    const result = await suggestProductSeo(product.id);
+    if ("error" in result) {
+      failures.push({ productId: product.id, title: product.title, error: result.error });
+      continue;
+    }
+    const collection = collections.find((entry) => entry.id === result.data.collectionId);
+    suggestions.push({
+      productId: product.id,
+      title: product.title,
+      imageUrl: product.imageUrl,
+      imageUrls: product.imageUrls,
+      seoTitle: result.data.seoTitle,
+      seoDescription: result.data.seoDescription,
+      tags: result.data.tags,
+      collectionId: result.data.collectionId,
+      collectionTitle: collection?.title ?? null,
+      categoryId: result.data.categoryId,
+      categoryFullName: result.data.categoryFullName,
+    });
+  }
+
+  if (suggestions.length === 0) {
+    return { error: failures[0]?.error ?? "AI suggestions could not be generated." };
+  }
+
+  return { success: true, data: { storeId, collections, suggestions, failures } };
+}
+
+export async function applyBulkAiSuggestions(
+  suggestions: BulkAiReviewItem[]
+): Promise<{ updatedCount: number } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+  const parsed = bulkAiReviewItemsSchema.safeParse(suggestions);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid suggestions." };
+  }
+
+  const { updatedCount } = await applyBulkAiSuggestionsInDb({ accountId: account.id, suggestions: parsed.data });
+  if (updatedCount === 0) {
+    return { error: "No suggestions could be saved. Resolve any product conflicts and try again." };
+  }
+
+  revalidatePath("/products");
+  revalidatePath("/dashboard");
+  return { updatedCount };
 }
 
 // New (Shopify Product Category unit): backs the product editor's manual

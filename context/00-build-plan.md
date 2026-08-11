@@ -114,7 +114,7 @@ Dependencies: all previous units.
 
 ## Phase L: Catalog Productivity
 
-Proposed after v1 shipped, per explicit owner request. Unit 23 is complete; Units 24–28 remain for review before implementation.
+Proposed after v1 shipped, per explicit owner request. Units 23–24 are complete; Units 25–28 remain for review before implementation.
 
 **Unit 23: Product duplication**
 What it builds: A "Duplicate" action on an existing product (product list row menu and/or the editor) that creates a new local-only draft copying the original's title (suffixed "Copy"), description, price, variants, tags, collection, category, and SEO fields. Images are duplicated as references to the same URLs, not re-uploaded to Blob. The new draft's `shopifyProductId` stays null, same as any other newly created product — a duplicate is never automatically pushed.

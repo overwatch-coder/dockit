@@ -12,11 +12,17 @@ import {
   MoreHorizontal,
   Pencil,
   Send,
+  Sparkles,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
-import { duplicateProduct, pushSelectedProducts } from "@/app/(dashboard)/products/actions";
+import {
+  applyBulkAiSuggestions,
+  duplicateProduct,
+  generateBulkProductSeoSuggestions,
+  pushSelectedProducts,
+} from "@/app/(dashboard)/products/actions";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -43,10 +49,12 @@ import { DeleteProductDialog } from "@/components/delete-product-dialog";
 import { ProductStatusBadge } from "@/components/product-status-badge";
 import { ProductTableRow } from "@/components/product-table-row";
 import { PushResultsDialog } from "@/components/push-results-dialog";
+import { BulkAiReviewDialog } from "@/components/bulk-ai-review-dialog";
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
 import type { PaginatedProductsResult, ProductSummary } from "@/lib/db/products";
 import type { Product, ProductStatus } from "@/types/product";
 import type { PushBatchResultItem, PushBatchResults } from "@/types/job";
+import type { BulkAiGenerationResult, BulkAiReviewItem } from "@/types/bulk-ai";
 
 type StatusFilter = "all" | "DRAFT" | "ACTIVE" | "CONFLICT";
 
@@ -194,6 +202,9 @@ export function ProductTable({
 
   const [isPushPending, startPushTransition] = useTransition();
   const [isDuplicatePending, startDuplicateTransition] = useTransition();
+  const [isBulkGenerating, startBulkGeneration] = useTransition();
+  const [isBulkApplying, startBulkApply] = useTransition();
+  const [bulkReview, setBulkReview] = useState<BulkAiGenerationResult | null>(null);
   const { isPolling: isPushPolling, start: startPushPolling } = useJobPolling({
     onSettled: (status, results) => {
       const items = (results as PushBatchResults | undefined)?.items ?? [];
@@ -224,6 +235,38 @@ export function ProductTable({
       toast.message(`Pushing ${result.count} product${result.count === 1 ? "" : "s"}...`);
       setSelectedIds(new Set());
       startPushPolling(result.jobId);
+    });
+  }
+
+  function handleGenerateBulkSuggestions() {
+    startBulkGeneration(async () => {
+      const result = await generateBulkProductSeoSuggestions(Array.from(selectedIds));
+      if ("error" in result) {
+        toast.error(result.error);
+        return;
+      }
+      setBulkReview(result.data);
+      if (result.data.failures.length > 0) {
+        toast.warning(`${result.data.failures.length} product suggestion${result.data.failures.length === 1 ? "" : "s"} could not be generated.`);
+      }
+    });
+  }
+
+  function handleApplyBulkSuggestions(suggestions: BulkAiReviewItem[]) {
+    startBulkApply(async () => {
+      const result = await applyBulkAiSuggestions(suggestions);
+      if ("error" in result) {
+        toast.error(result.error);
+        return;
+      }
+      setBulkReview(null);
+      setSelectedIds(new Set());
+      setConfirmation({
+        variant: "success",
+        title: "AI suggestions saved",
+        description: `${result.updatedCount} product${result.updatedCount === 1 ? "" : "s"} updated`,
+      });
+      router.refresh();
     });
   }
 
@@ -373,6 +416,10 @@ export function ProductTable({
         <div className="flex items-center justify-between rounded-md border border-border bg-muted/50 px-4 py-2">
           <p className="text-sm text-muted-foreground">{selectedIds.size} selected</p>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" disabled={isBulkGenerating} onClick={handleGenerateBulkSuggestions}>
+              <Sparkles className="size-4" />
+              {isBulkGenerating ? "Generating..." : "Generate AI suggestions"}
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -615,6 +662,17 @@ export function ProductTable({
         variant={confirmation?.variant ?? "success"}
         title={confirmation?.title ?? ""}
         description={confirmation?.description}
+      />
+      <BulkAiReviewDialog
+        open={bulkReview !== null}
+        onOpenChange={(open) => {
+          if (!open && !isBulkApplying) setBulkReview(null);
+        }}
+        storeId={bulkReview?.storeId ?? ""}
+        collections={bulkReview?.collections ?? []}
+        suggestions={bulkReview?.suggestions ?? []}
+        isApplying={isBulkApplying}
+        onApply={handleApplyBulkSuggestions}
       />
     </div>
   );
