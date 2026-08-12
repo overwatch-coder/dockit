@@ -27,6 +27,7 @@ function toPushInput(product: Product): PushProductInput {
       optionName: variant.optionName,
       price: variant.price,
       inventory: variant.inventory,
+      imageUrl: variant.imageUrl,
     })),
   };
 }
@@ -88,6 +89,7 @@ export async function pushOneProduct(input: {
     imageUrl: pushed.data.mediaUrls[0] ?? null,
     imageUrls: pushed.data.mediaUrls,
     variants: pushed.data.variants,
+    variantImageUpdates: pushed.data.variantImageUpdates,
   });
   if (!dbUpdate.updated) {
     return { success: false, step: "save-result", error: "Failed to save push result" };

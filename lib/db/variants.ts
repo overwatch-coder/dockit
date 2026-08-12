@@ -7,6 +7,7 @@ type VariantRecord = {
   optionName: string;
   price: { toString(): string };
   inventory: number;
+  imageUrl: string | null;
 };
 
 function toDomainVariant(variant: VariantRecord): Variant {
@@ -16,7 +17,24 @@ function toDomainVariant(variant: VariantRecord): Variant {
     optionName: variant.optionName,
     price: variant.price.toString(),
     inventory: variant.inventory,
+    imageUrl: variant.imageUrl,
   };
+}
+
+// Unit 25: a variant's imageUrl is only ever trusted if it's actually one of
+// its own product's current gallery images — never a bare client-supplied
+// URL, same "never trust a client-supplied id on its own" convention
+// architecture.md's invariants already require elsewhere. Falls back to the
+// single legacy imageUrl for products imported before the imageUrls gallery
+// field existed. Exported and pure so it's testable on its own, same
+// pattern as shouldSkipSync (lib/db/products.ts).
+export function isValidVariantImageUrl(
+  product: { imageUrl: string | null; imageUrls: string[] },
+  url: string | null
+): boolean {
+  if (url === null) return true;
+  if (product.imageUrls.length > 0) return product.imageUrls.includes(url);
+  return product.imageUrl === url;
 }
 
 // Unit 11 follow-up, per explicit user request: variant add/edit/remove is
@@ -34,7 +52,7 @@ function toDomainVariant(variant: VariantRecord): Variant {
 export async function syncProductVariants(input: {
   accountId: string;
   productId: string;
-  variants: { id: string; optionName: string; price: string; inventory: number }[];
+  variants: { id: string; optionName: string; price: string; inventory: number; imageUrl: string | null }[];
 }): Promise<{ variants: Variant[] } | null> {
   const product = await prisma.product.findFirst({
     where: { id: input.productId, accountId: input.accountId },
@@ -56,7 +74,12 @@ export async function syncProductVariants(input: {
     ...toUpdate.map((variant) =>
       prisma.variant.update({
         where: { id: variant.id },
-        data: { optionName: variant.optionName, price: variant.price, inventory: variant.inventory },
+        data: {
+          optionName: variant.optionName,
+          price: variant.price,
+          inventory: variant.inventory,
+          imageUrl: isValidVariantImageUrl(product, variant.imageUrl) ? variant.imageUrl : null,
+        },
       })
     ),
     ...toCreate.map((variant) =>
@@ -68,6 +91,7 @@ export async function syncProductVariants(input: {
           optionName: variant.optionName,
           price: variant.price,
           inventory: variant.inventory,
+          imageUrl: isValidVariantImageUrl(product, variant.imageUrl) ? variant.imageUrl : null,
         },
       })
     ),

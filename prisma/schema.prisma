@@ -149,6 +149,12 @@ model Variant {
   optionName       String
   price            Decimal  @db.Decimal(10, 2)
   inventory        Int      @default(0)
+  // Unit 25: one specific image from the parent product's own gallery
+  // (Product.imageUrls), stored the same way every other image reference in
+  // this app already is — a plain URL string, not a separate id/media
+  // table. Null means this variant has no image of its own and falls back
+  // to the product's default gallery display everywhere else in the app.
+  imageUrl         String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

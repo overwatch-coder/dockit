@@ -46,6 +46,30 @@ function lastRequestBody(fetchMock: ReturnType<typeof vi.fn>) {
   return JSON.parse(call[1].body as string);
 }
 
+function requestBodyAt(fetchMock: ReturnType<typeof vi.fn>, index: number) {
+  const call = fetchMock.mock.calls[index];
+  return JSON.parse(call[1].body as string);
+}
+
+function mediaResponse(nodes: { id: string; status?: string; url?: string }[]) {
+  return new Response(
+    JSON.stringify({
+      data: {
+        product: {
+          media: {
+            nodes: nodes.map((node) => ({
+              id: node.id,
+              status: node.status ?? "READY",
+              image: node.url ? { url: node.url } : null,
+            })),
+          },
+        },
+      },
+    }),
+    { status: 200 }
+  );
+}
+
 describe("pushProductToShopify — variant/option payload shape", () => {
   test("sends a synthetic Default Title variant with productOptions when there are no local variants", async () => {
     const fetchMock = vi.fn().mockResolvedValue(productSetResponse());
@@ -130,6 +154,126 @@ describe("pushProductToShopify — variant/option payload shape", () => {
     );
     expect(names).toEqual(["Small", "Small (2)"]);
     expect(new Set(names).size).toBe(2);
+  });
+});
+
+describe("pushProductToShopify — variant image linking (Unit 25)", () => {
+  test("links a variant to a brand-new (Blob-origin) image via originalSource, listed in both files and variants[].file", async () => {
+    const blobUrl = "https://abc123.public.blob.vercel-storage.com/staged.jpg";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(productSetResponse())
+      .mockResolvedValueOnce(mediaResponse([{ id: "gid://shopify/MediaImage/900", url: "https://cdn.shopify.com/promoted.jpg" }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await pushProductToShopify(
+      "my-store.myshopify.com",
+      "token",
+      baseInput({
+        imageUrls: [blobUrl],
+        variants: [{ id: "v1", shopifyVariantId: null, optionName: "Small", price: "10.00", inventory: 1, imageUrl: blobUrl }],
+      })
+    );
+
+    const body = requestBodyAt(fetchMock, 0);
+    expect(body.variables.input.files).toEqual([{ originalSource: blobUrl, contentType: "IMAGE" }]);
+    expect(body.variables.input.variants[0].file).toEqual({ originalSource: blobUrl, contentType: "IMAGE" });
+  });
+
+  test("links a variant to an already-Shopify image via its existing media id, added to files too", async () => {
+    const existingUrl = "https://cdn.shopify.com/s/files/1/existing.jpg";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(mediaResponse([{ id: "gid://shopify/MediaImage/500", url: existingUrl }]))
+      .mockResolvedValueOnce(productSetResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await pushProductToShopify(
+      "my-store.myshopify.com",
+      "token",
+      baseInput({
+        shopifyProductId: "1",
+        imageUrls: [existingUrl],
+        variants: [
+          { id: "v1", shopifyVariantId: "10", optionName: "Small", price: "10.00", inventory: 1, imageUrl: existingUrl },
+        ],
+      })
+    );
+
+    const body = lastRequestBody(fetchMock);
+    expect(body.variables.input.files).toEqual([{ id: "gid://shopify/MediaImage/500" }]);
+    expect(body.variables.input.variants[0].file).toEqual({ id: "gid://shopify/MediaImage/500" });
+  });
+
+  test("omits the file field and logs a diagnostic, without failing the push, when a variant's image can't be resolved", async () => {
+    const unresolvedUrl = "https://cdn.shopify.com/s/files/1/unresolved.jpg";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(mediaResponse([{ id: "gid://shopify/MediaImage/500", url: "https://cdn.shopify.com/s/files/1/other.jpg" }]))
+      .mockResolvedValueOnce(productSetResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await pushProductToShopify(
+      "my-store.myshopify.com",
+      "token",
+      baseInput({
+        shopifyProductId: "1",
+        imageUrls: ["https://cdn.shopify.com/s/files/1/other.jpg"],
+        variants: [
+          { id: "v1", shopifyVariantId: "10", optionName: "Small", price: "10.00", inventory: 1, imageUrl: unresolvedUrl },
+        ],
+      })
+    );
+
+    expect(result.success).toBe(true);
+    const body = lastRequestBody(fetchMock);
+    expect(body.variables.input.variants[0].file).toBeUndefined();
+    expect(body.variables.input.files).toBeUndefined();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining(unresolvedUrl));
+  });
+
+  test("remaps a variant's Blob-origin image to its promoted Shopify CDN url in the returned variantImageUpdates", async () => {
+    const blobUrl = "https://abc123.public.blob.vercel-storage.com/staged.jpg";
+    const promotedUrl = "https://cdn.shopify.com/promoted.jpg";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(productSetResponse())
+      .mockResolvedValueOnce(mediaResponse([{ id: "gid://shopify/MediaImage/900", url: promotedUrl }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await pushProductToShopify(
+      "my-store.myshopify.com",
+      "token",
+      baseInput({
+        imageUrls: [blobUrl],
+        variants: [{ id: "v1", shopifyVariantId: null, optionName: "Small", price: "10.00", inventory: 1, imageUrl: blobUrl }],
+      })
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.variantImageUpdates).toEqual([{ localVariantId: "v1", imageUrl: promotedUrl }]);
+    }
+  });
+
+  test("a variant with no imageUrl sends no file field and needs no variantImageUpdates entry", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(productSetResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await pushProductToShopify(
+      "my-store.myshopify.com",
+      "token",
+      baseInput({
+        variants: [{ id: "v1", shopifyVariantId: null, optionName: "Small", price: "10.00", inventory: 1, imageUrl: null }],
+      })
+    );
+
+    const body = lastRequestBody(fetchMock);
+    expect(body.variables.input.variants[0].file).toBeUndefined();
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.variantImageUpdates).toEqual([]);
+    }
   });
 });
 

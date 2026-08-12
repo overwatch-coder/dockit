@@ -45,7 +45,14 @@ type RawProductNode = {
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
   tags: string[];
   featuredImage: { url: string } | null;
-  images: { edges: { node: { url: string } }[] };
+  // Unit 25: fetched via `media` rather than the deprecated `images` field
+  // (confirmed deprecated on shopify.dev during this unit) — the switch
+  // isn't cosmetic: lib/shopify/push.ts looks up a variant's linked image by
+  // matching its stored URL against `media`'s own image.url at push time,
+  // so an imported/synced imageUrls entry has to be sourced from that same
+  // `media` field to be guaranteed an exact string match, not just a
+  // probably-identical one from a different field.
+  media: { nodes: { image?: { url: string } | null }[] };
   // Only the first collection is fetched — a product's full collection
   // membership and the ability to assign/change it is Unit 13's job; this is
   // a read-only "primary collection" display for the product list's Category
@@ -91,7 +98,9 @@ function toImportedProduct(node: RawProductNode): ShopifyImportedProduct {
     title: node.title,
     description: node.descriptionHtml || null,
     imageUrl: node.featuredImage?.url ?? null,
-    imageUrls: node.images.edges.map(({ node: image }) => image.url),
+    // Non-image media (video, 3D model) has no `image` field — filtered out
+    // rather than producing a hole in the gallery array.
+    imageUrls: node.media.nodes.map((media) => media.image?.url).filter((url): url is string => Boolean(url)),
     price: node.priceRangeV2.minVariantPrice.amount,
     status: toProductStatus(node.status),
     tags: node.tags,
@@ -123,10 +132,12 @@ const PRODUCTS_QUERY = `
           featuredImage {
             url
           }
-          images(first: 10) {
-            edges {
-              node {
-                url
+          media(first: 10) {
+            nodes {
+              ... on MediaImage {
+                image {
+                  url
+                }
               }
             }
           }

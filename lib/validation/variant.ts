@@ -17,6 +17,18 @@ export const variantFormSchema = z.object({
     .number("Inventory must be a whole number")
     .int("Inventory must be a whole number")
     .min(0, "Inventory can't be negative"),
+  // Unit 25: which of the product's own gallery images (if any) this
+  // variant should link to on Shopify — a plain URL string, matching how
+  // this app already treats image identity everywhere else (Product.imageUrl/
+  // imageUrls are themselves just URL strings, never a separate id table).
+  // Whether the URL actually belongs to this variant's own product can't be
+  // checked here, since this schema only ever sees one variant in
+  // isolation — enforced instead by lib/db/variants.ts's
+  // isValidVariantImageUrl, the layer that has the product loaded.
+  // .default(null) normalizes an absent field to null so every parsed
+  // variant always has this key, same "always present, never optional"
+  // convention as the rest of the domain's Variant type.
+  imageUrl: z.string().trim().min(1).nullable().default(null),
 });
 
 export type VariantFormInput = z.infer<typeof variantFormSchema>;

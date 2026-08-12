@@ -27,9 +27,9 @@ function productNode(overrides: Partial<{
       overrides.imageUrl === null
         ? null
         : { url: overrides.imageUrl ?? "https://cdn.shopify.com/s/files/1/test.jpg" },
-    images: {
-      edges: (overrides.images ?? ["https://cdn.shopify.com/s/files/1/test.jpg"]).map((url) => ({
-        node: { url },
+    media: {
+      nodes: (overrides.images ?? ["https://cdn.shopify.com/s/files/1/test.jpg"]).map((url) => ({
+        image: { url },
       })),
     },
     collections: {

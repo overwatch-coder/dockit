@@ -6,6 +6,11 @@ export type Variant = {
   optionName: string;
   price: string;
   inventory: number;
+  // Unit 25: one of the parent product's own imageUrls (or its single
+  // legacy imageUrl, for products imported before the gallery field
+  // existed), or null if this variant has no image of its own — falls back
+  // to the product's default gallery display everywhere else in the app.
+  imageUrl: string | null;
 };
 
 // Unit 18: the shape stored in Product.conflictAppSnapshot/conflictShopifySnapshot

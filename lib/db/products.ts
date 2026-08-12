@@ -34,6 +34,7 @@ type ProductRecord = {
     optionName: string;
     price: { toString(): string };
     inventory: number;
+    imageUrl: string | null;
   }[];
 };
 
@@ -65,6 +66,7 @@ function toDomainProduct(product: ProductRecord): Product {
       optionName: variant.optionName,
       price: variant.price.toString(),
       inventory: variant.inventory,
+      imageUrl: variant.imageUrl,
     })),
   };
 }
@@ -306,12 +308,17 @@ export async function duplicateProduct(input: {
       conflictAppSnapshot: Prisma.JsonNull,
       conflictShopifySnapshot: Prisma.JsonNull,
       variants: {
+        // imageUrl carries over as-is, same as the product-level
+        // imageUrl/imageUrls above — it's still a reference into the exact
+        // same gallery just copied wholesale onto the new draft, so the
+        // string stays valid without any remapping.
         create: source.variants.map((variant) => ({
           accountId: input.accountId,
           shopifyVariantId: null,
           optionName: variant.optionName,
           price: variant.price,
           inventory: variant.inventory,
+          imageUrl: variant.imageUrl,
         })),
       },
     },
@@ -510,12 +517,38 @@ export async function markProductPushed(input: {
   imageUrl: string | null;
   imageUrls: string[];
   variants: { localVariantId: string; shopifyVariantId: string }[];
+  // Unit 25: only variants whose imageUrl needs to change post-push — a
+  // variant linked to a brand-new (Blob-origin) image gets remapped to that
+  // image's newly promoted Shopify CDN url, the same Blob->CDN remap the
+  // product-level imageUrl/imageUrls above already goes through. A variant
+  // linked to an already-Shopify image, or with no image at all, needs no
+  // write here and is simply omitted.
+  variantImageUpdates?: { localVariantId: string; imageUrl: string }[];
 }): Promise<{ updated: boolean }> {
   const existing = await prisma.product.findFirst({
     where: { id: input.productId, accountId: input.accountId },
   });
   if (!existing) {
     return { updated: false };
+  }
+
+  // Merged by localVariantId rather than run as two separate passes, since
+  // Prisma has no partial-update-then-update-again ergonomics within one
+  // $transaction array for the same row — one variant can need either or
+  // both of a shopifyVariantId write (Unit 15/16) and an imageUrl remap
+  // (Unit 25) in the same push.
+  const variantUpdates = new Map<string, { shopifyVariantId?: string; imageUrl?: string }>();
+  for (const variant of input.variants) {
+    variantUpdates.set(variant.localVariantId, {
+      ...variantUpdates.get(variant.localVariantId),
+      shopifyVariantId: variant.shopifyVariantId,
+    });
+  }
+  for (const variant of input.variantImageUpdates ?? []) {
+    variantUpdates.set(variant.localVariantId, {
+      ...variantUpdates.get(variant.localVariantId),
+      imageUrl: variant.imageUrl,
+    });
   }
 
   await prisma.$transaction([
@@ -531,11 +564,8 @@ export async function markProductPushed(input: {
         conflictShopifySnapshot: Prisma.JsonNull,
       },
     }),
-    ...input.variants.map((variant) =>
-      prisma.variant.update({
-        where: { id: variant.localVariantId },
-        data: { shopifyVariantId: variant.shopifyVariantId },
-      })
+    ...[...variantUpdates.entries()].map(([localVariantId, data]) =>
+      prisma.variant.update({ where: { id: localVariantId }, data })
     ),
   ]);
 

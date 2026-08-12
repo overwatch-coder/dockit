@@ -73,6 +73,7 @@ function toDraftVariants(product: Product | undefined): DraftVariant[] {
       optionName: variant.optionName,
       price: variant.price,
       inventory: String(variant.inventory),
+      imageUrl: variant.imageUrl,
     })) ?? []
   );
 }
@@ -680,7 +681,7 @@ export function ProductForm({
                 <input type="hidden" name="tags" value={JSON.stringify(tags)} />
               </div>
 
-              <VariantList variants={variants} onChange={setVariants} />
+              <VariantList variants={variants} images={gallery} onChange={setVariants} />
               <input type="hidden" name="variants" value={JSON.stringify(variants)} />
 
               {statusField}

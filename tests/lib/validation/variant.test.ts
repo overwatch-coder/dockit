@@ -43,4 +43,43 @@ describe("variantFormSchema", () => {
     const result = variantFormSchema.safeParse({ optionName: "Small", price: "10.00", inventory: "5" });
     expect(result.success).toBe(true);
   });
+
+  it("defaults imageUrl to null when the field is absent", () => {
+    const result = variantFormSchema.safeParse({ optionName: "Small", price: "10.00", inventory: 0 });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.imageUrl).toBeNull();
+    }
+  });
+
+  it("accepts an explicit null imageUrl", () => {
+    const result = variantFormSchema.safeParse({
+      optionName: "Small",
+      price: "10.00",
+      inventory: 0,
+      imageUrl: null,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.imageUrl).toBeNull();
+    }
+  });
+
+  it("accepts a non-empty imageUrl string", () => {
+    const result = variantFormSchema.safeParse({
+      optionName: "Small",
+      price: "10.00",
+      inventory: 0,
+      imageUrl: "https://cdn.shopify.com/s/files/1/test.jpg",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.imageUrl).toBe("https://cdn.shopify.com/s/files/1/test.jpg");
+    }
+  });
+
+  it("rejects an empty-string imageUrl", () => {
+    const result = variantFormSchema.safeParse({ optionName: "Small", price: "10.00", inventory: 0, imageUrl: "" });
+    expect(result.success).toBe(false);
+  });
 });

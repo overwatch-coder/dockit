@@ -35,6 +35,12 @@ export type PushProductInput = {
     optionName: string;
     price: string;
     inventory: number;
+    // Unit 25: one entry from imageUrls above (Blob or already-Shopify), or
+    // null/undefined for no variant-specific image. Optional (rather than
+    // always-required like the domain Variant type) purely so this input
+    // shape stays backward compatible for every existing caller/test that
+    // builds a variant literal without it.
+    imageUrl?: string | null;
   }[];
 };
 
@@ -46,6 +52,13 @@ export type PushProductResult = {
   // Same length/order as input.imageUrls — each Blob-origin entry replaced
   // with its new Shopify CDN url, each already-Shopify entry left as-is.
   mediaUrls: string[];
+  // Unit 25: only variants whose imageUrl needs to change in the app's own
+  // record after this push — a variant linked to a brand-new (Blob-origin)
+  // image, now promoted to its permanent Shopify CDN url, same remap
+  // mediaUrls above does at the product level. A variant linked to an
+  // already-Shopify image, or with no image at all, needs no DB write and
+  // is omitted.
+  variantImageUpdates: { localVariantId: string; imageUrl: string }[];
 };
 
 type PushResult = { success: true; data: PushProductResult } | { success: false; error: string };
@@ -272,11 +285,27 @@ export async function pushProductToShopify(
   // store as part of this unit's live verification pass.
   const blobImageUrls = input.imageUrls.filter(isBlobUrl);
 
+  // Unit 25: a variant linked to an image already on Shopify needs that
+  // image's real media id (Shopify's ProductVariantSetInput.file only takes
+  // a FileSetInput — a brand-new upload via originalSource, or an existing
+  // file's id, verified against shopify.dev during planning, per
+  // ai-workflow-rules.md #15) — so the same media read-back this file
+  // already does for new Blob uploads is also needed whenever a variant
+  // points at a non-Blob image, not only when there are new images to
+  // upload.
+  const hasExistingVariantImageLinks = input.variants.some(
+    (variant) => variant.imageUrl && !isBlobUrl(variant.imageUrl)
+  );
+
   let beforeMediaIds = new Set<string>();
-  if (blobImageUrls.length > 0 && productGidForLookups) {
+  const existingMediaByUrl = new Map<string, string>();
+  if (productGidForLookups && (blobImageUrls.length > 0 || hasExistingVariantImageLinks)) {
     const before = await fetchProductMedia(shopDomain, accessToken, productGidForLookups);
     if (!before.success) return before;
     beforeMediaIds = new Set(before.data.map((node) => node.id));
+    for (const node of before.data) {
+      if (node.image?.url) existingMediaByUrl.set(node.image.url, node.id);
+    }
   }
 
   const newLocalVariants = input.variants.filter((v) => v.shopifyVariantId === null);
@@ -334,11 +363,57 @@ export async function pushProductToShopify(
   // scope cut rather than blocking push on an OAuth reconnect mid-unit —
   // real inventory sync can be added later alongside read_locations/
   // write_inventory once the store token is reconnected with that scope.
-  productSetInput.variants = normalizedVariants.map((v) => ({
-    ...(v.shopifyVariantId ? { id: toGid("ProductVariant", v.shopifyVariantId) } : {}),
-    price: v.price,
-    optionValues: [{ optionName: "Title", name: v.optionName }],
-  }));
+  // Unit 25: resolves one variant's imageUrl into the FileSetInput
+  // ProductVariantSetInput.file expects — either a brand-new upload
+  // (originalSource, for a Blob-origin image already being uploaded this
+  // push) or a reference to an already-attached Shopify file (id, looked up
+  // above). Shopify's own docs (shopify.dev/docs/api/admin-graphql/latest/
+  // input-objects/ProductVariantSetInput, field `file`) state: "Any file
+  // specified here must also be specified in the `files` input for the
+  // product" — so every existing-file id resolved here also has to be
+  // collected into productSetInput.files below, not just the new uploads
+  // that already went there. Returns undefined (no file field sent, leaving
+  // whatever's already linked on Shopify untouched) for no image, or for an
+  // image this push can't currently resolve to a real Shopify file — logged
+  // as a diagnostic rather than failing the whole push, same "don't hard-
+  // fail on an unconfirmed Shopify-side edge case" convention as the
+  // category-mismatch diagnostic below.
+  const extraFileEntries: { id: string }[] = [];
+  const seenExtraFileIds = new Set<string>();
+  function resolveVariantFile(imageUrl: string | null | undefined): { id: string } | { originalSource: string; contentType: "IMAGE" } | undefined {
+    if (!imageUrl) return undefined;
+    if (isBlobUrl(imageUrl)) {
+      if (!blobImageUrls.includes(imageUrl)) {
+        console.error(
+          `pushProductToShopify: variant references a staged image (${imageUrl}) that isn't part of this product's current gallery — skipping its media link.`
+        );
+        return undefined;
+      }
+      return { originalSource: imageUrl, contentType: "IMAGE" };
+    }
+    const mediaId = existingMediaByUrl.get(imageUrl);
+    if (!mediaId) {
+      console.error(
+        `pushProductToShopify: could not resolve a Shopify media id for variant image ${imageUrl} — skipping its media link this push.`
+      );
+      return undefined;
+    }
+    if (!seenExtraFileIds.has(mediaId)) {
+      seenExtraFileIds.add(mediaId);
+      extraFileEntries.push({ id: mediaId });
+    }
+    return { id: mediaId };
+  }
+
+  productSetInput.variants = normalizedVariants.map((v) => {
+    const file = resolveVariantFile(v.imageUrl);
+    return {
+      ...(v.shopifyVariantId ? { id: toGid("ProductVariant", v.shopifyVariantId) } : {}),
+      price: v.price,
+      optionValues: [{ optionName: "Title", name: v.optionName }],
+      ...(file ? { file } : {}),
+    };
+  });
 
   // Never touches collection membership when the app has no opinion —
   // productSet's `collections` field is a full-replacement list, so sending
@@ -356,11 +431,18 @@ export async function pushProductToShopify(
     productSetInput.category = toGid("TaxonomyCategory", input.categoryId);
   }
 
-  if (blobImageUrls.length > 0) {
-    productSetInput.files = blobImageUrls.map((url) => ({
-      originalSource: url,
-      contentType: "IMAGE",
-    }));
+  // Unit 25: extraFileEntries (existing files a variant links to) is only
+  // populated by the productSetInput.variants pass above, so this has to
+  // run after it — merged with the new-upload entries this file block
+  // already sent, deduplicated by id/originalSource isn't needed since the
+  // two sources are disjoint (extraFileEntries only ever holds ids of
+  // already-Shopify files, never a blob url).
+  const fileEntries: ({ id: string } | { originalSource: string; contentType: "IMAGE" })[] = [
+    ...blobImageUrls.map((url) => ({ originalSource: url, contentType: "IMAGE" as const })),
+    ...extraFileEntries,
+  ];
+  if (fileEntries.length > 0) {
+    productSetInput.files = fileEntries;
   }
 
   const variables: Record<string, unknown> = { input: productSetInput };
@@ -433,12 +515,31 @@ export async function pushProductToShopify(
 
   // Rebuild the gallery in the original relative order: each Blob-origin
   // entry replaced in place with its newly promoted CDN url, each
-  // already-Shopify entry left untouched.
+  // already-Shopify entry left untouched. Unit 25: also records the
+  // blob-url -> new-CDN-url mapping this loop discovers, so a variant
+  // linked to one of these promoted images can be remapped the same way
+  // below, instead of still pointing at a Blob url that's about to be
+  // deleted (Invariant 8).
   let blobIndex = 0;
-  const mediaUrls = input.imageUrls.map((url) => (isBlobUrl(url) ? (newMediaUrls[blobIndex++] ?? url) : url));
+  const blobUrlToNewUrl = new Map<string, string>();
+  const mediaUrls = input.imageUrls.map((url) => {
+    if (!isBlobUrl(url)) return url;
+    const newUrl = newMediaUrls[blobIndex++] ?? url;
+    blobUrlToNewUrl.set(url, newUrl);
+    return newUrl;
+  });
+
+  const variantImageUpdates: { localVariantId: string; imageUrl: string }[] = [];
+  for (const variant of input.variants) {
+    if (!variant.imageUrl) continue;
+    const remapped = blobUrlToNewUrl.get(variant.imageUrl);
+    if (remapped) {
+      variantImageUpdates.push({ localVariantId: variant.id, imageUrl: remapped });
+    }
+  }
 
   return {
     success: true,
-    data: { shopifyProductId, variants: pushedVariants, mediaUrls },
+    data: { shopifyProductId, variants: pushedVariants, mediaUrls, variantImageUpdates },
   };
 }
