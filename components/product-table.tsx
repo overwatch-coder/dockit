@@ -45,6 +45,7 @@ import { ActionConfirmationModal, type ActionConfirmationVariant } from "@/compo
 import { ChangeStatusDialog } from "@/components/change-status-dialog";
 import { ConflictResolutionDialog } from "@/components/conflict-resolution-dialog";
 import { DeleteFromShopifyDialog } from "@/components/delete-from-shopify-dialog";
+import { ExportCsvButton } from "@/components/export-csv-button";
 import { DeleteProductDialog } from "@/components/delete-product-dialog";
 import { ProductStatusBadge } from "@/components/product-status-badge";
 import { ProductTableRow } from "@/components/product-table-row";
@@ -411,6 +412,14 @@ export function ProductTable({
             ))}
           </SelectContent>
         </Select>
+        {/* Unit 26: reads the live (not yet URL-debounced) search text, so
+            exporting right after typing doesn't lag one keystroke behind
+            what's about to be searched. */}
+        <ExportCsvButton
+          search={searchText}
+          statusFilter={initialStatusFilter}
+          categoryFilter={initialCategoryFilter}
+        />
       </div>
       {selectedIds.size > 0 && (
         <div className="flex items-center justify-between rounded-md border border-border bg-muted/50 px-4 py-2">

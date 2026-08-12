@@ -14,6 +14,7 @@ import {
   deleteProducts as deleteProductsFromDb,
   duplicateProduct as duplicateProductInDb,
   getEligibleUnsyncedProducts,
+  getPaginatedProductsForStore,
   getProductById,
   getProductsByIds,
   getProductsForStatusSync,
@@ -23,6 +24,7 @@ import {
   updateProduct as updateProductInDb,
   updateProductsStatus as updateProductsStatusInDb,
 } from "@/lib/db/products";
+import { buildProductsCsv } from "@/lib/csv/products";
 import type { ConflictFieldSelections } from "@/lib/db/products";
 import { syncProductVariants as syncProductVariantsInDb } from "@/lib/db/variants";
 import { getActiveStoreForAccount, getStoresForAccount, getStoreToken } from "@/lib/db/stores";
@@ -86,6 +88,17 @@ const productStatusSchema = z.enum(["DRAFT", "ACTIVE"]);
 // first.
 const idSchema = z.string().trim().min(1, "Missing id.");
 const idsSchema = z.array(idSchema);
+
+// Unit 26: exportProductsCsv's filters, called directly (not via FormData)
+// from components/export-csv-button.tsx with whatever the product table's
+// own search/status/category filter state currently is — validated the
+// same as every other non-FormData action input in this file (see the
+// idSchema comment above).
+const csvExportFiltersSchema = z.object({
+  search: z.string().trim().max(200).default(""),
+  statusFilter: z.enum(["all", "DRAFT", "ACTIVE", "CONFLICT"]).default("all"),
+  categoryFilter: z.string().trim().max(200).default("all"),
+});
 const bulkAiReviewItemSchema = z.object({
   productId: idSchema,
   title: z.string(),
@@ -949,4 +962,42 @@ export async function getLatestJobStatus(): Promise<{ job: Job | null } | { erro
 
   const job = await getLatestJobForStore(account.id, store.id);
   return { job };
+}
+
+// Unit 26: "Export CSV" on the product list — read-only, adds no new
+// server-side state, per context/00-build-plan.md's spec. Confirmed with
+// the owner via AskUserQuestion: exports every product matching the
+// current search/status/category filters across every page, not just the
+// rows on the current page — reuses getPaginatedProductsForStore with
+// pageSize: "all" (the same escape hatch the table's own "Rows per page"
+// control already offers) rather than a new DB query, so filtering stays
+// byte-for-byte consistent with what the table itself shows for the same
+// filters. Same active-store resolution as every other dashboard-triggered
+// action in this file.
+export async function exportProductsCsv(filters: {
+  search: string;
+  statusFilter: "all" | "DRAFT" | "ACTIVE" | "CONFLICT";
+  categoryFilter: string;
+}): Promise<{ csv: string } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const parsed = csvExportFiltersSchema.safeParse(filters);
+  if (!parsed.success) {
+    return { error: "Invalid export filters." };
+  }
+
+  const store = await resolveActiveStore(account.id);
+  if (!store) {
+    return { error: "Connect a store first." };
+  }
+
+  const { products } = await getPaginatedProductsForStore(account.id, store.id, {
+    pageSize: "all",
+    search: parsed.data.search,
+    statusFilter: parsed.data.statusFilter,
+    categoryFilter: parsed.data.categoryFilter,
+  });
+
+  return { csv: buildProductsCsv(products) };
 }
