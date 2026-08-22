@@ -67,52 +67,19 @@ import type { Collection } from "@/types/collection";
 import type { BulkAiGenerationResult, BulkAiReviewItem } from "@/types/bulk-ai";
 import type { Job, JobStatus } from "@/types/job";
 
-// Matches the shape components/variant-list.tsx submits: id is either a
-// real variant id or a client-generated temporary id for a not-yet-created
-// row — lib/db/variants.ts's syncProductVariants tells them apart by
-// checking against the product's actual current variant ids, not by
-// inspecting the id's format here.
 const variantsFieldSchema = z.array(
   variantFormSchema.extend({ id: z.string().min(1) }),
 );
 
-// Unit 13: tags are staged client-side the same way variants are — a hidden
-// JSON field, parsed and fully replaced on each save rather than diffed.
 const tagsFieldSchema = z
   .array(z.string().trim().min(1))
   .max(20, "No more than 20 tags");
 
-// Unit 22 follow-up: setProductsStatus's `status` param is called directly
-// (not via FormData, so productFormSchema's own `status: z.enum(...)` never
-// runs against it) and flows straight into updateProductsStatusInDb's
-// Prisma write — an invalid value would previously reach Prisma's real
-// ProductStatus enum column unchecked, throwing an unhandled exception
-// instead of the typed error every other bad-input path in this file
-// returns. Same DRAFT/ACTIVE set productFormSchema already validates.
 const productStatusSchema = z.enum(["DRAFT", "ACTIVE"]);
 
-// Unit 22 follow-up: every action below that takes a bare id (productId,
-// storeId, jobId) or an id array was previously trusting its TypeScript
-// parameter type alone at runtime — code-standards.md's "all server action
-// inputs are validated with a schema" rule doesn't carve out an exception
-// for non-FormData actions, and a server action is a real POST endpoint
-// regardless of how the client happens to call it, so a malformed direct
-// request (not just a form field) is exactly what this rule is guarding
-// against. Every one of these ids is already re-validated for *ownership*
-// downstream (an accountId-scoped lookup that returns a typed "not found"
-// for a bogus id), so this isn't closing a data-isolation gap — it's making
-// sure a malformed value fails with the same typed `{ error }` shape every
-// other bad-input path here already returns, instead of an unhandled
-// exception from whatever Prisma/downstream call happens to choke on it
-// first.
 const idSchema = z.string().trim().min(1, "Missing id.");
 const idsSchema = z.array(idSchema);
 
-// Unit 26: exportProductsCsv's filters, called directly (not via FormData)
-// from components/export-csv-button.tsx with whatever the product table's
-// own search/status/category filter state currently is — validated the
-// same as every other non-FormData action input in this file (see the
-// idSchema comment above).
 const csvExportFiltersSchema = z.object({
   search: z.string().trim().max(200).default(""),
   statusFilter: z.enum(["all", "DRAFT", "ACTIVE", "CONFLICT"]).default("all"),

@@ -1,9 +1,5 @@
 import type { Product } from "@/types/product";
 
-// Unit 26: quotes (and doubles any internal double quote) only when a field
-// actually needs it — a comma, quote, or newline — matching RFC 4180's
-// minimal-quoting convention rather than quoting every field
-// unconditionally.
 function escapeCsvField(value: string): string {
   if (/[",\n]/.test(value)) {
     return `"${value.replace(/"/g, '""')}"`;
@@ -33,8 +29,6 @@ export function buildProductsCsv(products: Product[]): string {
   const rows = [CSV_HEADER, ...products.map(toCsvRow)];
   return rows.map((row) => row.map(escapeCsvField).join(",")).join("\r\n");
 }
-
-// --- Unit 27: CSV Import Types & Parsing ---
 
 export type CsvImportVariantInput = {
   optionName: string;

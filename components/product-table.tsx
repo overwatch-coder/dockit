@@ -236,13 +236,6 @@ export function ProductTable({
     PushBatchResultItem[] | null
   >(null);
 
-  // Unit 16 follow-up, per explicit user request: a toast alone wasn't a
-  // strong enough "did this actually work" signal for a Shopify push/sync —
-  // a clean SUCCEEDED result now opens the shared animated-checkmark modal
-  // (state declared below, near the other post-Unit-16 additions) instead
-  // of a toast that could be missed. PARTIAL/FAILED keep their existing
-  // toast + PushResultsDialog treatment unchanged — that's not what was
-  // reported as hard to see.
   const [confirmation, setConfirmation] = useState<{
     variant: ActionConfirmationVariant;
     title: string;
@@ -329,14 +322,6 @@ export function ProductTable({
     });
   }
 
-  // Unit 16 follow-up, per explicit user request: change a product's status
-  // (single row, via the row dropdown, or a bulk selection, via the
-  // toolbar) with an explicit choice of whether to sync it to Shopify —
-  // shared by both call sites, same pattern as deleteTarget/DeleteProductDialog
-  // above. A second, independent useJobPolling/results-dialog pair rather
-  // than reusing the push-selected one above: the two flows have different
-  // toast copy ("synced" vs "pushed") and shouldn't step on each other if
-  // both happen to be in flight.
   const [statusChangeTarget, setStatusChangeTarget] = useState<{
     ids: string[];
     label: string;

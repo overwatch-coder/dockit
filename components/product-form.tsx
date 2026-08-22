@@ -78,14 +78,6 @@ function toDraftVariants(product: Product | undefined): DraftVariant[] {
   );
 }
 
-// Shared by /products/new (mode="create") and /products/[id] (mode="edit")
-// so there's one form implementation, not two. storeId is only needed for
-// create (a new product has no product/store of its own to bind yet).
-//
-// Fields are lifted into controlled state (not just uncontrolled
-// defaultValue inputs) so the preview panel on the right can mirror what's
-// being typed live, side by side with the editing fields on the left,
-// per explicit user request — rather than only seeing the raw edit form.
 export function ProductForm({
   mode,
   product,
@@ -95,11 +87,6 @@ export function ProductForm({
   mode: "create" | "edit";
   product?: Product;
   storeId?: string;
-  // Unit 13: the store's Shopify collections, fetched server-side by the
-  // product editor page (only lib/shopify/ is allowed to call Shopify, and
-  // only from server code) — never fetched from inside this client
-  // component. Unused in mode="create" (collection/tags are edit-mode only,
-  // same as variants/images).
   collections?: Collection[];
 }) {
   const router = useRouter();
@@ -120,10 +107,6 @@ export function ProductForm({
   const [seoTitle, setSeoTitle] = useState(product?.seoTitle ?? "");
   const [seoDescription, setSeoDescription] = useState(product?.seoDescription ?? "");
 
-  // Unit 14: which of the four AI-suggestible fields currently hold an
-  // unsaved suggestion (drives the --primary-subtle marking), and the
-  // suggest button's own pending state — a separate transition from the
-  // form's own Save (isPending above), since suggesting never submits.
   const [aiSuggested, setAiSuggested] = useState<Set<AiSuggestedField>>(new Set());
   const [isSuggesting, startSuggestTransition] = useTransition();
 
