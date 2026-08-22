@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
@@ -39,9 +45,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ActionConfirmationModal, type ActionConfirmationVariant } from "@/components/action-confirmation-modal";
+import {
+  ActionConfirmationModal,
+  type ActionConfirmationVariant,
+} from "@/components/action-confirmation-modal";
 import { ChangeStatusDialog } from "@/components/change-status-dialog";
 import { ConflictResolutionDialog } from "@/components/conflict-resolution-dialog";
 import { DeleteFromShopifyDialog } from "@/components/delete-from-shopify-dialog";
@@ -52,14 +68,20 @@ import { ProductTableRow } from "@/components/product-table-row";
 import { PushResultsDialog } from "@/components/push-results-dialog";
 import { BulkAiReviewDialog } from "@/components/bulk-ai-review-dialog";
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
-import type { PaginatedProductsResult, ProductSummary } from "@/lib/db/products";
+import type {
+  PaginatedProductsResult,
+  ProductSummary,
+} from "@/lib/db/products";
 import type { Product, ProductStatus } from "@/types/product";
 import type { PushBatchResultItem, PushBatchResults } from "@/types/job";
 import type { BulkAiGenerationResult, BulkAiReviewItem } from "@/types/bulk-ai";
 
 type StatusFilter = "all" | "DRAFT" | "ACTIVE" | "CONFLICT";
 
-function shopifyAdminProductUrl(shopDomain: string, shopifyProductId: string): string {
+function shopifyAdminProductUrl(
+  shopDomain: string,
+  shopifyProductId: string,
+): string {
   return `https://${shopDomain}/admin/products/${shopifyProductId}`;
 }
 
@@ -92,8 +114,14 @@ export function ProductTable({
   const [isNavigating, startNavigation] = useTransition();
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [deleteTarget, setDeleteTarget] = useState<{ ids: string[]; label: string } | null>(null);
-  const [shopifyDeleteTarget, setShopifyDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    ids: string[];
+    label: string;
+  } | null>(null);
+  const [shopifyDeleteTarget, setShopifyDeleteTarget] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
   const [conflictTarget, setConflictTarget] = useState<Product | null>(null);
 
   const [searchText, setSearchText] = useState(initialSearch);
@@ -106,7 +134,12 @@ export function ProductTable({
     (newParams: Record<string, string | number | undefined>) => {
       const current = new URLSearchParams(searchParams.toString());
       Object.entries(newParams).forEach(([key, value]) => {
-        if (value === undefined || value === "" || value === "all" || (key === "page" && value === 1)) {
+        if (
+          value === undefined ||
+          value === "" ||
+          value === "all" ||
+          (key === "page" && value === 1)
+        ) {
           current.delete(key);
         } else {
           current.set(key, String(value));
@@ -118,7 +151,7 @@ export function ProductTable({
         router.push(`${pathname}${query}`);
       });
     },
-    [searchParams, pathname, router]
+    [searchParams, pathname, router],
   );
 
   // Debounced search input syncing to URL
@@ -131,10 +164,17 @@ export function ProductTable({
     return () => clearTimeout(handler);
   }, [searchText, initialSearch, updateParams]);
 
-  const { products: paginatedProducts, totalCount, totalPages, page: currentPage, pageSize } = paginatedResult;
+  const {
+    products: paginatedProducts,
+    totalCount,
+    totalPages,
+    page: currentPage,
+    pageSize,
+  } = paginatedResult;
 
   const allSelected =
-    paginatedProducts.length > 0 && paginatedProducts.every((product) => selectedIds.has(product.id));
+    paginatedProducts.length > 0 &&
+    paginatedProducts.every((product) => selectedIds.has(product.id));
 
   function toggleAll() {
     setSelectedIds((current) => {
@@ -164,15 +204,21 @@ export function ProductTable({
     () =>
       allProducts
         .filter(
-          (product) => selectedIds.has(product.id) && product.shopifyProductId === null && !product.isConflicted
+          (product) =>
+            selectedIds.has(product.id) &&
+            product.shopifyProductId === null &&
+            !product.isConflicted,
         )
         .map((product) => product.id),
-    [allProducts, selectedIds]
+    [allProducts, selectedIds],
   );
 
   const productTitles = useMemo(
-    () => Object.fromEntries(allProducts.map((product) => [product.id, product.title])),
-    [allProducts]
+    () =>
+      Object.fromEntries(
+        allProducts.map((product) => [product.id, product.title]),
+      ),
+    [allProducts],
   );
 
   // Per explicit user request: a small count on the Conflict tab itself, so
@@ -183,10 +229,12 @@ export function ProductTable({
   // "Conflicts" stat card already reads from.
   const conflictCount = useMemo(
     () => allProducts.filter((product) => product.isConflicted).length,
-    [allProducts]
+    [allProducts],
   );
 
-  const [pushResultsItems, setPushResultsItems] = useState<PushBatchResultItem[] | null>(null);
+  const [pushResultsItems, setPushResultsItems] = useState<
+    PushBatchResultItem[] | null
+  >(null);
 
   // Unit 16 follow-up, per explicit user request: a toast alone wasn't a
   // strong enough "did this actually work" signal for a Shopify push/sync —
@@ -205,7 +253,9 @@ export function ProductTable({
   const [isDuplicatePending, startDuplicateTransition] = useTransition();
   const [isBulkGenerating, startBulkGeneration] = useTransition();
   const [isBulkApplying, startBulkApply] = useTransition();
-  const [bulkReview, setBulkReview] = useState<BulkAiGenerationResult | null>(null);
+  const [bulkReview, setBulkReview] = useState<BulkAiGenerationResult | null>(
+    null,
+  );
   const { isPolling: isPushPolling, start: startPushPolling } = useJobPolling({
     onSettled: (status, results) => {
       const items = (results as PushBatchResults | undefined)?.items ?? [];
@@ -218,7 +268,9 @@ export function ProductTable({
           description: `${succeeded} of ${items.length} product${items.length === 1 ? "" : "s"} synced successfully`,
         });
       } else {
-        toast.error(`Pushed ${succeeded} of ${items.length} products — ${failed} failed`);
+        toast.error(
+          `Pushed ${succeeded} of ${items.length} products — ${failed} failed`,
+        );
         setPushResultsItems(items);
       }
       router.refresh();
@@ -233,7 +285,9 @@ export function ProductTable({
         toast.error(result.error);
         return;
       }
-      toast.message(`Pushing ${result.count} product${result.count === 1 ? "" : "s"}...`);
+      toast.message(
+        `Pushing ${result.count} product${result.count === 1 ? "" : "s"}...`,
+      );
       setSelectedIds(new Set());
       startPushPolling(result.jobId);
     });
@@ -241,14 +295,18 @@ export function ProductTable({
 
   function handleGenerateBulkSuggestions() {
     startBulkGeneration(async () => {
-      const result = await generateBulkProductSeoSuggestions(Array.from(selectedIds));
+      const result = await generateBulkProductSeoSuggestions(
+        Array.from(selectedIds),
+      );
       if ("error" in result) {
         toast.error(result.error);
         return;
       }
       setBulkReview(result.data);
       if (result.data.failures.length > 0) {
-        toast.warning(`${result.data.failures.length} product suggestion${result.data.failures.length === 1 ? "" : "s"} could not be generated.`);
+        toast.warning(
+          `${result.data.failures.length} product suggestion${result.data.failures.length === 1 ? "" : "s"} could not be generated.`,
+        );
       }
     });
   }
@@ -284,7 +342,9 @@ export function ProductTable({
     label: string;
     targetStatus: ProductStatus;
   } | null>(null);
-  const [statusResultsItems, setStatusResultsItems] = useState<PushBatchResultItem[] | null>(null);
+  const [statusResultsItems, setStatusResultsItems] = useState<
+    PushBatchResultItem[] | null
+  >(null);
   const { start: startStatusSyncPolling } = useJobPolling({
     onSettled: (status, results) => {
       const items = (results as PushBatchResults | undefined)?.items ?? [];
@@ -297,7 +357,9 @@ export function ProductTable({
           description: `${succeeded} of ${items.length} product${items.length === 1 ? "" : "s"} updated successfully`,
         });
       } else {
-        toast.error(`Synced ${succeeded} of ${items.length} products — ${failed} failed`);
+        toast.error(
+          `Synced ${succeeded} of ${items.length} products — ${failed} failed`,
+        );
         setStatusResultsItems(items);
       }
       router.refresh();
@@ -313,7 +375,7 @@ export function ProductTable({
     (product: Product) => {
       router.push(`/products/${product.id}`);
     },
-    [router]
+    [router],
   );
 
   const handleDuplicate = useCallback(
@@ -329,7 +391,7 @@ export function ProductTable({
         router.push(`/products/${result.productId}`);
       });
     },
-    [isDuplicatePending, router]
+    [isDuplicatePending, router],
   );
 
   const handleChangeStatus = useCallback(
@@ -340,16 +402,19 @@ export function ProductTable({
         targetStatus: currentStatus === "DRAFT" ? "ACTIVE" : "DRAFT",
       });
     },
-    []
+    [],
   );
 
   const handleDelete = useCallback((productId: string, title: string) => {
     setDeleteTarget({ ids: [productId], label: title });
   }, []);
 
-  const handleDeleteShopify = useCallback((productId: string, title: string) => {
-    setShopifyDeleteTarget({ id: productId, title });
-  }, []);
+  const handleDeleteShopify = useCallback(
+    (productId: string, title: string) => {
+      setShopifyDeleteTarget({ id: productId, title });
+    },
+    [],
+  );
 
   const handleResolveConflict = useCallback((product: Product) => {
     setConflictTarget(product);
@@ -373,7 +438,9 @@ export function ProductTable({
           order, no reordering surprises. */}
       <Tabs
         value={initialStatusFilter}
-        onValueChange={(value) => updateParams({ status: value ?? "all", page: 1 })}
+        onValueChange={(value) =>
+          updateParams({ status: value ?? "all", page: 1 })
+        }
       >
         <TabsList>
           <TabsTrigger value="all">All</TabsTrigger>
@@ -398,7 +465,9 @@ export function ProductTable({
         />
         <Select
           value={initialCategoryFilter}
-          onValueChange={(value) => updateParams({ category: value ?? "all", page: 1 })}
+          onValueChange={(value) =>
+            updateParams({ category: value ?? "all", page: 1 })
+          }
         >
           <SelectTrigger className="w-40">
             <SelectValue placeholder="Category" />
@@ -423,16 +492,27 @@ export function ProductTable({
       </div>
       {selectedIds.size > 0 && (
         <div className="flex items-center justify-between rounded-md border border-border bg-muted/50 px-4 py-2">
-          <p className="text-sm text-muted-foreground">{selectedIds.size} selected</p>
+          <p className="text-sm text-muted-foreground">
+            {selectedIds.size} selected
+          </p>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled={isBulkGenerating} onClick={handleGenerateBulkSuggestions}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isBulkGenerating}
+              onClick={handleGenerateBulkSuggestions}
+            >
               <Sparkles className="size-4" />
               {isBulkGenerating ? "Generating..." : "Generate AI suggestions"}
             </Button>
             <Button
               variant="outline"
               size="sm"
-              disabled={pushableSelectedIds.length === 0 || isPushPending || isPushPolling}
+              disabled={
+                pushableSelectedIds.length === 0 ||
+                isPushPending ||
+                isPushPolling
+              }
               title={
                 pushableSelectedIds.length === 0
                   ? "Select at least one product that hasn't been pushed to Shopify yet"
@@ -441,10 +521,14 @@ export function ProductTable({
               onClick={handlePushSelected}
             >
               <Send className="size-4" />
-              {isPushPending || isPushPolling ? "Pushing..." : `Push selected (${pushableSelectedIds.length})`}
+              {isPushPending || isPushPolling
+                ? "Pushing..."
+                : `Push selected (${pushableSelectedIds.length})`}
             </Button>
             <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+              <DropdownMenuTrigger
+                render={<Button variant="outline" size="sm" />}
+              >
                 Change status
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -478,7 +562,10 @@ export function ProductTable({
               variant="destructive"
               size="sm"
               onClick={() =>
-                setDeleteTarget({ ids: Array.from(selectedIds), label: `${selectedIds.size} products` })
+                setDeleteTarget({
+                  ids: Array.from(selectedIds),
+                  label: `${selectedIds.size} products`,
+                })
               }
             >
               Delete selected
@@ -490,7 +577,11 @@ export function ProductTable({
         <TableHeader>
           <TableRow>
             <TableHead className="w-10">
-              <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Select all products" />
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={toggleAll}
+                aria-label="Select all products"
+              />
             </TableHead>
             <TableHead className="w-14"></TableHead>
             <TableHead className="w-auto">Title</TableHead>
@@ -504,7 +595,10 @@ export function ProductTable({
         <TableBody>
           {paginatedProducts.length === 0 && (
             <TableRow>
-              <TableCell colSpan={8} className="text-center text-sm text-muted-foreground py-8">
+              <TableCell
+                colSpan={8}
+                className="text-center text-sm text-muted-foreground py-8"
+              >
                 No products match your search or filters.
               </TableCell>
             </TableRow>
@@ -554,7 +648,7 @@ export function ProductTable({
                 ? `Showing all ${totalCount} items`
                 : `Showing ${Math.min((currentPage - 1) * (pageSize as number) + 1, totalCount)}–${Math.min(
                     currentPage * (pageSize as number),
-                    totalCount
+                    totalCount,
                   )} of ${totalCount} items`}
             </span>
           </div>
@@ -565,7 +659,9 @@ export function ProductTable({
                 variant="outline"
                 size="sm"
                 disabled={currentPage <= 1 || isNavigating}
-                onClick={() => updateParams({ page: Math.max(1, currentPage - 1) })}
+                onClick={() =>
+                  updateParams({ page: Math.max(1, currentPage - 1) })
+                }
                 aria-label="Previous page"
               >
                 <ChevronLeft className="size-4" />
@@ -578,7 +674,9 @@ export function ProductTable({
                 variant="outline"
                 size="sm"
                 disabled={currentPage >= totalPages || isNavigating}
-                onClick={() => updateParams({ page: Math.min(totalPages, currentPage + 1) })}
+                onClick={() =>
+                  updateParams({ page: Math.min(totalPages, currentPage + 1) })
+                }
                 aria-label="Next page"
               >
                 Next
@@ -597,7 +695,11 @@ export function ProductTable({
         onDeleted={() => {
           const label = deleteTarget?.label ?? "Product";
           clearSelectionAndTarget();
-          setConfirmation({ variant: "delete", title: "Deleted", description: `${label} removed from Dockit` });
+          setConfirmation({
+            variant: "delete",
+            title: "Deleted",
+            description: `${label} removed from Dockit`,
+          });
         }}
       />
       <DeleteFromShopifyDialog
@@ -623,7 +725,11 @@ export function ProductTable({
         }}
         onResolved={(message) => {
           setConflictTarget(null);
-          setConfirmation({ variant: "success", title: "Conflict resolved", description: message });
+          setConfirmation({
+            variant: "success",
+            title: "Conflict resolved",
+            description: message,
+          });
           router.refresh();
         }}
       />
@@ -651,7 +757,9 @@ export function ProductTable({
         }}
         onSyncStarted={(jobId, count) => {
           setSelectedIds(new Set());
-          toast.message(`Syncing ${count} product${count === 1 ? "" : "s"} to Shopify...`);
+          toast.message(
+            `Syncing ${count} product${count === 1 ? "" : "s"} to Shopify...`,
+          );
           startStatusSyncPolling(jobId);
         }}
       />

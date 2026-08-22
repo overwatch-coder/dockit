@@ -27,8 +27,17 @@ import {
 import { buildProductsCsv } from "@/lib/csv/products";
 import type { ConflictFieldSelections } from "@/lib/db/products";
 import { syncProductVariants as syncProductVariantsInDb } from "@/lib/db/variants";
-import { getActiveStoreForAccount, getStoresForAccount, getStoreToken } from "@/lib/db/stores";
-import { createJob, getJobById, getLatestJobForStore, updateJobStatus } from "@/lib/db/jobs";
+import {
+  getActiveStoreForAccount,
+  getStoresForAccount,
+  getStoreToken,
+} from "@/lib/db/stores";
+import {
+  createJob,
+  getJobById,
+  getLatestJobForStore,
+  updateJobStatus,
+} from "@/lib/db/jobs";
 import {
   deleteProductImage as deleteProductImageFromBlob,
   isBlobUrl,
@@ -36,7 +45,10 @@ import {
 } from "@/lib/blob/products";
 import { decryptAccessToken } from "@/lib/shopify/oauth";
 import { fetchAllCollections } from "@/lib/shopify/collections";
-import { searchTaxonomyCategories, type ShopifyTaxonomyCategory } from "@/lib/shopify/taxonomy";
+import {
+  searchTaxonomyCategories,
+  type ShopifyTaxonomyCategory,
+} from "@/lib/shopify/taxonomy";
 import {
   generateProductDescription as generateProductDescriptionSuggestion,
   suggestProductSeo as generateProductSuggestion,
@@ -46,7 +58,10 @@ import { triggerProductDelete } from "@/lib/jobs/delete";
 import { triggerStoreSync } from "@/lib/jobs/import";
 import { productFormSchema } from "@/lib/validation/product";
 import { variantFormSchema } from "@/lib/validation/variant";
-import type { AiSuggestion, ProductDescriptionSuggestion } from "@/lib/validation/ai-suggestion";
+import type {
+  AiSuggestion,
+  ProductDescriptionSuggestion,
+} from "@/lib/validation/ai-suggestion";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import type { Collection } from "@/types/collection";
 import type { BulkAiGenerationResult, BulkAiReviewItem } from "@/types/bulk-ai";
@@ -57,11 +72,15 @@ import type { Job, JobStatus } from "@/types/job";
 // row — lib/db/variants.ts's syncProductVariants tells them apart by
 // checking against the product's actual current variant ids, not by
 // inspecting the id's format here.
-const variantsFieldSchema = z.array(variantFormSchema.extend({ id: z.string().min(1) }));
+const variantsFieldSchema = z.array(
+  variantFormSchema.extend({ id: z.string().min(1) }),
+);
 
 // Unit 13: tags are staged client-side the same way variants are — a hidden
 // JSON field, parsed and fully replaced on each save rather than diffed.
-const tagsFieldSchema = z.array(z.string().trim().min(1)).max(20, "No more than 20 tags");
+const tagsFieldSchema = z
+  .array(z.string().trim().min(1))
+  .max(20, "No more than 20 tags");
 
 // Unit 22 follow-up: setProductsStatus's `status` param is called directly
 // (not via FormData, so productFormSchema's own `status: z.enum(...)` never
@@ -112,7 +131,9 @@ const bulkAiReviewItemSchema = z.object({
   categoryId: z.string().trim().nullable(),
   categoryFullName: z.string().trim().nullable(),
 }) satisfies z.ZodType<BulkAiReviewItem>;
-const bulkAiReviewItemsSchema = z.array(bulkAiReviewItemSchema).min(1, "Select at least one suggestion.");
+const bulkAiReviewItemsSchema = z
+  .array(bulkAiReviewItemSchema)
+  .min(1, "Select at least one suggestion.");
 
 // Unit 22 follow-up: resolveConflictWithSelections' `selections` param was
 // completely unvalidated — a plain object literal type with ten "app" |
@@ -141,7 +162,9 @@ const conflictFieldSelectionsSchema = z.object({
 // mutation yet (lib/shopify/products.ts only reads). If the product still
 // exists on Shopify, a future sync would simply re-import it. Used for both
 // a single product and a bulk selection from the product list.
-export async function deleteProducts(productIds: string[]): Promise<{ error: string } | undefined> {
+export async function deleteProducts(
+  productIds: string[],
+): Promise<{ error: string } | undefined> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
@@ -149,7 +172,10 @@ export async function deleteProducts(productIds: string[]): Promise<{ error: str
     return { error: "Invalid product selection." };
   }
 
-  const { deletedCount } = await deleteProductsFromDb({ accountId: account.id, productIds });
+  const { deletedCount } = await deleteProductsFromDb({
+    accountId: account.id,
+    productIds,
+  });
   if (deletedCount === 0) {
     return { error: "Those products were already removed." };
   }
@@ -162,7 +188,7 @@ export async function deleteProducts(productIds: string[]): Promise<{ error: str
 // database helper owns the copy/reset rules; this action only authenticates,
 // validates, calls it, and refreshes the product views.
 export async function duplicateProduct(
-  productId: string
+  productId: string,
 ): Promise<{ productId: string } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -171,7 +197,10 @@ export async function duplicateProduct(
     return { error: "Invalid product." };
   }
 
-  const product = await duplicateProductInDb({ accountId: account.id, productId });
+  const product = await duplicateProductInDb({
+    accountId: account.id,
+    productId,
+  });
   if (!product) {
     return { error: "This product no longer exists." };
   }
@@ -182,15 +211,24 @@ export async function duplicateProduct(
 }
 
 export type ProductFormState =
-  | { error?: string; fieldErrors?: Partial<Record<"title" | "description" | "price" | "status", string>> }
+  | {
+      error?: string;
+      fieldErrors?: Partial<
+        Record<"title" | "description" | "price" | "status", string>
+      >;
+    }
   | { success: true }
   | undefined;
 
-type ProductFieldErrors = Partial<Record<"title" | "description" | "price" | "status", string>>;
+type ProductFieldErrors = Partial<
+  Record<"title" | "description" | "price" | "status", string>
+>;
 
 function parseProductForm(
-  formData: FormData
-): { fieldErrors: ProductFieldErrors } | ReturnType<typeof productFormSchema.parse> {
+  formData: FormData,
+):
+  | { fieldErrors: ProductFieldErrors }
+  | ReturnType<typeof productFormSchema.parse> {
   const parsed = productFormSchema.safeParse({
     title: formData.get("title"),
     description: formData.get("description") ?? "",
@@ -207,7 +245,12 @@ function parseProductForm(
   if (!parsed.success) {
     const fieldErrors: ProductFieldErrors = {};
     for (const issue of parsed.error.issues) {
-      const field = issue.path[0] as "title" | "description" | "price" | "status" | undefined;
+      const field = issue.path[0] as
+        | "title"
+        | "description"
+        | "price"
+        | "status"
+        | undefined;
       if (field && !fieldErrors[field]) {
         fieldErrors[field] = issue.message;
       }
@@ -225,7 +268,7 @@ function parseProductForm(
 export async function createProduct(
   storeId: string,
   _prevState: ProductFormState,
-  formData: FormData
+  formData: FormData,
 ): Promise<ProductFormState> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -265,7 +308,7 @@ export async function createProduct(
 export async function updateProduct(
   productId: string,
   _prevState: ProductFormState,
-  formData: FormData
+  formData: FormData,
 ): Promise<ProductFormState> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -290,7 +333,11 @@ export async function updateProduct(
     }
     const parsedVariants = variantsFieldSchema.safeParse(parsedJson);
     if (!parsedVariants.success) {
-      return { error: parsedVariants.error.issues[0]?.message ?? "One or more variants are invalid." };
+      return {
+        error:
+          parsedVariants.error.issues[0]?.message ??
+          "One or more variants are invalid.",
+      };
     }
     variantsInput = parsedVariants.data;
   }
@@ -306,7 +353,11 @@ export async function updateProduct(
     }
     const parsedTags = tagsFieldSchema.safeParse(parsedJson);
     if (!parsedTags.success) {
-      return { error: parsedTags.error.issues[0]?.message ?? "One or more tags are invalid." };
+      return {
+        error:
+          parsedTags.error.issues[0]?.message ??
+          "One or more tags are invalid.",
+      };
     }
     tagsInput = parsedTags.data;
   }
@@ -351,7 +402,12 @@ export async function updateProduct(
 }
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+];
 
 // Unit 12: uploads a draft-state image to Vercel Blob and adds it to the
 // product's gallery. Unlike title/price/status/variants, this is an
@@ -361,7 +417,7 @@ const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif
 // edit can be.
 export async function uploadProductImage(
   productId: string,
-  formData: FormData
+  formData: FormData,
 ): Promise<{ error: string } | undefined> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -386,7 +442,11 @@ export async function uploadProductImage(
     return { error: uploaded.error };
   }
 
-  const product = await addProductImageInDb({ accountId: account.id, productId, url: uploaded.url });
+  const product = await addProductImageInDb({
+    accountId: account.id,
+    productId,
+    url: uploaded.url,
+  });
   if (!product) {
     return { error: "This product no longer exists." };
   }
@@ -401,12 +461,15 @@ export async function uploadProductImage(
 // touches Shopify itself, per the unit's own "no Shopify interaction" scope).
 export async function removeProductImage(
   productId: string,
-  url: string
+  url: string,
 ): Promise<{ error: string } | undefined> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
-  if (!idSchema.safeParse(productId).success || !idSchema.safeParse(url).success) {
+  if (
+    !idSchema.safeParse(productId).success ||
+    !idSchema.safeParse(url).success
+  ) {
     return { error: "Invalid request." };
   }
 
@@ -417,7 +480,11 @@ export async function removeProductImage(
     }
   }
 
-  const product = await removeProductImageInDb({ accountId: account.id, productId, url });
+  const product = await removeProductImageInDb({
+    accountId: account.id,
+    productId,
+    url,
+  });
   if (!product) {
     return { error: "This product no longer exists." };
   }
@@ -441,7 +508,13 @@ export async function removeProductImage(
 // never a failed SEO suggestion overall (same "fails open" convention
 // app/(dashboard)/products/[id]/page.tsx already uses for collections).
 export async function suggestProductSeo(productId: string): Promise<
-  | { success: true; data: AiSuggestion & { categoryId: string | null; categoryFullName: string | null } }
+  | {
+      success: true;
+      data: AiSuggestion & {
+        categoryId: string | null;
+        categoryFullName: string | null;
+      };
+    }
   | { error: string }
 > {
   const { userId } = await auth.protect();
@@ -463,7 +536,10 @@ export async function suggestProductSeo(productId: string): Promise<
   let accessToken: string | null = null;
   if (storeToken) {
     accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
-    const result = await fetchAllCollections(storeToken.shopifyDomain, accessToken);
+    const result = await fetchAllCollections(
+      storeToken.shopifyDomain,
+      accessToken,
+    );
     if (result.success) {
       collections = result.data;
     }
@@ -487,7 +563,7 @@ export async function suggestProductSeo(productId: string): Promise<
       storeToken.shopifyDomain,
       accessToken,
       suggestion.data.categoryGuess,
-      1
+      1,
     );
     if (categoryResult.success && categoryResult.data[0]) {
       categoryId = categoryResult.data[0].id;
@@ -495,7 +571,10 @@ export async function suggestProductSeo(productId: string): Promise<
     }
   }
 
-  return { success: true, data: { ...suggestion.data, categoryId, categoryFullName } };
+  return {
+    success: true,
+    data: { ...suggestion.data, categoryId, categoryFullName },
+  };
 }
 
 // Unit 24: generates suggestions sequentially through the existing
@@ -503,8 +582,10 @@ export async function suggestProductSeo(productId: string): Promise<
 // written until applyBulkAiSuggestions below receives the owner's explicit
 // acceptance from the bulk-review dialog.
 export async function generateBulkProductSeoSuggestions(
-  productIds: string[]
-): Promise<{ success: true; data: BulkAiGenerationResult } | { error: string }> {
+  productIds: string[],
+): Promise<
+  { success: true; data: BulkAiGenerationResult } | { error: string }
+> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
@@ -518,14 +599,19 @@ export async function generateBulkProductSeoSuggestions(
   }
   const storeId = products[0]!.storeId;
   if (products.some((product) => product.storeId !== storeId)) {
-    return { error: "Bulk suggestions can only be generated for one store at a time." };
+    return {
+      error: "Bulk suggestions can only be generated for one store at a time.",
+    };
   }
 
   let collections: Collection[] = [];
   const storeToken = await getStoreToken(account.id, storeId);
   if (storeToken) {
     const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
-    const collectionResult = await fetchAllCollections(storeToken.shopifyDomain, accessToken);
+    const collectionResult = await fetchAllCollections(
+      storeToken.shopifyDomain,
+      accessToken,
+    );
     if (collectionResult.success) collections = collectionResult.data;
   }
 
@@ -534,10 +620,16 @@ export async function generateBulkProductSeoSuggestions(
   for (const product of products) {
     const result = await suggestProductSeo(product.id);
     if ("error" in result) {
-      failures.push({ productId: product.id, title: product.title, error: result.error });
+      failures.push({
+        productId: product.id,
+        title: product.title,
+        error: result.error,
+      });
       continue;
     }
-    const collection = collections.find((entry) => entry.id === result.data.collectionId);
+    const collection = collections.find(
+      (entry) => entry.id === result.data.collectionId,
+    );
     suggestions.push({
       productId: product.id,
       title: product.title,
@@ -554,14 +646,19 @@ export async function generateBulkProductSeoSuggestions(
   }
 
   if (suggestions.length === 0) {
-    return { error: failures[0]?.error ?? "AI suggestions could not be generated." };
+    return {
+      error: failures[0]?.error ?? "AI suggestions could not be generated.",
+    };
   }
 
-  return { success: true, data: { storeId, collections, suggestions, failures } };
+  return {
+    success: true,
+    data: { storeId, collections, suggestions, failures },
+  };
 }
 
 export async function applyBulkAiSuggestions(
-  suggestions: BulkAiReviewItem[]
+  suggestions: BulkAiReviewItem[],
 ): Promise<{ updatedCount: number } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -570,9 +667,15 @@ export async function applyBulkAiSuggestions(
     return { error: parsed.error.issues[0]?.message ?? "Invalid suggestions." };
   }
 
-  const { updatedCount } = await applyBulkAiSuggestionsInDb({ accountId: account.id, suggestions: parsed.data });
+  const { updatedCount } = await applyBulkAiSuggestionsInDb({
+    accountId: account.id,
+    suggestions: parsed.data,
+  });
   if (updatedCount === 0) {
-    return { error: "No suggestions could be saved. Resolve any product conflicts and try again." };
+    return {
+      error:
+        "No suggestions could be saved. Resolve any product conflicts and try again.",
+    };
   }
 
   revalidatePath("/products");
@@ -589,8 +692,10 @@ export async function applyBulkAiSuggestions(
 // resolution getStoreToken already tenant-scopes by accountId+storeId).
 export async function searchProductCategories(
   storeId: string,
-  query: string
-): Promise<{ success: true; data: ShopifyTaxonomyCategory[] } | { error: string }> {
+  query: string,
+): Promise<
+  { success: true; data: ShopifyTaxonomyCategory[] } | { error: string }
+> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
@@ -607,7 +712,11 @@ export async function searchProductCategories(
   }
 
   const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
-  const result = await searchTaxonomyCategories(storeToken.shopifyDomain, accessToken, query.trim());
+  const result = await searchTaxonomyCategories(
+    storeToken.shopifyDomain,
+    accessToken,
+    query.trim(),
+  );
   if (!result.success) {
     return { error: result.error };
   }
@@ -626,7 +735,9 @@ export async function generateProductDescription(input: {
   price: string;
   existingDescriptionHtml: string | null;
   instructions: string;
-}): Promise<{ success: true; data: ProductDescriptionSuggestion } | { error: string }> {
+}): Promise<
+  { success: true; data: ProductDescriptionSuggestion } | { error: string }
+> {
   await auth.protect();
 
   if (!input.title.trim()) {
@@ -654,7 +765,9 @@ export async function generateProductDescription(input: {
 // meaning it would happily push the app's current (pre-resolution) state
 // over whatever the flagged Shopify-side conflicting change was. Brought in
 // line with the same already-established rule the batch paths enforce.
-export async function pushProduct(productId: string): Promise<{ jobId: string } | { error: string }> {
+export async function pushProduct(
+  productId: string,
+): Promise<{ jobId: string } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
@@ -667,11 +780,23 @@ export async function pushProduct(productId: string): Promise<{ jobId: string } 
     return { error: "This product no longer exists." };
   }
   if (product.isConflicted) {
-    return { error: "This product has an unresolved sync conflict. Resolve it before pushing." };
+    return {
+      error:
+        "This product has an unresolved sync conflict. Resolve it before pushing.",
+    };
   }
 
-  const job = await createJob({ accountId: account.id, storeId: product.storeId, type: "PUSH" });
-  await triggerProductPush({ accountId: account.id, storeId: product.storeId, productId, jobId: job.id });
+  const job = await createJob({
+    accountId: account.id,
+    storeId: product.storeId,
+    type: "PUSH",
+  });
+  await triggerProductPush({
+    accountId: account.id,
+    storeId: product.storeId,
+    productId,
+    jobId: job.id,
+  });
 
   return { jobId: job.id };
 }
@@ -690,7 +815,7 @@ export async function pushProduct(productId: string): Promise<{ jobId: string } 
 // pre-filters its selection, but state could theoretically change between
 // page load and click.
 export async function pushSelectedProducts(
-  productIds: string[]
+  productIds: string[],
 ): Promise<{ jobId: string; count: number } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -704,14 +829,22 @@ export async function pushSelectedProducts(
 
   const eligible = await getEligibleUnsyncedProducts(account.id, productIds);
   if (eligible.length === 0) {
-    return { error: "None of the selected products are new — they've already been pushed to Shopify." };
+    return {
+      error:
+        "None of the selected products are new — they've already been pushed to Shopify.",
+    };
   }
 
   const storeId = eligible[0].storeId;
   const eligibleIds = eligible.map((product) => product.id);
 
   const job = await createJob({ accountId: account.id, storeId, type: "PUSH" });
-  await triggerBatchPush({ accountId: account.id, storeId, jobId: job.id, productIds: eligibleIds });
+  await triggerBatchPush({
+    accountId: account.id,
+    storeId,
+    jobId: job.id,
+    productIds: eligibleIds,
+  });
 
   return { jobId: job.id, count: eligibleIds.length };
 }
@@ -723,14 +856,17 @@ export async function pushSelectedProducts(
 // back to the first connected store if the cookie is unset/stale/tampered.
 async function resolveActiveStore(accountId: string) {
   const stores = await getStoresForAccount(accountId);
-  const cookieStoreId = (await cookies()).get(ACTIVE_STORE_COOKIE_NAME)?.value ?? null;
+  const cookieStoreId =
+    (await cookies()).get(ACTIVE_STORE_COOKIE_NAME)?.value ?? null;
   return getActiveStoreForAccount(stores, cookieStoreId);
 }
 
 // Unit 16 follow-up: the no-selection counterpart to pushSelectedProducts —
 // pushes every product for the active store that's never reached Shopify.
 // Zero eligible products is a typed error, not a job — nothing to enqueue.
-export async function pushAllDrafts(): Promise<{ jobId: string; count: number } | { error: string }> {
+export async function pushAllDrafts(): Promise<
+  { jobId: string; count: number } | { error: string }
+> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
@@ -744,8 +880,17 @@ export async function pushAllDrafts(): Promise<{ jobId: string; count: number } 
     return { error: "Every product has already been pushed to Shopify." };
   }
 
-  const job = await createJob({ accountId: account.id, storeId: store.id, type: "PUSH" });
-  await triggerBatchPush({ accountId: account.id, storeId: store.id, jobId: job.id, productIds });
+  const job = await createJob({
+    accountId: account.id,
+    storeId: store.id,
+    type: "PUSH",
+  });
+  await triggerBatchPush({
+    accountId: account.id,
+    storeId: store.id,
+    jobId: job.id,
+    productIds,
+  });
 
   return { jobId: job.id, count: productIds.length };
 }
@@ -758,7 +903,9 @@ export async function pushAllDrafts(): Promise<{ jobId: string; count: number } 
 // as pushAllDrafts above. Creates the Job row itself, same as every other
 // dashboard-button-triggered job, so the button can poll it (invariant 4:
 // never calls Shopify here, only enqueues).
-export async function syncStore(): Promise<{ jobId: string } | { error: string }> {
+export async function syncStore(): Promise<
+  { jobId: string } | { error: string }
+> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
@@ -767,7 +914,11 @@ export async function syncStore(): Promise<{ jobId: string } | { error: string }
     return { error: "Connect a store first." };
   }
 
-  const job = await createJob({ accountId: account.id, storeId: store.id, type: "SYNC" });
+  const job = await createJob({
+    accountId: account.id,
+    storeId: store.id,
+    type: "SYNC",
+  });
   try {
     await triggerStoreSync({
       accountId: account.id,
@@ -780,9 +931,18 @@ export async function syncStore(): Promise<{ jobId: string } | { error: string }
     // unavailable before the event is accepted. Do not let that transport
     // failure escape the Server Action and crash the whole dashboard; record
     // the already-created Job as failed so it cannot remain PENDING forever.
-    console.error(`syncStore: failed to enqueue job ${job.id} for store ${store.id}`, error);
-    const message = "Unable to start the sync. Check the job queue and try again.";
-    await updateJobStatus({ accountId: account.id, jobId: job.id, status: "FAILED", results: { error: message } });
+    console.error(
+      `syncStore: failed to enqueue job ${job.id} for store ${store.id}`,
+      error,
+    );
+    const message =
+      "Unable to start the sync. Check the job queue and try again.";
+    await updateJobStatus({
+      accountId: account.id,
+      jobId: job.id,
+      status: "FAILED",
+      results: { error: message },
+    });
     return { error: message };
   }
 
@@ -800,7 +960,7 @@ export async function syncStore(): Promise<{ jobId: string } | { error: string }
 export async function setProductsStatus(
   productIds: string[],
   status: "DRAFT" | "ACTIVE",
-  syncToShopify: boolean
+  syncToShopify: boolean,
 ): Promise<{ jobId?: string; count: number } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -815,7 +975,11 @@ export async function setProductsStatus(
     return { error: "Invalid status." };
   }
 
-  const { updatedCount } = await updateProductsStatusInDb({ accountId: account.id, productIds, status });
+  const { updatedCount } = await updateProductsStatusInDb({
+    accountId: account.id,
+    productIds,
+    status,
+  });
   if (updatedCount === 0) {
     return { error: "Those products no longer exist." };
   }
@@ -839,7 +1003,12 @@ export async function setProductsStatus(
   const eligibleIds = eligible.map((product) => product.id);
 
   const job = await createJob({ accountId: account.id, storeId, type: "PUSH" });
-  await triggerBatchPush({ accountId: account.id, storeId, jobId: job.id, productIds: eligibleIds });
+  await triggerBatchPush({
+    accountId: account.id,
+    storeId,
+    jobId: job.id,
+    productIds: eligibleIds,
+  });
 
   return { jobId: job.id, count: eligibleIds.length };
 }
@@ -851,7 +1020,9 @@ export async function setProductsStatus(
 // components/delete-from-shopify-dialog.tsx's type-the-product-name
 // confirmation before this is ever called. Never calls Shopify itself here
 // (invariant 4) — just enqueues the job, same shape as pushProduct.
-export async function deleteProductEverywhere(productId: string): Promise<{ jobId: string } | { error: string }> {
+export async function deleteProductEverywhere(
+  productId: string,
+): Promise<{ jobId: string } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
@@ -867,8 +1038,17 @@ export async function deleteProductEverywhere(productId: string): Promise<{ jobI
     return { error: "This product was never pushed to Shopify." };
   }
 
-  const job = await createJob({ accountId: account.id, storeId: product.storeId, type: "DELETE" });
-  await triggerProductDelete({ accountId: account.id, storeId: product.storeId, productId, jobId: job.id });
+  const job = await createJob({
+    accountId: account.id,
+    storeId: product.storeId,
+    type: "DELETE",
+  });
+  await triggerProductDelete({
+    accountId: account.id,
+    storeId: product.storeId,
+    productId,
+    jobId: job.id,
+  });
 
   return { jobId: job.id };
 }
@@ -882,7 +1062,7 @@ export async function deleteProductEverywhere(productId: string): Promise<{ jobI
 // separate action calls the way it used to for "Keep app version."
 export async function resolveConflictWithSelections(
   productId: string,
-  selections: ConflictFieldSelections
+  selections: ConflictFieldSelections,
 ): Promise<{ jobId?: string } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -914,8 +1094,17 @@ export async function resolveConflictWithSelections(
     return { error: "This product no longer exists." };
   }
 
-  const job = await createJob({ accountId: account.id, storeId: product.storeId, type: "PUSH" });
-  await triggerProductPush({ accountId: account.id, storeId: product.storeId, productId, jobId: job.id });
+  const job = await createJob({
+    accountId: account.id,
+    storeId: product.storeId,
+    type: "PUSH",
+  });
+  await triggerProductPush({
+    accountId: account.id,
+    storeId: product.storeId,
+    productId,
+    jobId: job.id,
+  });
 
   return { jobId: job.id };
 }
@@ -927,7 +1116,7 @@ export async function resolveConflictWithSelections(
 // delete job's polling too (renaming would touch every already-tested call
 // site for no functional gain).
 export async function getPushJobStatus(
-  jobId: string
+  jobId: string,
 ): Promise<{ status: JobStatus; results: unknown } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -951,7 +1140,9 @@ export async function getPushJobStatus(
 // that triggered it (e.g. after navigating to a different page mid-push).
 // Same active-store resolution as pushAllDrafts/syncStore above. No store
 // connected is a normal idle state (nothing to show), not an error.
-export async function getLatestJobStatus(): Promise<{ job: Job | null } | { error: string }> {
+export async function getLatestJobStatus(): Promise<
+  { job: Job | null } | { error: string }
+> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
 
@@ -992,12 +1183,16 @@ export async function exportProductsCsv(filters: {
     return { error: "Connect a store first." };
   }
 
-  const { products } = await getPaginatedProductsForStore(account.id, store.id, {
-    pageSize: "all",
-    search: parsed.data.search,
-    statusFilter: parsed.data.statusFilter,
-    categoryFilter: parsed.data.categoryFilter,
-  });
+  const { products } = await getPaginatedProductsForStore(
+    account.id,
+    store.id,
+    {
+      pageSize: "all",
+      search: parsed.data.search,
+      statusFilter: parsed.data.statusFilter,
+      categoryFilter: parsed.data.categoryFilter,
+    },
+  );
 
   return { csv: buildProductsCsv(products) };
 }

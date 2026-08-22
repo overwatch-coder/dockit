@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { Prisma } from "@/lib/generated/prisma/client";
 import type { ShopifyImportedProduct } from "@/lib/shopify/products";
 import type { ConflictSnapshot, Product } from "@/types/product";
+import type { CsvImportProductInput, CsvImportVariantInput } from "@/lib/csv/products";
 
 type ProductRecord = {
   id: string;
@@ -57,8 +58,10 @@ function toDomainProduct(product: ProductRecord): Product {
     seoTitle: product.seoTitle,
     seoDescription: product.seoDescription,
     isConflicted: product.isConflicted,
-    conflictAppSnapshot: (product.conflictAppSnapshot as ConflictSnapshot | null) ?? null,
-    conflictShopifySnapshot: (product.conflictShopifySnapshot as ConflictSnapshot | null) ?? null,
+    conflictAppSnapshot:
+      (product.conflictAppSnapshot as ConflictSnapshot | null) ?? null,
+    conflictShopifySnapshot:
+      (product.conflictShopifySnapshot as ConflictSnapshot | null) ?? null,
     lastSyncedAt: product.lastSyncedAt,
     variants: product.variants.map((variant) => ({
       id: variant.id,
@@ -73,7 +76,10 @@ function toDomainProduct(product: ProductRecord): Product {
 
 // Read path for Unit 8's product list — accountId+storeId scoped per
 // code-standards.md's tenant-isolation rule.
-export async function getProductsForStore(accountId: string, storeId: string): Promise<Product[]> {
+export async function getProductsForStore(
+  accountId: string,
+  storeId: string,
+): Promise<Product[]> {
   const products = await prisma.product.findMany({
     where: { accountId, storeId },
     // Unit 16, per explicit user request: most-recently-created product
@@ -104,7 +110,7 @@ export type PaginatedProductsResult = {
 export async function getPaginatedProductsForStore(
   accountId: string,
   storeId: string,
-  options: GetProductsOptions = {}
+  options: GetProductsOptions = {},
 ): Promise<PaginatedProductsResult> {
   const where: {
     accountId: string;
@@ -145,22 +151,24 @@ export async function getPaginatedProductsForStore(
   // fired as an independent array) so the count and the page of rows
   // reflect the same consistent snapshot even if a write lands in between —
   // same pattern markProductPushed already uses elsewhere in this file.
-  const { totalCount, totalPages, page, records } = await prisma.$transaction(async (tx) => {
-    const totalCount = await tx.product.count({ where });
-    const totalPages = take ? Math.max(1, Math.ceil(totalCount / take)) : 1;
-    const page = Math.min(requestedPage, totalPages);
-    const skip = take ? (page - 1) * take : undefined;
+  const { totalCount, totalPages, page, records } = await prisma.$transaction(
+    async (tx) => {
+      const totalCount = await tx.product.count({ where });
+      const totalPages = take ? Math.max(1, Math.ceil(totalCount / take)) : 1;
+      const page = Math.min(requestedPage, totalPages);
+      const skip = take ? (page - 1) * take : undefined;
 
-    const records = await tx.product.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: { variants: true },
-      skip,
-      take,
-    });
+      const records = await tx.product.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        include: { variants: true },
+        skip,
+        take,
+      });
 
-    return { totalCount, totalPages, page, records };
-  });
+      return { totalCount, totalPages, page, records };
+    },
+  );
 
   return {
     products: records.map(toDomainProduct),
@@ -171,7 +179,10 @@ export async function getPaginatedProductsForStore(
   };
 }
 
-export async function getStoreCategories(accountId: string, storeId: string): Promise<string[]> {
+export async function getStoreCategories(
+  accountId: string,
+  storeId: string,
+): Promise<string[]> {
   const products = await prisma.product.findMany({
     where: { accountId, storeId, collectionTitle: { not: null } },
     select: { collectionTitle: true },
@@ -197,11 +208,16 @@ export type ProductSummary = {
 // only need four scalar fields per product, for every product).
 export async function getProductSummariesForStore(
   accountId: string,
-  storeId: string
+  storeId: string,
 ): Promise<ProductSummary[]> {
   return prisma.product.findMany({
     where: { accountId, storeId },
-    select: { id: true, title: true, shopifyProductId: true, isConflicted: true },
+    select: {
+      id: true,
+      title: true,
+      shopifyProductId: true,
+      isConflicted: true,
+    },
   });
 }
 
@@ -210,7 +226,10 @@ export async function getProductSummariesForStore(
 // within the account; the editor doesn't need to know which store ahead of
 // fetching). Returns null rather than throwing on a missing/foreign id, so
 // the page can render a real 404 instead of an error boundary.
-export async function getProductById(accountId: string, productId: string): Promise<Product | null> {
+export async function getProductById(
+  accountId: string,
+  productId: string,
+): Promise<Product | null> {
   const product = await prisma.product.findFirst({
     where: { id: productId, accountId },
     include: { variants: true },
@@ -218,7 +237,10 @@ export async function getProductById(accountId: string, productId: string): Prom
   return product ? toDomainProduct(product) : null;
 }
 
-export async function getProductsByIds(accountId: string, productIds: string[]): Promise<Product[]> {
+export async function getProductsByIds(
+  accountId: string,
+  productIds: string[],
+): Promise<Product[]> {
   const products = await prisma.product.findMany({
     where: { accountId, id: { in: productIds } },
     include: { variants: true },
@@ -246,7 +268,11 @@ export async function applyBulkAiSuggestions(input: {
   const results = await prisma.$transaction(
     input.suggestions.map((suggestion) =>
       prisma.product.updateMany({
-        where: { id: suggestion.productId, accountId: input.accountId, isConflicted: false },
+        where: {
+          id: suggestion.productId,
+          accountId: input.accountId,
+          isConflicted: false,
+        },
         data: {
           seoTitle: suggestion.seoTitle || null,
           seoDescription: suggestion.seoDescription || null,
@@ -257,10 +283,12 @@ export async function applyBulkAiSuggestions(input: {
           categoryFullName: suggestion.categoryFullName,
           lastEditedAt: new Date(),
         },
-      })
-    )
+      }),
+    ),
   );
-  return { updatedCount: results.reduce((count, result) => count + result.count, 0) };
+  return {
+    updatedCount: results.reduce((count, result) => count + result.count, 0),
+  };
 }
 
 export function duplicateProductTitle(title: string): string {
@@ -479,7 +507,10 @@ export async function removeProductImage(input: {
   }
 
   const nextImageUrls = existing.imageUrls.filter((url) => url !== input.url);
-  const nextImageUrl = existing.imageUrl === input.url ? (nextImageUrls[0] ?? null) : existing.imageUrl;
+  const nextImageUrl =
+    existing.imageUrl === input.url
+      ? (nextImageUrls[0] ?? null)
+      : existing.imageUrl;
 
   const product = await prisma.product.update({
     where: { id: input.productId },
@@ -537,7 +568,10 @@ export async function markProductPushed(input: {
   // $transaction array for the same row — one variant can need either or
   // both of a shopifyVariantId write (Unit 15/16) and an imageUrl remap
   // (Unit 25) in the same push.
-  const variantUpdates = new Map<string, { shopifyVariantId?: string; imageUrl?: string }>();
+  const variantUpdates = new Map<
+    string,
+    { shopifyVariantId?: string; imageUrl?: string }
+  >();
   for (const variant of input.variants) {
     variantUpdates.set(variant.localVariantId, {
       ...variantUpdates.get(variant.localVariantId),
@@ -565,7 +599,7 @@ export async function markProductPushed(input: {
       },
     }),
     ...[...variantUpdates.entries()].map(([localVariantId, data]) =>
-      prisma.variant.update({ where: { id: localVariantId }, data })
+      prisma.variant.update({ where: { id: localVariantId }, data }),
     ),
   ]);
 
@@ -586,10 +620,15 @@ export async function markProductPushed(input: {
 // storeId is needed for the batch push's Inngest event.
 export async function getEligibleUnsyncedProducts(
   accountId: string,
-  productIds: string[]
+  productIds: string[],
 ): Promise<{ id: string; storeId: string }[]> {
   return prisma.product.findMany({
-    where: { accountId, id: { in: productIds }, shopifyProductId: null, isConflicted: false },
+    where: {
+      accountId,
+      id: { in: productIds },
+      shopifyProductId: null,
+      isConflicted: false,
+    },
     select: { id: true, storeId: true },
   });
 }
@@ -597,7 +636,10 @@ export async function getEligibleUnsyncedProducts(
 // Unit 16 follow-up: backs the "Push new products" trigger (no selection
 // required) — every never-synced, non-conflicted product for the store,
 // id-only since the caller (pushAllDrafts) already knows the storeId.
-export async function getUnsyncedProductIdsForStore(accountId: string, storeId: string): Promise<string[]> {
+export async function getUnsyncedProductIdsForStore(
+  accountId: string,
+  storeId: string,
+): Promise<string[]> {
   const products = await prisma.product.findMany({
     where: { accountId, storeId, shopifyProductId: null, isConflicted: false },
     select: { id: true },
@@ -612,7 +654,7 @@ export async function getUnsyncedProductIdsForStore(accountId: string, storeId: 
 // safety margin as every other batch push.
 export async function getProductsForStatusSync(
   accountId: string,
-  productIds: string[]
+  productIds: string[],
 ): Promise<{ id: string; storeId: string }[]> {
   return prisma.product.findMany({
     where: { accountId, id: { in: productIds }, isConflicted: false },
@@ -748,7 +790,10 @@ export async function importProducts(input: {
 // tip into an unwanted skip. No lastSyncedAt at all means the product has
 // never been synced — nothing to compare against, so it's always safe to
 // write.
-export function shouldSkipSync(product: { lastEditedAt: Date; lastSyncedAt: Date | null }): boolean {
+export function shouldSkipSync(product: {
+  lastEditedAt: Date;
+  lastSyncedAt: Date | null;
+}): boolean {
   if (!product.lastSyncedAt) return false;
   return product.lastEditedAt > product.lastSyncedAt;
 }
@@ -856,7 +901,11 @@ export async function syncProducts(input: {
   accountId: string;
   storeId: string;
   products: ShopifyImportedProduct[];
-}): Promise<{ syncedCount: number; conflictedCount: number; errorCount: number }> {
+}): Promise<{
+  syncedCount: number;
+  conflictedCount: number;
+  errorCount: number;
+}> {
   const now = new Date();
   let syncedCount = 0;
   let conflictedCount = 0;
@@ -968,7 +1017,9 @@ export async function syncProducts(input: {
       syncedCount += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      console.error(`syncProducts: failed for shopifyProductId ${product.shopifyProductId}: ${message}`);
+      console.error(
+        `syncProducts: failed for shopifyProductId ${product.shopifyProductId}: ${message}`,
+      );
       errorCount += 1;
     }
   }
@@ -1005,7 +1056,9 @@ export async function resolveConflictWithSelections(input: {
   accountId: string;
   productId: string;
   selections: ConflictFieldSelections;
-}): Promise<{ success: true; needsPush: boolean } | { success: false; error: string }> {
+}): Promise<
+  { success: true; needsPush: boolean } | { success: false; error: string }
+> {
   const existing = await prisma.product.findFirst({
     where: { id: input.productId, accountId: input.accountId },
     include: { variants: true },
@@ -1014,10 +1067,14 @@ export async function resolveConflictWithSelections(input: {
     return { success: false, error: "This product no longer exists." };
   }
   if (!existing.isConflicted || !existing.conflictShopifySnapshot) {
-    return { success: false, error: "This product has no conflict to resolve." };
+    return {
+      success: false,
+      error: "This product has no conflict to resolve.",
+    };
   }
 
-  const shopifySnapshot = existing.conflictShopifySnapshot as unknown as ConflictSnapshot;
+  const shopifySnapshot =
+    existing.conflictShopifySnapshot as unknown as ConflictSnapshot;
   const appSnapshot = toAppSnapshot(existing);
   const { selections } = input;
   // Any field pulled from the app side means the merged result no longer
@@ -1032,20 +1089,48 @@ export async function resolveConflictWithSelections(input: {
     prisma.product.update({
       where: { id: existing.id },
       data: {
-        title: selections.title === "app" ? appSnapshot.title : shopifySnapshot.title,
-        description: selections.description === "app" ? appSnapshot.description : shopifySnapshot.description,
-        price: selections.price === "app" ? appSnapshot.price : shopifySnapshot.price,
-        status: selections.status === "app" ? appSnapshot.status : shopifySnapshot.status,
-        tags: selections.tags === "app" ? appSnapshot.tags : shopifySnapshot.tags,
-        collectionId: selections.collection === "app" ? appSnapshot.collectionId : shopifySnapshot.collectionId,
+        title:
+          selections.title === "app"
+            ? appSnapshot.title
+            : shopifySnapshot.title,
+        description:
+          selections.description === "app"
+            ? appSnapshot.description
+            : shopifySnapshot.description,
+        price:
+          selections.price === "app"
+            ? appSnapshot.price
+            : shopifySnapshot.price,
+        status:
+          selections.status === "app"
+            ? appSnapshot.status
+            : shopifySnapshot.status,
+        tags:
+          selections.tags === "app" ? appSnapshot.tags : shopifySnapshot.tags,
+        collectionId:
+          selections.collection === "app"
+            ? appSnapshot.collectionId
+            : shopifySnapshot.collectionId,
         collectionTitle:
-          selections.collection === "app" ? appSnapshot.collectionTitle : shopifySnapshot.collectionTitle,
-        categoryId: selections.category === "app" ? appSnapshot.categoryId : shopifySnapshot.categoryId,
+          selections.collection === "app"
+            ? appSnapshot.collectionTitle
+            : shopifySnapshot.collectionTitle,
+        categoryId:
+          selections.category === "app"
+            ? appSnapshot.categoryId
+            : shopifySnapshot.categoryId,
         categoryFullName:
-          selections.category === "app" ? appSnapshot.categoryFullName : shopifySnapshot.categoryFullName,
-        seoTitle: selections.seoTitle === "app" ? appSnapshot.seoTitle : shopifySnapshot.seoTitle,
+          selections.category === "app"
+            ? appSnapshot.categoryFullName
+            : shopifySnapshot.categoryFullName,
+        seoTitle:
+          selections.seoTitle === "app"
+            ? appSnapshot.seoTitle
+            : shopifySnapshot.seoTitle,
         seoDescription:
-          selections.seoDescription === "app" ? appSnapshot.seoDescription : shopifySnapshot.seoDescription,
+          selections.seoDescription === "app"
+            ? appSnapshot.seoDescription
+            : shopifySnapshot.seoDescription,
         // Images were never surfaced as a choosable field in the dialog, so
         // there's no owner signal to merge them by — only adopted from
         // Shopify in the one case that fully matches the old "keep Shopify
@@ -1054,7 +1139,10 @@ export async function resolveConflictWithSelections(input: {
         // anything that stays "mine".
         ...(needsPush
           ? {}
-          : { imageUrl: shopifySnapshot.imageUrl, imageUrls: shopifySnapshot.imageUrls }),
+          : {
+              imageUrl: shopifySnapshot.imageUrl,
+              imageUrls: shopifySnapshot.imageUrls,
+            }),
         isConflicted: false,
         conflictAppSnapshot: Prisma.JsonNull,
         conflictShopifySnapshot: Prisma.JsonNull,
@@ -1074,7 +1162,12 @@ export async function resolveConflictWithSelections(input: {
     // variant writes at all — the existing rows are already correct.
     ...(selections.variants === "shopify"
       ? shopifySnapshot.variants
-          .filter((variant): variant is typeof variant & { shopifyVariantId: string } => variant.shopifyVariantId !== null)
+          .filter(
+            (
+              variant,
+            ): variant is typeof variant & { shopifyVariantId: string } =>
+              variant.shopifyVariantId !== null,
+          )
           .map((variant) =>
             prisma.variant.upsert({
               where: {
@@ -1096,10 +1189,55 @@ export async function resolveConflictWithSelections(input: {
                 price: variant.price,
                 inventory: variant.inventory,
               },
-            })
+            }),
           )
       : []),
   ]);
 
   return { success: true, needsPush };
 }
+
+// Unit 27: bulk-creates local draft products from a validated CSV import payload.
+// Products get shopifyProductId: null, lastEditedAt: new Date(), and status/tags/variants
+// from the parsed CSV input.
+export async function createImportedProducts(input: {
+  accountId: string;
+  storeId: string;
+  products: CsvImportProductInput[];
+}): Promise<Product[]> {
+  const created: Product[] = [];
+
+  for (const productInput of input.products) {
+    const productRecord = await prisma.product.create({
+      data: {
+        accountId: input.accountId,
+        storeId: input.storeId,
+        shopifyProductId: null,
+        title: productInput.title,
+        description: productInput.description || "",
+        price: productInput.price,
+        status: productInput.status,
+        collectionTitle: productInput.collectionTitle || null,
+        tags: productInput.tags || [],
+        lastEditedAt: new Date(),
+        variants: {
+          create:
+            productInput.variants && productInput.variants.length > 0
+              ? productInput.variants.map((v: CsvImportVariantInput) => ({
+                  accountId: input.accountId,
+                  shopifyVariantId: null,
+                  optionName: v.optionName,
+                  price: v.price,
+                  inventory: v.inventory,
+                }))
+              : [],
+        },
+      },
+      include: { variants: true },
+    });
+    created.push(toDomainProduct(productRecord));
+  }
+
+  return created;
+}
+
