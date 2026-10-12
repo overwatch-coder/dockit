@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/db/client";
 import { Prisma } from "@/lib/generated/prisma/client";
 import type { Product } from "@/types/product";
-import type { CsvImportProductInput, CsvImportVariantInput } from "@/lib/csv/products";
+import type {
+  CsvImportProductInput,
+  CsvImportVariantInput,
+} from "@/lib/csv/products";
 import { toDomainProduct } from "./types";
 
 export function duplicateProductTitle(title: string): string {

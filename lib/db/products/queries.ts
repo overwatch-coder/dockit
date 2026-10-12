@@ -9,7 +9,7 @@ import {
 
 export async function getProductsForStore(
   accountId: string,
-  storeId: string
+  storeId: string,
 ): Promise<Product[]> {
   const products = await prisma.product.findMany({
     where: { accountId, storeId },
@@ -22,7 +22,7 @@ export async function getProductsForStore(
 export async function getPaginatedProductsForStore(
   accountId: string,
   storeId: string,
-  options: GetProductsOptions = {}
+  options: GetProductsOptions = {},
 ): Promise<PaginatedProductsResult> {
   const where: {
     accountId: string;
@@ -74,7 +74,7 @@ export async function getPaginatedProductsForStore(
       });
 
       return { totalCount, totalPages, page, records };
-    }
+    },
   );
 
   return {
@@ -88,7 +88,7 @@ export async function getPaginatedProductsForStore(
 
 export async function getStoreCategories(
   accountId: string,
-  storeId: string
+  storeId: string,
 ): Promise<string[]> {
   const products = await prisma.product.findMany({
     where: { accountId, storeId, collectionTitle: { not: null } },
@@ -100,7 +100,7 @@ export async function getStoreCategories(
 
 export async function getProductSummariesForStore(
   accountId: string,
-  storeId: string
+  storeId: string,
 ): Promise<ProductSummary[]> {
   return prisma.product.findMany({
     where: { accountId, storeId },
@@ -115,7 +115,7 @@ export async function getProductSummariesForStore(
 
 export async function getProductById(
   accountId: string,
-  productId: string
+  productId: string,
 ): Promise<Product | null> {
   const product = await prisma.product.findFirst({
     where: { id: productId, accountId },
@@ -126,7 +126,7 @@ export async function getProductById(
 
 export async function getProductsByIds(
   accountId: string,
-  productIds: string[]
+  productIds: string[],
 ): Promise<Product[]> {
   const products = await prisma.product.findMany({
     where: { accountId, id: { in: productIds } },
@@ -137,7 +137,7 @@ export async function getProductsByIds(
 
 export async function getEligibleUnsyncedProducts(
   accountId: string,
-  productIds: string[]
+  productIds: string[],
 ): Promise<{ id: string; storeId: string }[]> {
   return prisma.product.findMany({
     where: {
@@ -152,7 +152,7 @@ export async function getEligibleUnsyncedProducts(
 
 export async function getUnsyncedProductIdsForStore(
   accountId: string,
-  storeId: string
+  storeId: string,
 ): Promise<string[]> {
   const products = await prisma.product.findMany({
     where: { accountId, storeId, shopifyProductId: null, isConflicted: false },
@@ -163,7 +163,7 @@ export async function getUnsyncedProductIdsForStore(
 
 export async function getProductsForStatusSync(
   accountId: string,
-  productIds: string[]
+  productIds: string[],
 ): Promise<{ id: string; storeId: string }[]> {
   return prisma.product.findMany({
     where: { accountId, id: { in: productIds }, isConflicted: false },

@@ -2,10 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { Prisma } from "@/lib/generated/prisma/client";
 import type { ShopifyImportedProduct } from "@/lib/shopify/products";
 import type { ConflictSnapshot } from "@/types/product";
-import {
-  toDomainProduct,
-  type ConflictFieldSelections,
-} from "./types";
+import { toDomainProduct, type ConflictFieldSelections } from "./types";
 
 export function shouldSkipSync(product: {
   lastEditedAt: Date;
@@ -130,7 +127,7 @@ export async function markProductPushed(input: {
       },
     }),
     ...[...variantUpdates.entries()].map(([localVariantId, data]) =>
-      prisma.variant.update({ where: { id: localVariantId }, data })
+      prisma.variant.update({ where: { id: localVariantId }, data }),
     ),
   ]);
 
@@ -329,7 +326,7 @@ export async function syncProducts(input: {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       console.error(
-        `syncProducts: failed for shopifyProductId ${product.shopifyProductId}: ${message}`
+        `syncProducts: failed for shopifyProductId ${product.shopifyProductId}: ${message}`,
       );
       errorCount += 1;
     }
@@ -428,9 +425,9 @@ export async function resolveConflictWithSelections(input: {
       ? shopifySnapshot.variants
           .filter(
             (
-              variant
+              variant,
             ): variant is typeof variant & { shopifyVariantId: string } =>
-              variant.shopifyVariantId !== null
+              variant.shopifyVariantId !== null,
           )
           .map((variant) =>
             prisma.variant.upsert({
@@ -453,7 +450,7 @@ export async function resolveConflictWithSelections(input: {
                 price: variant.price,
                 inventory: variant.inventory,
               },
-            })
+            }),
           )
       : []),
   ]);
@@ -492,8 +489,8 @@ export async function applyBulkAiSuggestions(input: {
           categoryFullName: suggestion.categoryFullName,
           lastEditedAt: new Date(),
         },
-      })
-    )
+      }),
+    ),
   );
   return {
     updatedCount: results.reduce((count, result) => count + result.count, 0),

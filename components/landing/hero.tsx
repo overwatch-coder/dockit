@@ -2,79 +2,92 @@
 
 import Link from "next/link";
 import { SignInButton, SignUpButton, Show } from "@clerk/nextjs";
-import { ArrowRight, Sparkles, ShieldCheck, Zap } from "lucide-react";
+import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FloatingBadge } from "@/components/landing/floating-badge";
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden pt-12 pb-20 md:pt-20 md:pb-28">
-      <div className="relative mx-auto max-w-5xl px-6 text-center">
-        {/* Top Tag Pill */}
-        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3.5 py-1 text-xs font-medium text-primary shadow-sm">
-          <Sparkles className="size-3.5 text-primary" />
-          <span>Shopify Catalog Workspace</span>
-          <span className="h-3 w-px bg-border" />
-          <span className="text-foreground-muted font-normal">Draft & Sync Engine</span>
+    <section className="relative overflow-hidden pt-16 pb-12 sm:pt-20 sm:pb-16 border-b border-border/80">
+      <div className="mx-auto max-w-4xl px-6 text-center">
+        {/* Subtle Mono Eyebrow */}
+        <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-4">
+          Shopify Catalog Staging &bull; Deterministic Sync Guard
+        </p>
+
+        {/* Large Headline */}
+        <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-6xl md:text-7xl leading-[1.08]">
+          One Task <span className="text-primary">at a Time</span>
+        </h1>
+
+        {/* Subheadline */}
+        <p className="mx-auto mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg leading-relaxed">
+          A dedicated staging workspace for Shopify merchants. Draft product changes locally, enrich SEO and standardized taxonomy with AI, and push live with deterministic two-way sync protection.
+        </p>
+
+        {/* Action CTAs */}
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <Show when="signed-out">
+            <SignUpButton forceRedirectUrl="/dashboard">
+              <Button
+                size="lg"
+                className="h-10 px-5 text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary-hover shadow-sm"
+              >
+                Get started free
+                <ArrowRight className="ml-2 size-3.5" />
+              </Button>
+            </SignUpButton>
+            <SignInButton forceRedirectUrl="/dashboard">
+              <Button
+                variant="outline"
+                size="lg"
+                className="h-10 px-5 text-xs font-medium border-border bg-surface hover:bg-card text-foreground"
+              >
+                Sign in
+              </Button>
+            </SignInButton>
+            <Button
+              nativeButton={false}
+              variant="ghost"
+              size="lg"
+              className="h-10 px-4 text-xs font-medium text-muted-foreground hover:text-foreground"
+              render={<a href="#showcase" />}
+            >
+              Explore live workspace
+            </Button>
+          </Show>
+          <Show when="signed-in">
+            <Button
+              nativeButton={false}
+              size="lg"
+              className="h-10 px-5 text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary-hover shadow-sm"
+              render={<Link href="/dashboard" />}
+            >
+              Go to dashboard
+              <ArrowRight className="ml-2 size-3.5" />
+            </Button>
+            <Button
+              nativeButton={false}
+              variant="outline"
+              size="lg"
+              className="h-10 px-4 text-xs font-medium border-border bg-surface hover:bg-card"
+              render={<a href="#showcase" />}
+            >
+              Explore live workspace
+            </Button>
+          </Show>
         </div>
 
-        {/* Hero Content Container */}
-        <div className="relative mt-8">
-          {/*
-            Badges are scoped to this headline-only wrapper (not the full
-            content block) so they're vertically centered on the headline
-            and never drift down over the subheadline on wide viewports.
-          */}
-          <div className="relative">
-            <FloatingBadge variant="left-foreground" />
-            <FloatingBadge variant="right-background" />
-
-            {/* Large Headline — Solid Colors */}
-            <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl md:text-7xl">
-              One Task <span className="text-primary">at a Time</span>
-            </h1>
-          </div>
-
-          {/* Subheadline / Descriptive text */}
-          <p className="mx-auto mt-6 max-w-2xl text-base text-foreground-muted sm:text-lg md:text-xl leading-relaxed">
-            Take complete control of your Shopify catalog. Edit products as local drafts, generate high-ranking SEO & tags with AI, and push live with total conflict protection.
-          </p>
-
-          {/* CTA Buttons */}
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-            <Show when="signed-out">
-              <SignUpButton forceRedirectUrl="/dashboard">
-                <Button size="lg" className="h-12 px-7 text-base font-semibold bg-primary text-primary-foreground hover:bg-primary-hover shadow-md transition-all">
-                  Get started free
-                  <ArrowRight className="ml-2 size-5" />
-                </Button>
-              </SignUpButton>
-              <SignInButton forceRedirectUrl="/dashboard">
-                <Button variant="outline" size="lg" className="h-12 px-7 text-base font-medium border-border bg-background hover:bg-surface">
-                  Sign in
-                </Button>
-              </SignInButton>
-            </Show>
-            <Show when="signed-in">
-              <Button nativeButton={false} size="lg" className="h-12 px-7 text-base font-semibold" render={<Link href="/dashboard" />}>
-                Go to dashboard
-                <ArrowRight className="ml-2 size-5" />
-              </Button>
-            </Show>
-          </div>
-
-          {/* Trust bullet points */}
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-xs text-foreground-muted">
-            <span className="flex items-center gap-1.5">
-              <ShieldCheck className="size-4 text-success" /> Two-Way Sync Conflict Protection
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Zap className="size-4 text-warning" /> One-Click AI Category Resolution
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Sparkles className="size-4 text-primary" /> Multi-Tenant Store Switching
-            </span>
-          </div>
+        {/* Technical Invariants Bar */}
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[11px] font-mono text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <CheckCircle2 className="size-3 text-success shrink-0" /> GraphQL Admin API v2024
+          </span>
+          <span className="flex items-center gap-1.5">
+            <CheckCircle2 className="size-3 text-success shrink-0" /> Zero live store overwrites
+          </span>
+          <span className="flex items-center gap-1.5">
+            <CheckCircle2 className="size-3 text-success shrink-0" /> Rate-limit cost tracking
+          </span>
         </div>
       </div>
     </section>

@@ -35,14 +35,14 @@ The app supports both light and dark, toggled via a `.dark` class on `<html>` (n
 
 | Token | Hex | Notes |
 |---|---|---|
-| `--primary` | `#818CF8` | Lighter than light mode's `#5B5FEF` for contrast on a dark background |
-| `--primary-hover` | `#6366F1` | |
-| `--primary-subtle` | `#26263F` | Dark indigo-tinted surface, same role as light mode (selected row, subtle highlight) |
-| `--background` | `#0B0B0F` | Near-black, slightly blue-tinted rather than flat black |
-| `--surface` | `#17171C` | Cards, panels, sidebar |
-| `--border` | `#2A2A31` | |
-| `--foreground` | `#F4F4F5` | |
-| `--foreground-muted` | `#A1A1AA` | |
+| `--primary` | `#6366F1` | Lighter indigo for contrast and high-craft appearance |
+| `--primary-hover` | `#4F46E5` | |
+| `--primary-subtle` | `#1E2238` | Refined subtle dark indigo-slate surface |
+| `--background` | `#0C0D12` | Rich dark slate-charcoal, eliminating pitch-black void |
+| `--surface` | `#141620` | Elevated dark card and panel surfaces with clear visual contrast |
+| `--border` | `#24283B` | Crisp structural hairline borders |
+| `--foreground` | `#F8FAFC` | High-contrast crisp white |
+| `--foreground-muted` | `#94A3B8` | Clear slate-silver secondary text |
 | `--success` | `#22C55E` | |
 | `--warning` | `#F59E0B` | |
 | `--destructive` | `#EF4444` | |

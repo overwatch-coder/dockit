@@ -50,8 +50,10 @@ export function toDomainProduct(product: ProductRecord): Product {
     seoTitle: product.seoTitle,
     seoDescription: product.seoDescription,
     isConflicted: product.isConflicted,
-    conflictAppSnapshot: (product.conflictAppSnapshot as ConflictSnapshot | null) ?? null,
-    conflictShopifySnapshot: (product.conflictShopifySnapshot as ConflictSnapshot | null) ?? null,
+    conflictAppSnapshot:
+      (product.conflictAppSnapshot as ConflictSnapshot | null) ?? null,
+    conflictShopifySnapshot:
+      (product.conflictShopifySnapshot as ConflictSnapshot | null) ?? null,
     lastSyncedAt: product.lastSyncedAt,
     variants: product.variants.map((variant) => ({
       id: variant.id,

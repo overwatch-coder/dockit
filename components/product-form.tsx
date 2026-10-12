@@ -1,6 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import {
+  useActionState,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -61,9 +67,17 @@ const NO_COLLECTION_VALUE = "none";
 
 function PreviewStatusBadge({ status }: { status: ProductStatus }) {
   if (status === "ACTIVE") {
-    return <Badge className="border-transparent bg-success/10 text-success">Active</Badge>;
+    return (
+      <Badge className="border-transparent bg-success/10 text-success">
+        Active
+      </Badge>
+    );
   }
-  return <Badge className="border-transparent bg-warning/10 text-warning">Draft</Badge>;
+  return (
+    <Badge className="border-transparent bg-warning/10 text-warning">
+      Draft
+    </Badge>
+  );
 }
 
 function toDraftVariants(product: Product | undefined): DraftVariant[] {
@@ -91,23 +105,39 @@ export function ProductForm({
 }) {
   const router = useRouter();
   const action =
-    mode === "create" ? createProduct.bind(null, storeId!) : updateProduct.bind(null, product!.id);
+    mode === "create"
+      ? createProduct.bind(null, storeId!)
+      : updateProduct.bind(null, product!.id);
   const [state, formAction, isPending] = useActionState(action, undefined);
 
   const [title, setTitle] = useState(product?.title ?? "");
   const [price, setPrice] = useState(product?.price ?? "");
-  const [status, setStatus] = useState<ProductStatus>(product?.status ?? "DRAFT");
-  const [descriptionHtml, setDescriptionHtml] = useState(product?.description ?? "");
-  const [variants, setVariants] = useState<DraftVariant[]>(() => toDraftVariants(product));
+  const [status, setStatus] = useState<ProductStatus>(
+    product?.status ?? "DRAFT",
+  );
+  const [descriptionHtml, setDescriptionHtml] = useState(
+    product?.description ?? "",
+  );
+  const [variants, setVariants] = useState<DraftVariant[]>(() =>
+    toDraftVariants(product),
+  );
   const [collectionId, setCollectionId] = useState(product?.collectionId ?? "");
-  const [collectionTitle, setCollectionTitle] = useState(product?.collectionTitle ?? "");
+  const [collectionTitle, setCollectionTitle] = useState(
+    product?.collectionTitle ?? "",
+  );
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? "");
-  const [categoryFullName, setCategoryFullName] = useState(product?.categoryFullName ?? "");
+  const [categoryFullName, setCategoryFullName] = useState(
+    product?.categoryFullName ?? "",
+  );
   const [tags, setTags] = useState<string[]>(product?.tags ?? []);
   const [seoTitle, setSeoTitle] = useState(product?.seoTitle ?? "");
-  const [seoDescription, setSeoDescription] = useState(product?.seoDescription ?? "");
+  const [seoDescription, setSeoDescription] = useState(
+    product?.seoDescription ?? "",
+  );
 
-  const [aiSuggested, setAiSuggested] = useState<Set<AiSuggestedField>>(new Set());
+  const [aiSuggested, setAiSuggested] = useState<Set<AiSuggestedField>>(
+    new Set(),
+  );
   const [isSuggesting, startSuggestTransition] = useTransition();
 
   // Review dialog states for AI description and SEO suggestions
@@ -115,7 +145,8 @@ export function ProductForm({
   const [pendingDescriptionHtml, setPendingDescriptionHtml] = useState("");
 
   const [isSeoReviewOpen, setIsSeoReviewOpen] = useState(false);
-  const [pendingSeoSuggestion, setPendingSeoSuggestion] = useState<SuggestedSeoState | null>(null);
+  const [pendingSeoSuggestion, setPendingSeoSuggestion] =
+    useState<SuggestedSeoState | null>(null);
 
   // Unit 16: AI generate/improve for the main description. Separate from
   // the seoTitle/seoDescription/tags/collection "Suggest SEO & tags" flow
@@ -186,10 +217,11 @@ export function ProductForm({
 
   function handleAcceptSeo(
     accepted: CurrentSeoState,
-    appliedFields: AiSuggestedField[]
+    appliedFields: AiSuggestedField[],
   ) {
     if (appliedFields.includes("seoTitle")) setSeoTitle(accepted.seoTitle);
-    if (appliedFields.includes("seoDescription")) setSeoDescription(accepted.seoDescription);
+    if (appliedFields.includes("seoDescription"))
+      setSeoDescription(accepted.seoDescription);
     if (appliedFields.includes("tags")) setTags(accepted.tags);
     if (appliedFields.includes("collection")) {
       setCollectionId(accepted.collectionId);
@@ -223,16 +255,23 @@ export function ProductForm({
       seoDescription,
     });
   }
-  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => currentSnapshot());
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() =>
+    currentSnapshot(),
+  );
   const isDirty = currentSnapshot() !== lastSavedSnapshot;
 
-  const [pushStatus, setPushStatus] = useState<"idle" | "pushing" | "failed">("idle");
+  const [pushStatus, setPushStatus] = useState<"idle" | "pushing" | "failed">(
+    "idle",
+  );
 
   // Per explicit user request: a toast alone wasn't a strong enough "did
   // this actually work" signal for Save/Publish — a clean success now opens
   // the shared animated-checkmark confirmation (components/action-confirmation-modal.tsx)
   // instead. Failures keep their existing toast treatment unchanged.
-  const [confirmation, setConfirmation] = useState<{ title: string; description?: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<{
+    title: string;
+    description?: string;
+  } | null>(null);
 
   // Unit 19: the editor's own entry point into the shared conflict
   // resolution dialog — same component components/product-table.tsx uses,
@@ -248,7 +287,9 @@ export function ProductForm({
       if (status === "SUCCEEDED") {
         setPushStatus("idle");
         setConfirmation({
-          title: product?.shopifyProductId ? "Republished to Shopify" : "Published to Shopify",
+          title: product?.shopifyProductId
+            ? "Republished to Shopify"
+            : "Published to Shopify",
           description: "Your product is now live on Shopify.",
         });
         router.refresh();
@@ -282,7 +323,11 @@ export function ProductForm({
   // imageUrl for products imported before this field existed. Clicking a
   // thumbnail just changes which one shows as the main preview image — a
   // display-only selection, not saved anywhere.
-  const gallery = product?.imageUrls?.length ? product.imageUrls : product?.imageUrl ? [product.imageUrl] : [];
+  const gallery = product?.imageUrls?.length
+    ? product.imageUrls
+    : product?.imageUrl
+      ? [product.imageUrl]
+      : [];
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const mainImage = gallery[selectedImageIndex] ?? null;
@@ -355,7 +400,11 @@ export function ProductForm({
       }
       setPendingImages((prev) => prev.filter((p) => !toUpload.includes(p)));
       if (uploadedCount > 0) {
-        toast.success(uploadedCount === 1 ? "Image uploaded" : `${uploadedCount} images uploaded`);
+        toast.success(
+          uploadedCount === 1
+            ? "Image uploaded"
+            : `${uploadedCount} images uploaded`,
+        );
         router.refresh();
       }
     });
@@ -379,7 +428,10 @@ export function ProductForm({
         // Records what's now durably saved, for the Push button's dirty
         // check — deferred into the same setTimeout for the same reason.
         setLastSavedSnapshot(currentSnapshot());
-        setConfirmation({ title: "Saved", description: "Your changes have been saved." });
+        setConfirmation({
+          title: "Saved",
+          description: "Your changes have been saved.",
+        });
       }, 0);
       // A successful Save is also what actually uploads any staged images
       // to Vercel Blob (see uploadPendingImages above) — reading the latest
@@ -395,23 +447,34 @@ export function ProductForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
-  const fieldErrors = state && "fieldErrors" in state ? state.fieldErrors : undefined;
+  const fieldErrors =
+    state && "fieldErrors" in state ? state.fieldErrors : undefined;
 
   // Rendered at two different positions depending on mode — see the two
   // call sites below.
   const statusField = (
     <div className="flex flex-col gap-2">
       <Label htmlFor="status">Status</Label>
-      <Select name="status" value={status} onValueChange={(value) => setStatus(value as ProductStatus)}>
+      <Select
+        name="status"
+        value={status}
+        onValueChange={(value) => setStatus(value as ProductStatus)}
+      >
         <SelectTrigger id="status" className="max-w-40">
-          <SelectValue>{(value: string | null) => (value === "ACTIVE" ? "Active" : "Draft")}</SelectValue>
+          <SelectValue>
+            {(value: string | null) =>
+              value === "ACTIVE" ? "Active" : "Draft"
+            }
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="DRAFT">Draft</SelectItem>
           <SelectItem value="ACTIVE">Active</SelectItem>
         </SelectContent>
       </Select>
-      {fieldErrors?.status && <p className="text-sm text-destructive">{fieldErrors.status}</p>}
+      {fieldErrors?.status && (
+        <p className="text-sm text-destructive">{fieldErrors.status}</p>
+      )}
     </div>
   );
 
@@ -424,13 +487,20 @@ export function ProductForm({
       {product?.isConflicted && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-conflict/30 bg-conflict/10 px-4 py-3">
           <div className="flex items-center gap-2">
-            <Badge className="border-transparent bg-conflict/10 text-conflict">Conflict</Badge>
+            <Badge className="border-transparent bg-conflict/10 text-conflict">
+              Conflict
+            </Badge>
             <p className="text-sm text-foreground">
-              This product changed in Dockit and on Shopify at the same time. Resolve it before
-              editing or pushing.
+              This product changed in Dockit and on Shopify at the same time.
+              Resolve it before editing or pushing.
             </p>
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={() => setIsConflictDialogOpen(true)}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsConflictDialogOpen(true)}
+          >
             Resolve conflict
           </Button>
         </div>
@@ -446,7 +516,9 @@ export function ProductForm({
               onChange={(event) => setTitle(event.target.value)}
               required
             />
-            {fieldErrors?.title && <p className="text-sm text-destructive">{fieldErrors.title}</p>}
+            {fieldErrors?.title && (
+              <p className="text-sm text-destructive">{fieldErrors.title}</p>
+            )}
           </div>
 
           {mode === "edit" && product && (
@@ -480,16 +552,30 @@ export function ProductForm({
               onChange={setDescriptionHtml}
               externalContent={descriptionExternalContent}
             />
-            <input type="hidden" name="description" value={descriptionHtml} readOnly />
+            <input
+              type="hidden"
+              name="description"
+              value={descriptionHtml}
+              readOnly
+            />
             {fieldErrors?.description && (
-              <p className="text-sm text-destructive">{fieldErrors.description}</p>
+              <p className="text-sm text-destructive">
+                {fieldErrors.description}
+              </p>
             )}
           </div>
 
-          <Dialog open={isDescriptionAiOpen} onOpenChange={setIsDescriptionAiOpen}>
+          <Dialog
+            open={isDescriptionAiOpen}
+            onOpenChange={setIsDescriptionAiOpen}
+          >
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>{hasDescription ? "Improve description" : "Generate description"}</DialogTitle>
+                <DialogTitle>
+                  {hasDescription
+                    ? "Improve description"
+                    : "Generate description"}
+                </DialogTitle>
                 <DialogDescription>
                   {hasDescription
                     ? "Optionally tell the AI what to change — tone, length, what to emphasize. Leave blank for a general improvement pass."
@@ -503,15 +589,29 @@ export function ProductForm({
                     : "e.g. a waterproof canvas backpack with a padded laptop sleeve, for commuters"
                 }
                 value={descriptionInstructions}
-                onChange={(event) => setDescriptionInstructions(event.target.value)}
+                onChange={(event) =>
+                  setDescriptionInstructions(event.target.value)
+                }
                 rows={4}
               />
               <DialogFooter>
-                <Button type="button" variant="ghost" onClick={() => setIsDescriptionAiOpen(false)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setIsDescriptionAiOpen(false)}
+                >
                   Cancel
                 </Button>
-                <Button type="button" disabled={isGeneratingDescription} onClick={handleGenerateDescription}>
-                  {isGeneratingDescription ? "Generating..." : hasDescription ? "Improve" : "Generate"}
+                <Button
+                  type="button"
+                  disabled={isGeneratingDescription}
+                  onClick={handleGenerateDescription}
+                >
+                  {isGeneratingDescription
+                    ? "Generating..."
+                    : hasDescription
+                      ? "Improve"
+                      : "Generate"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -528,7 +628,9 @@ export function ProductForm({
               onChange={(event) => setPrice(event.target.value)}
               required
             />
-            {fieldErrors?.price && <p className="text-sm text-destructive">{fieldErrors.price}</p>}
+            {fieldErrors?.price && (
+              <p className="text-sm text-destructive">{fieldErrors.price}</p>
+            )}
           </div>
 
           {/* Per explicit user request: in edit mode, Status moves to the very
@@ -542,7 +644,13 @@ export function ProductForm({
           {mode === "edit" && product && (
             <>
               <div>
-                <Button type="button" variant="outline" size="sm" disabled={isSuggesting} onClick={handleSuggest}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isSuggesting}
+                  onClick={handleSuggest}
+                >
                   <Sparkles className="size-4" />
                   {isSuggesting ? "Suggesting..." : "Suggest SEO & tags"}
                 </Button>
@@ -551,7 +659,7 @@ export function ProductForm({
               <div
                 className={cn(
                   "flex flex-col gap-2 rounded-lg p-2",
-                  aiSuggested.has("seoTitle") && "bg-primary-subtle"
+                  aiSuggested.has("seoTitle") && "bg-primary-subtle",
                 )}
               >
                 <Label htmlFor="seoTitle">SEO title</Label>
@@ -569,7 +677,7 @@ export function ProductForm({
               <div
                 className={cn(
                   "flex flex-col gap-2 rounded-lg p-2",
-                  aiSuggested.has("seoDescription") && "bg-primary-subtle"
+                  aiSuggested.has("seoDescription") && "bg-primary-subtle",
                 )}
               >
                 <Label htmlFor="seoDescription">SEO description</Label>
@@ -587,7 +695,7 @@ export function ProductForm({
               <div
                 className={cn(
                   "flex flex-col gap-2 rounded-lg p-2",
-                  aiSuggested.has("collection") && "bg-primary-subtle"
+                  aiSuggested.has("collection") && "bg-primary-subtle",
                 )}
               >
                 <Label htmlFor="collection">Collection</Label>
@@ -601,7 +709,9 @@ export function ProductForm({
                       return;
                     }
                     setCollectionId(value);
-                    setCollectionTitle(collections.find((c) => c.id === value)?.title ?? "");
+                    setCollectionTitle(
+                      collections.find((c) => c.id === value)?.title ?? "",
+                    );
                   }}
                 >
                   <SelectTrigger id="collection" className="max-w-72">
@@ -609,12 +719,15 @@ export function ProductForm({
                       {(value: string | null) =>
                         !value || value === NO_COLLECTION_VALUE
                           ? "No collection"
-                          : (collections.find((c) => c.id === value)?.title ?? "No collection")
+                          : (collections.find((c) => c.id === value)?.title ??
+                            "No collection")
                       }
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NO_COLLECTION_VALUE}>No collection</SelectItem>
+                    <SelectItem value={NO_COLLECTION_VALUE}>
+                      No collection
+                    </SelectItem>
                     {collections.map((collection) => (
                       <SelectItem key={collection.id} value={collection.id}>
                         {collection.title}
@@ -623,13 +736,17 @@ export function ProductForm({
                   </SelectContent>
                 </Select>
                 <input type="hidden" name="collectionId" value={collectionId} />
-                <input type="hidden" name="collectionTitle" value={collectionTitle} />
+                <input
+                  type="hidden"
+                  name="collectionTitle"
+                  value={collectionTitle}
+                />
               </div>
 
               <div
                 className={cn(
                   "flex flex-col gap-2 rounded-lg p-2",
-                  aiSuggested.has("category") && "bg-primary-subtle"
+                  aiSuggested.has("category") && "bg-primary-subtle",
                 )}
               >
                 <Label>Category</Label>
@@ -644,13 +761,17 @@ export function ProductForm({
                   }}
                 />
                 <input type="hidden" name="categoryId" value={categoryId} />
-                <input type="hidden" name="categoryFullName" value={categoryFullName} />
+                <input
+                  type="hidden"
+                  name="categoryFullName"
+                  value={categoryFullName}
+                />
               </div>
 
               <div
                 className={cn(
                   "flex flex-col gap-2 rounded-lg p-2",
-                  aiSuggested.has("tags") && "bg-primary-subtle"
+                  aiSuggested.has("tags") && "bg-primary-subtle",
                 )}
               >
                 <Label htmlFor="tags">Tags</Label>
@@ -664,8 +785,16 @@ export function ProductForm({
                 <input type="hidden" name="tags" value={JSON.stringify(tags)} />
               </div>
 
-              <VariantList variants={variants} images={gallery} onChange={setVariants} />
-              <input type="hidden" name="variants" value={JSON.stringify(variants)} />
+              <VariantList
+                variants={variants}
+                images={gallery}
+                onChange={setVariants}
+              />
+              <input
+                type="hidden"
+                name="variants"
+                value={JSON.stringify(variants)}
+              />
 
               {statusField}
             </>
@@ -679,24 +808,35 @@ export function ProductForm({
             <Button
               type="submit"
               disabled={isPending || product?.isConflicted}
-              title={product?.isConflicted ? "Resolve the conflict before editing this product" : undefined}
+              title={
+                product?.isConflicted
+                  ? "Resolve the conflict before editing this product"
+                  : undefined
+              }
             >
               {isPending ? "Saving..." : "Save"}
             </Button>
-            <Button type="button" variant="ghost" nativeButton={false} render={<Link href="/products" />}>
+            <Button
+              type="button"
+              variant="ghost"
+              nativeButton={false}
+              render={<Link href="/products" />}
+            >
               Cancel
             </Button>
             {mode === "edit" && product && (
               <Button
                 type="button"
                 variant="outline"
-                disabled={isDirty || pushStatus === "pushing" || product.isConflicted}
+                disabled={
+                  isDirty || pushStatus === "pushing" || product.isConflicted
+                }
                 title={
                   product.isConflicted
                     ? "Resolve the conflict before pushing this product"
                     : isDirty
-                    ? "Save your changes before publishing"
-                    : undefined
+                      ? "Save your changes before publishing"
+                      : undefined
                 }
                 onClick={handlePush}
               >
@@ -705,8 +845,8 @@ export function ProductForm({
                     ? "Republishing..."
                     : "Publishing..."
                   : product.shopifyProductId
-                  ? "Republish to Shopify"
-                  : "Publish to Shopify"}
+                    ? "Republish to Shopify"
+                    : "Publish to Shopify"}
               </Button>
             )}
           </div>
@@ -715,7 +855,9 @@ export function ProductForm({
         <div className="lg:sticky lg:top-6 lg:self-start">
           <Card>
             <CardHeader>
-              <CardTitle className="text-label font-medium text-muted-foreground">Preview</CardTitle>
+              <CardTitle className="text-label font-medium text-muted-foreground">
+                Preview
+              </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
@@ -752,12 +894,20 @@ export function ProductForm({
                         variant="ghost"
                         onClick={() => setSelectedImageIndex(index)}
                         className={`relative size-12 shrink-0 overflow-hidden rounded-md border p-0 ${
-                          index === selectedImageIndex ? "border-primary ring-2 ring-primary" : "border-border"
+                          index === selectedImageIndex
+                            ? "border-primary ring-2 ring-primary"
+                            : "border-border"
                         }`}
                         aria-label={`Show image ${index + 1}`}
                         aria-pressed={index === selectedImageIndex}
                       >
-                        <Image src={url} alt="" fill sizes="48px" className="object-cover" />
+                        <Image
+                          src={url}
+                          alt=""
+                          fill
+                          sizes="48px"
+                          className="object-cover"
+                        />
                       </Button>
                     ))}
                   </div>
@@ -779,7 +929,9 @@ export function ProductForm({
                 </h2>
                 <PreviewStatusBadge status={status} />
               </div>
-              <span className="font-mono text-table-data text-foreground">{price || "0.00"}</span>
+              <span className="font-mono text-table-data text-foreground">
+                {price || "0.00"}
+              </span>
               <span className="text-sm text-muted-foreground">
                 {collectionTitle || "No collection"}
               </span>
@@ -795,23 +947,33 @@ export function ProductForm({
               {descriptionHtml ? (
                 <div
                   className="text-sm text-foreground [&_a]:text-primary [&_a]:underline [&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_li]:mb-1 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-5"
-                  dangerouslySetInnerHTML={{ __html: sanitizeDescriptionHtml(descriptionHtml) }}
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizeDescriptionHtml(descriptionHtml),
+                  }}
                 />
               ) : (
-                <span className="text-sm text-muted-foreground">No description</span>
+                <span className="text-sm text-muted-foreground">
+                  No description
+                </span>
               )}
 
               {variants.length > 0 && (
                 <div className="flex flex-col gap-1">
-                  <span className="text-label font-medium text-muted-foreground">Variants</span>
+                  <span className="text-label font-medium text-muted-foreground">
+                    Variants
+                  </span>
                   <ul className="flex flex-col gap-1">
                     {variants.map((variant) => (
-                      <li key={variant.id} className="flex items-center justify-between gap-2 text-sm">
+                      <li
+                        key={variant.id}
+                        className="flex items-center justify-between gap-2 text-sm"
+                      >
                         <span className="truncate text-foreground">
                           {variant.optionName || "Untitled variant"}
                         </span>
                         <span className="shrink-0 font-mono text-table-data text-muted-foreground">
-                          {variant.price || "0.00"} · {variant.inventory || "0"} in stock
+                          {variant.price || "0.00"} · {variant.inventory || "0"}{" "}
+                          in stock
                         </span>
                       </li>
                     ))}
