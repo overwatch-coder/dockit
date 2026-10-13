@@ -745,10 +745,21 @@ change.
   - **Product Editor & Metafields UI**:
     - Created `components/metafields-editor.tsx` matching Shopify's Category & Product Metafields UI: displays active fields with dropdown choices/inputs, "+ Add" actions, and pill buttons for remaining attributes.
     - Integrated `MetafieldsEditor` into `components/product-form.tsx` syncing with form state and saving via `updateProduct` server action.
-  - **Bulk Actions in Products Table**:
-    - In `components/product-table.tsx`, added bulk actions when multiple items are selected:
-      - "Generate content with images" (`generateBulkAiVisionEnrichmentAction`): runs AI Vision enrichment sequentially across selected products, filling descriptions, categories, metafields, tags, and SEO directly from their photos.
-      - "Generate images" (`startBulkProductImageGenerationAction`): queues background commercial studio product photography jobs via Inngest.
-      - "Generate AI suggestions": fixed OpenAI error via Gemini fallback, opening bulk review dialog.
-  - **Verification**:
-    - All 42 test suites and 283 tests pass (`npm test`).
+  - **Bulk Actions & Shopify Status Column**:
+    - **Refined Selection Bar in Products Table (`components/product-table.tsx`)**:
+      - Removed "Generate Images" and "Generate AI Suggestions" buttons from the selection action bar.
+      - Introduced two unified generation buttons:
+        - **"Generate Image with Content"**: generates both commercial studio perspective images and rich catalog content (title, description, category, metafields, SEO, tags) via `generateBulkAiVisionEnrichmentAction(ids, { generateImages: true })`.
+        - **"Generate Content"**: generates rich catalog content only (no new images) via `generateBulkAiVisionEnrichmentAction(ids, { generateImages: false })`.
+      - Maintained "Push selected", "Change status", and "Delete".
+    - **Shopify Publishing Status Column (`components/shopify-status-badge.tsx`, `components/product-table-row.tsx`)**:
+      - Added a dedicated "Shopify" table column clarifying the difference between the local Dockit status and live Shopify presence.
+      - Displays:
+        - **Published** (green badge): pushed to Shopify and active (`product.status === "ACTIVE"`).
+        - **Unpublished** (amber badge): pushed to Shopify as draft (`product.status === "DRAFT"`).
+        - **Not pushed** (subtle outline badge): local draft, never pushed to Shopify (`product.shopifyProductId === null`).
+        - Includes external link to Shopify Admin for any product that exists on Shopify.
+    - **Verification & Testing**:
+      - Added unit tests in `tests/components/shopify-status-badge.test.tsx` and `tests/components/product-table.test.tsx`.
+      - All 44 test suites (289 tests) pass (`npm test`).
+      - TypeScript check passes cleanly (`npx tsc --noEmit`).

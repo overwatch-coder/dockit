@@ -258,7 +258,7 @@ export function ProductTable({
   const [visionEnrichProduct, setVisionEnrichProduct] = useState<Product | null>(null);
   const [generateImagesProduct, setGenerateImagesProduct] = useState<Product | null>(null);
   const [isBulkVisionLoading, startBulkVisionTransition] = useTransition();
-  const [isBulkImageLoading, startBulkImageTransition] = useTransition();
+  const [isBulkVisionWithImagesLoading, startBulkVisionWithImagesTransition] = useTransition();
   const { isPolling: isPushPolling, start: startPushPolling } = useJobPolling({
     onSettled: (status, results) => {
       const items = (results as PushBatchResults | undefined)?.items ?? [];
@@ -314,11 +314,16 @@ export function ProductTable({
     });
   }
 
-  function handleBulkContentWithImages() {
+  function handleBulkImageWithContent() {
     if (selectedIds.size === 0) return;
-    startBulkVisionTransition(async () => {
-      toast.message(`Analyzing images and generating rich catalog content for ${selectedIds.size} products...`);
-      const res = await generateBulkAiVisionEnrichmentAction(Array.from(selectedIds));
+    startBulkVisionWithImagesTransition(async () => {
+      toast.message(
+        `Analyzing images, generating perspective photos & rich catalog content for ${selectedIds.size} product${selectedIds.size === 1 ? "" : "s"}...`,
+      );
+      const res = await generateBulkAiVisionEnrichmentAction(
+        Array.from(selectedIds),
+        { generateImages: true },
+      );
       if ("error" in res) {
         toast.error(res.error);
         return;
@@ -326,25 +331,33 @@ export function ProductTable({
       setSelectedIds(new Set());
       setConfirmation({
         variant: "success",
-        title: "Content generated with AI Vision",
-        description: `Successfully enriched ${res.enrichedCount} product${res.enrichedCount === 1 ? "" : "s"} with titles, descriptions, categories, metafields & SEO from their images!`,
+        title: "Image & Content Generated",
+        description: `Successfully enriched ${res.enrichedCount} product${res.enrichedCount === 1 ? "" : "s"} with new perspective photos, descriptions, categories, metafields & SEO!`,
       });
       router.refresh();
     });
   }
 
-  function handleBulkGenerateImages() {
+  function handleBulkContentOnly() {
     if (selectedIds.size === 0) return;
-    startBulkImageTransition(async () => {
-      const res = await startBulkProductImageGenerationAction(Array.from(selectedIds));
+    startBulkVisionTransition(async () => {
+      toast.message(
+        `Analyzing images and generating rich catalog content for ${selectedIds.size} product${selectedIds.size === 1 ? "" : "s"}...`,
+      );
+      const res = await generateBulkAiVisionEnrichmentAction(
+        Array.from(selectedIds),
+        { generateImages: false },
+      );
       if ("error" in res) {
         toast.error(res.error);
         return;
       }
       setSelectedIds(new Set());
-      toast.success(
-        `Queued commercial studio photography jobs for ${selectedIds.size} product${selectedIds.size === 1 ? "" : "s"}. Images are generating in the background!`
-      );
+      setConfirmation({
+        variant: "success",
+        title: "Content Generated",
+        description: `Successfully enriched ${res.enrichedCount} product${res.enrichedCount === 1 ? "" : "s"} with titles, descriptions, categories, metafields & SEO!`,
+      });
       router.refresh();
     });
   }
@@ -526,69 +539,40 @@ export function ProductTable({
             {selectedIds.size} selected
           </p>
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {selectedIds.size === 1 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const singleId = Array.from(selectedIds)[0];
-                  const prod = paginatedProducts.find((p) => p.id === singleId);
-                  if (prod) setVisionEnrichProduct(prod);
-                }}
-                className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10 text-xs h-8"
-              >
-                <Sparkles className="size-3.5" />
-                <span className="hidden sm:inline">Generate with AI Vision</span>
-                <span className="sm:hidden">AI Vision</span>
-              </Button>
-            )}
-            {selectedIds.size > 1 && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={isBulkVisionLoading}
-                  onClick={handleBulkContentWithImages}
-                  className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10 text-xs h-8"
-                >
-                  <Wand2 className="size-3.5" />
-                  <span className="hidden sm:inline">
-                    {isBulkVisionLoading ? "Generating with vision..." : "Generate content with images"}
-                  </span>
-                  <span className="sm:hidden">
-                    {isBulkVisionLoading ? "Generating..." : "Content with images"}
-                  </span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={isBulkImageLoading}
-                  onClick={handleBulkGenerateImages}
-                  className="gap-1.5 text-xs h-8"
-                >
-                  <Camera className="size-3.5" />
-                  <span className="hidden sm:inline">
-                    {isBulkImageLoading ? "Queuing images..." : "Generate images"}
-                  </span>
-                  <span className="sm:hidden">
-                    {isBulkImageLoading ? "Queuing..." : "Images"}
-                  </span>
-                </Button>
-              </>
-            )}
             <Button
               variant="outline"
               size="sm"
-              disabled={isBulkGenerating}
-              onClick={handleGenerateBulkSuggestions}
-              className="text-xs h-8"
+              disabled={isBulkVisionWithImagesLoading || isBulkVisionLoading}
+              onClick={handleBulkImageWithContent}
+              className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10 text-xs h-8"
+            >
+              <Wand2 className="size-3.5" />
+              <span className="hidden sm:inline">
+                {isBulkVisionWithImagesLoading
+                  ? "Generating images & content..."
+                  : "Generate Image with Content"}
+              </span>
+              <span className="sm:hidden">
+                {isBulkVisionWithImagesLoading
+                  ? "Generating..."
+                  : "Image with Content"}
+              </span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isBulkVisionLoading || isBulkVisionWithImagesLoading}
+              onClick={handleBulkContentOnly}
+              className="gap-1.5 text-xs h-8"
             >
               <Sparkles className="size-3.5" />
               <span className="hidden sm:inline">
-                {isBulkGenerating ? "Generating..." : "Generate AI suggestions"}
+                {isBulkVisionLoading
+                  ? "Generating content..."
+                  : "Generate Content"}
               </span>
               <span className="sm:hidden">
-                {isBulkGenerating ? "Generating..." : "AI suggestions"}
+                {isBulkVisionLoading ? "Generating..." : "Generate Content"}
               </span>
             </Button>
             <Button
@@ -667,7 +651,7 @@ export function ProductTable({
         </div>
       )}
       <div className="rounded-lg border border-border/80 bg-card overflow-hidden">
-        <Table className="table-fixed min-w-[760px]">
+        <Table className="table-fixed min-w-[880px]">
           <TableHeader>
             <TableRow>
               <TableHead className="w-10">
@@ -682,6 +666,7 @@ export function ProductTable({
               <TableHead className="w-36 sm:w-40">Category</TableHead>
               <TableHead className="w-20 sm:w-24">Price</TableHead>
               <TableHead className="w-24 sm:w-28">Status</TableHead>
+              <TableHead className="w-28 sm:w-36">Shopify</TableHead>
               <TableHead className="w-32 sm:w-44">Last synced</TableHead>
               <TableHead className="w-16 sm:w-20 text-right">Actions</TableHead>
             </TableRow>
@@ -690,7 +675,7 @@ export function ProductTable({
             {paginatedProducts.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="text-center text-sm text-muted-foreground py-8"
                 >
                   No products match your search or filters.

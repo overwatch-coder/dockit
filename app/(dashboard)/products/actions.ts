@@ -1421,7 +1421,8 @@ export async function startBulkProductImageGenerationAction(
 }
 
 export async function generateBulkAiVisionEnrichmentAction(
-  productIds: string[]
+  productIds: string[],
+  options?: { generateImages?: boolean },
 ): Promise<
   | { success: true; enrichedCount: number; failureCount: number }
   | { error: string }
@@ -1439,6 +1440,7 @@ export async function generateBulkAiVisionEnrichmentAction(
 
   let enrichedCount = 0;
   let failureCount = 0;
+  const shouldGenerateImages = options?.generateImages ?? false;
 
   for (const product of products) {
     try {
@@ -1476,12 +1478,17 @@ export async function generateBulkAiVisionEnrichmentAction(
         price: product.price,
         description: product.description,
         imageUrls: candidateUrls,
-        generateImages: false,
+        generateImages: shouldGenerateImages,
         rules: storeAiRules,
         collections,
         categoryAttributes,
         productMetafieldDefinitions,
       });
+
+      const addImageUrls =
+        shouldGenerateImages && result.generatedImages
+          ? result.generatedImages.map((img) => img.url)
+          : [];
 
       await applyFullAiEnrichmentInDb({
         accountId: account.id,
@@ -1498,7 +1505,7 @@ export async function generateBulkAiVisionEnrichmentAction(
           seoDescription: result.fields.seoDescription,
           metafields: result.fields.metafields,
         },
-        addImageUrls: [],
+        addImageUrls,
       });
 
       enrichedCount++;

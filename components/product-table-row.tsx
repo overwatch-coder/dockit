@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { ProductStatusBadge } from "@/components/product-status-badge";
+import { ShopifyStatusBadge } from "@/components/shopify-status-badge";
 import { shopifyThumbnailUrl } from "@/lib/shopify/image-url";
 import type { Product, ProductStatus } from "@/types/product";
 
@@ -106,6 +107,9 @@ export const ProductTableRow = memo(function ProductTableRow({
 
       <TableCell className="w-24 sm:w-28">
         <ProductStatusBadge product={product} />
+      </TableCell>
+      <TableCell className="w-28 sm:w-36">
+        <ShopifyStatusBadge product={product} shopDomain={shopDomain} />
       </TableCell>
       <TableCell className="w-32 sm:w-44 font-mono text-table-data text-muted-foreground whitespace-nowrap">
         {product.lastSyncedAt ? lastSyncedFormatter.format(product.lastSyncedAt) : "—"}
