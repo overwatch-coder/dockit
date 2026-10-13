@@ -12,7 +12,210 @@ change.
 
 - Unit 26 is complete. The next planned unit is Unit 27 (CSV catalog import); live-testing the existing v1 flows against a real connected Shopify store remains outstanding and valuable before expanding further.
 
-## Completed
+- **Shopify Image Processing Timeout Fix & Vision AI Collection Enhancement (`lib/shopify/push.ts`, `lib/ai/vision-enrichment.ts`, `lib/ai/providers/`, `components/product-vision-enrich/`, `components/product-form.tsx`)**:
+  - **Shopify Image Processing Timeout (`lib/shopify/push.ts`)**:
+    - Identified root cause of `"Timed out waiting for Shopify to finish processing new images"`: `resolveNewMediaUrls` was hardcoded to only 3 retries with 1s delay (2.0s total). Real-world multi-image uploads to Shopify CDN take 4–12s to download, transcode, and generate derivatives from external Vercel Blob URLs.
+    - Increased polling retries to 15 attempts with 1.5s delay (~22s total).
+    - Added graceful degradation: if all new nodes are present in Shopify (`newNodes.length >= expectedNewCount`), accepts whatever URLs have resolved rather than hard-failing a successful `productSet` mutation.
+  - **Vision AI Collection Selection & Persistence (`lib/ai/contracts.ts`, `lib/ai/providers/`, `lib/ai/vision-enrichment.ts`, `components/product-vision-enrich/details-tab.tsx`, `components/product-form.tsx`)**:
+    - Connected store collections to the Vision AI Catalog Studio pipeline across OpenAI and Gemini providers.
+    - Added collection matching in prompt and returned `collectionId` / `collectionTitle` in `enrichedProductFieldsSchema`.
+    - Added dedicated Collection selector dropdown with AI suggestion badge to `DetailsTab`.
+    - Wired `onApplyInEditor` and `applyFullAiEnrichmentInDb` to persist the selected collection.
+  - **Vision AI Progress Transparency & Performance (`components/product-vision-enrich/progress-view.tsx`, `lib/ai/vision-enrichment.ts`)**:
+    - Parallelized perspective photo generation using `Promise.all` in `generatePerspectiveImages`, dropping rendering wait times from ~45s to ~12s.
+    - Upgraded `ProgressView` with an active elapsed seconds timer, animated progress bar (15% -> 95%), and dynamic 3-stage checklist (Scanning Photography -> Structuring Copy & Matching Collection -> Rendering 3 Studio Angles).
+  - **Inngest Dev Script Live Progress Heartbeat (`scripts/dev-inngest.mjs`)**:
+    - Added 2.5s interval heartbeat logging during port probing so the terminal provides immediate feedback while Next.js is starting up.
+  - **Testing**:
+    - Full test suite passes: 40 test files, 275 tests green.
+
+- **Codebase Comments Cleanup (Removal of Build Plan Phase/Unit Numbering)**:
+  - Removed all build-plan unit prefixes ("Unit 15", "Unit 16", "Unit 21", "Unit 22", etc.) across all code, tests, and schema files (`lib/`, `components/`, `app/`, `types/`, `prisma/schema.prisma`, `next.config.ts`, `tests/`).
+  - Preserved and clarified all technical, domain-specific, and behavioral comments explaining functionality, data invariants, and edge cases.
+  - Verified full test suite continues passing with 40 test files and 274 passing tests.
+
+- **Inngest Dynamic Dev Environment Port Detection (`scripts/dev-inngest.mjs`, `package.json`, `lib/jobs/client.ts`, `lib/jobs/image-gen.ts`)**:
+  - **Dynamic Multi-Port Detection (`scripts/dev-inngest.mjs`)**:
+    - Replaced hardcoded `http://localhost:3000/api/jobs/run` in `package.json`'s `dev:inngest` script with a smart discovery runner (`node scripts/dev-inngest.mjs`).
+    - Detects when port 3000 is occupied by a separate application and Next.js binds to port 3001, 3002, etc., or uses `PORT` env var / CLI options.
+    - Probes candidate ports (3000-3010) on `/api/jobs/run`, identifying Dockit's Inngest endpoint via `x-inngest-sdk-handled: true` or `function_count`.
+    - Automatically cleans up stale `inngest` processes on port 8288 left from previous sessions pointing to obsolete ports.
+    - Registers Dockit with the Inngest Dev Server via `PUT /api/jobs/run` and spawns `inngest dev -u <detectedUrl>`.
+  - **Inngest Client Dev Mode Configuration (`lib/jobs/client.ts`)**:
+    - Configured `isDev: process.env.NODE_ENV !== "production"` on `Inngest` instance so it routes to the local dev server without requiring cloud event keys.
+  - **Image Generation Dev Safety Net (`lib/jobs/image-gen.ts`)**:
+    - Added duplicate execution guard in `executeImagePipeline`.
+    - Added a 3.5s dev fallback check in `triggerImageGenerationJob`: if an event remains in `PENDING` due to an unsynced external dev runner, runs in-process automatically so merchants are never blocked or timed out.
+  - **Testing**:
+    - Added unit test suite `tests/scripts/dev-inngest.test.ts` with 6 tests verifying port detection, 401 rejection for third-party apps, explicit port flags, and timeouts.
+    - Total test suite: 40 files, 274 tests passing green.
+
+- **AI Product Image Generation Pipeline (Background Job Queue & Studio Modal)**:
+  - **Schema & Database (`prisma/schema.prisma`, Neon Postgres, `lib/db/products/mutations.ts`)**:
+    - Added `GENERATE_IMAGE` to `JobType` enum in Postgres (`prisma/migrations/20261013184500_add_generate_image_job_type/migration.sql`).
+    - Added `appendProductImages` in `lib/db/products/mutations.ts` with account and store validation to atomically append generated image URLs to `Product.imageUrls` while preserving existing gallery assets.
+  - **Contracts & Multi-Provider Adapters (`lib/ai/contracts.ts`, `lib/ai/image/`)**:
+    - Expanded `ImageGenerationOptions` to support flexible aspect ratios (`1:1`, `4:3`, `16:9`, `3:4`, `9:16`), generation modes (`variation`, `refine`, `angle`, `custom`), and reference image URLs.
+    - Updated `OpenAIImageGenerator` (DALL-E 3) with intelligent resolution mapping (`1024x1024`, `1792x1024`, `1024x1792`) and prompt enhancement based on mode and reference cues.
+    - Updated `GeminiImageGenerator` with aspect ratio and resolution prompt instructions.
+  - **Background Job Pipeline, Stale Job Timeout & Concurrency (`lib/jobs/image-gen.ts`, `lib/db/jobs.ts`, `app/api/jobs/run/route.ts`)**:
+    - Resolved `generate_image job timed out`: `getLatestJobForStore` previously held a hardcoded 90-second timeout across all jobs. Increased timeout threshold specifically for `GENERATE_IMAGE` to 300 seconds (5 minutes) in `lib/db/jobs.ts`, preventing false positive timeouts during multi-image rendering.
+    - Added parallel batch synthesis with `Promise.all` in `lib/jobs/image-gen.ts`, generating multi-image batches concurrently instead of sequentially for a ~65% speedup.
+    - Prioritized fast direct generators (Gemini Flash Image / OpenAI DALL-E 3) over asynchronous queue models (Kie.ai) in `image-generator-factory.ts` for "Auto" mode.
+    - Added `updateJobProgress` in `lib/db/jobs.ts` emitting live percentage progression (15%, 35%, 85%, 100%) and descriptive stages (`Analyzing reference details`, `Rendering variations with studio lighting`, `Saving high-resolution media`).
+    - Added `onProgress` callback to `useJobPolling` in `lib/hooks/use-job-polling.ts`.
+  - **Server Actions & UI Workflow (`components/generate-product-image-dialog.tsx`, `components/job-status-indicator.tsx`, `components/product-images.tsx`, `components/product-form.tsx`, `components/product-table.tsx`, `components/product-table-row.tsx`)**:
+    - Created `GenerateProductImageDialog`:
+      - Live percentage progress bar (15% -> 35% -> 85% -> 100%) with animated track and stage description text.
+      - Unblocking workflow: Added prominent "Continue Working in Background & Close" button with immediate feedback toast, letting merchants freely navigate, edit products, or configure settings while AI imagery synthesizes.
+      - Reference image picker with tooltips for each seed photo and seedless generation.
+      - Generation mode selector with concise taglines, rich hover tooltips (`Tooltip`), and a live active selection callout displaying the complete mode description and recommended use cases without clipping.
+      - Aspect ratio selector with rich tooltips detailing exact pixel dimensions and ideal eCommerce use cases.
+      - Model choice: Gemini Flash Image, OpenAI DALL-E 3, Kie.ai.
+      - Batch quantity selector (1 to 3 images) with tooltips and quick directive chips.
+      - Integrated background job polling with `useJobPolling`.
+      - Elevated `TooltipPrimitive.Positioner` in `components/ui/tooltip.tsx` to `z-[70]` so tooltips always float above modal dialogs (`z-50`).
+    - Top bar persistent progress indicator (`components/job-status-indicator.tsx`):
+      - Displays live percentage (`Generating images… 35%`) and stage tooltip in the header pill while working in background across all pages.
+    - Integrated dialog access points:
+      - Gallery header button ("Generate Images with AI") in `components/product-images.tsx`.
+      - AI Studio banner action ("Generate Images") in `components/product-form.tsx`.
+      - Product row action menu ("Generate Images with AI") in `components/product-table-row.tsx` and `components/product-table.tsx`.
+  - **Automated Testing & Verification**:
+    - Unit tests in `tests/lib/jobs/image-gen.test.ts` covering execution pipeline, failure handling, and API errors.
+    - Timeout test in `tests/lib/db/jobs-timeout.test.ts` verifying that `GENERATE_IMAGE` is allowed up to 300s without premature expiration.
+    - Component unit tests in `tests/components/generate-product-image-dialog.test.tsx` verifying dialog rendering, active description banners, mode switching, and aspect ratio displays.
+    - Header indicator test in `tests/components/job-status-indicator.test.ts` verifying running percentage pill.
+    - All 39 test suites and 267 tests passing green (`npm test`).
+    - Next.js production build (`npm run build`) and typecheck (`npx tsc --noEmit`) verified with 0 errors.
+
+- **Store Unlinking vs Permanent Deletion with Database Catalog Retention**:
+  - **Safe Store Unlink Architecture (`lib/db/stores.ts`, `app/(dashboard)/settings/actions.ts`, `app/(dashboard)/stores/actions.ts`)**:
+    - Implemented `unlinkStoreShopify`: Disconnects the store, clears `shopifyDomain` and `connectedAt`, and deletes `ShopifyToken` credentials without deleting catalog products.
+    - Resets `shopifyProductId`, `shopifyVariantId`, `lastSyncedAt`, and conflict snapshots on existing products in Postgres so when the merchant links a new Shopify store, they can publish all existing products cleanly as new products.
+    - Added `unlinkStoreAction` and `unlinkStore` server actions.
+  - **Unlink / Delete Store Modal Redesign (`components/shopify-credentials-form.tsx` & `components/remove-store-dialog.tsx`)**:
+    - **Shopify Remote Data Safety Notice**: Clearly informs merchants that data inside their live Shopify store / database is untouched and will NOT be deleted.
+    - **Default Safe Action ("Unlink Store")**: Keeps all products, variants, images, and AI settings safe in the Dockit database so they can connect another store and publish to it at any time.
+    - **Explicit Opt-in Purge Checkbox**: Added `[ ] Also permanently delete all products and sync jobs from Dockit database`, allowing merchants who specifically want to delete everything to do so intentionally.
+    - Updated Danger Zone in Settings with dual actions: "Unlink Store" (amber/outline) and "Delete Store" (destructive).
+
+- **Settings Shadcn Tabs Architecture & Dev Runtime Error Resolutions**:
+  - **Shadcn Tabs Separation & Refinements (`app/(dashboard)/settings/page.tsx`)**:
+    - Reordered tabs with **"Shopify Credentials"** as Tab 1 (`value="credentials"`) and **"Store Information"** as Tab 2 (`value="store"`).
+    - Default tab set to `"credentials"`.
+    - Removed the redundant full-width store overview card from Store Information, as connection status, store name, and domain are already managed directly in Shopify Credentials. Store Information now cleanly hosts `StoreAiRulesForm`.
+    - **Auto-Dismissing Feedback Notifications (`components/store-ai-rules-form.tsx`)**:
+      - Added a 4-second auto-dismiss timeout to `statusMessage` via `useEffect`, preventing the green/red status banner from remaining persistently visible after saving or resetting rules.
+  - **Prisma Client Singleton Auto-Refresh (`lib/db/client.ts` & `lib/db/ai-rules.ts`)**:
+    - Resolved `TypeError: Cannot read properties of undefined (reading 'findFirst')`: long-running development server instances cached the initial `globalThis.prisma` client from before `StoreAiRule` was added.
+    - Updated `lib/db/client.ts` to inspect the cached instance and automatically re-instantiate `PrismaClient` if newly generated models like `storeAiRule` are missing from the singleton.
+    - Added defensive delegate checks in `lib/db/ai-rules.ts` (`getAiRulesForStore`, `hasCustomAiRules`) gracefully falling back to `DEFAULT_AI_RULES` without throwing unhandled exceptions.
+  - **React 19 / next-themes Script Tag Console Error Filter (`components/theme-provider.tsx`)**:
+    - Resolved React 19 false-positive warning: `"Encountered a script tag while rendering React component"`.
+    - Added development console filter intercepting the intentional pre-hydration script warning in `components/theme-provider.tsx` while preserving theme toggling and preventing FOUC.
+  - **Verification**:
+    - TypeScript: `npx tsc --noEmit` passed with 0 errors.
+    - Vitest: All 37 test files and 258 unit tests pass green.
+
+- **Store-Scoped AI Generation Rules & Settings Customization**:
+  - **Data Model & Prisma Migration (`prisma/schema.prisma` & `lib/db/ai-rules.ts`)**:
+    - Created `StoreAiRule` model scoped strictly by `storeId` and `accountId` (fields: `brandTone`, `titleRule`, `descriptionRule`, `tagsRule`, `seoRule`, `customInstructions`).
+    - Successfully created and applied Prisma migration `20261013155241_add_store_ai_rules` to the PostgreSQL database.
+    - Built DB helpers in `lib/db/ai-rules.ts`: `getAiRulesForStore`, `saveAiRulesForStore`, `resetAiRulesForStore`, and `hasCustomAiRules`.
+  - **Rule Definitions & Effective Merging (`lib/ai/rules.ts`)**:
+    - Established baseline `DEFAULT_AI_RULES` for clean assigned defaults.
+    - Implemented `resolveEffectiveAiRules` ensuring any unset or whitespace fields gracefully fall back to assigned defaults while preserving store-specific overrides.
+    - Zod validation schema `storeAiRulesFormSchema` with strict length limits.
+  - **Dynamic Model Prompt Injection (`lib/ai/providers/` & `lib/ai/suggestions.ts`)**:
+    - Refactored `GeminiTextProvider` and `OpenAiTextProvider` to dynamically inject the store's customized `brandTone`, `titleRule`, `descriptionRule`, `tagsRule`, `seoRule`, and `customInstructions` into catalog generation prompts.
+    - Updated `suggestProductSeo` and `generateProductDescription` in `lib/ai/suggestions.ts` to also accept and apply store rules.
+    - Updated `generateFullAiProductEnrichmentAction` in `app/(dashboard)/products/actions.ts` to resolve `product.storeId` rules and feed them into `runFullProductAiVisionEnrichment`.
+  - **Settings UI (`components/store-ai-rules-form.tsx` & `app/(dashboard)/settings/page.tsx`)**:
+    - Created `StoreAiRulesForm` in `/settings`:
+      - Scoped clearly to the active store with dynamic status badge ("Adapted Store Rules" vs "Standard Default Rules").
+      - Editable textareas for Brand Voice, Title format, Description HTML layout, Tags, Google SEO snippet, and Custom Constraints / Negative Prompts.
+      - "Fill Defaults in Form" helper button for quick template inspection.
+      - "Save Rules for {storeName}" action button with inline feedback.
+      - "Reset to Standard Defaults" with confirmation modal.
+  - **Verification**:
+    - Vitest: All 36 test files and 249 unit tests pass green (`tests/lib/ai/rules.test.ts`, `tests/app/actions/settings.test.ts`, `tests/lib/ai/vision-enrichment.test.ts`).
+    - TypeScript & Production Build: `npx tsc --noEmit` and `npm run build` succeed with 0 errors.
+
+- **Mobile Screen Layout, Table Alignment & Spacing Overhaul**:
+  - **Screen Gap & Container Padding Reduction**:
+    - Replaced harsh, oversized desktop padding (`p-6`, 24px) with responsive spacing (`p-3.5 sm:p-6` and `gap-3.5 sm:gap-6`) across all dashboard routes (`/products`, `/settings`, `/dashboard`, `/products/[id]`, `/products/new`), reclaiming 20px+ of usable horizontal viewport on mobile and reducing top whitespace.
+    - Trimmed dashboard topbar header height from `h-14` (56px) to `h-12 sm:h-14` with `px-3 sm:px-4`, eliminating awkward vertical dead space between the notch and content.
+  - **Table Layout & Column Collisions Resolution (`components/product-table.tsx` & `components/product-table-row.tsx`)**:
+    - Resolved root cause of column header collision ("Tiatleegory") and invisible title values: added `min-w-[760px]` to the table inside the horizontal scroll container and assigned explicit column widths (`Title min-w-[180px] w-auto`, `Category w-36 sm:w-40`, `Price w-20 sm:w-24`, `Status w-24 sm:w-28`, `Last synced w-32 sm:w-44`, `Actions w-16 sm:w-20`).
+    - Title and category now render cleanly with full legibility and smooth touch-scroll support without column squishing.
+  - **Mobile Pagination Condensation**:
+    - Addressed user feedback for `"Rows per page 25 Showing 1–4 of 4 items"`: on mobile, hid verbose label text (`<span className="hidden sm:inline">Rows per page:</span>`), shortened the range indicator to concise `1–4 of 4` (or `4 items`), and used compact previous/next pagination controls (`h-7 px-2`) that fit neatly without wrapping or cutoffs.
+  - **Header Action Buttons & Settings Controls**:
+    - Made action buttons (`SyncStoreButton`, `PushAllDraftsButton`, `New product`) responsive with compact labels on mobile (`Sync`, `Push (X)`, `New`), preventing horizontal cutoffs.
+    - Redesigned `/settings` store header and mode switcher (`OAuth App` / `Custom App`) to stack neatly on mobile (`grid grid-cols-2 sm:flex`) instead of breaking `Store: {name}` across 3 lines.
+    - Full-width responsive submit, admin link, and delete buttons.
+  - **Verification**:
+    - Vitest: All 35 test files and 236 unit tests pass green.
+    - TypeScript & Production Build: `npx tsc --noEmit` and `npm run build` clean with 0 errors.
+
+- **AI Multi-Provider Clean Abstraction & Modular Studio UI (Gemini, OpenAI AI SDK, Kie.ai)**:
+  - **Provider Interfaces & Contracts (`lib/ai/contracts.ts`)**:
+    - Created clean domain abstractions: `ITextVisionProvider` (`analyzePhotos`, `generateFields`) and `IImageGenerator` (`generate`).
+    - Decoupled from hardcoded SDKs; defined unified types for `TextVisionProviderName` (`"gemini" | "openai"`) and `ImageProviderName` (`"gemini" | "openai" | "kie"`).
+  - **Text & Computer Vision Providers (`lib/ai/providers/`)**:
+    - `GeminiTextProvider`: Multimodal visual photo inspection and rich catalog field generation using Google DeepMind's Gemini Flash.
+    - `OpenAiTextProvider`: Structured vision analysis and field synthesis powered by Vercel AI SDK (`generateText`, `Output.object`, `@ai-sdk/openai`).
+    - `text-provider-factory.ts`: Resolves selected provider or auto-detects based on active environment keys (`GEMINI_API_KEY`, `OPENAI_API_KEY`).
+  - **Perspective Image Generators (`lib/ai/image/`)**:
+    - `KieImageGenerator`: Asynchronous task-based image generation via Kie.ai Studio API (`createTask`, status polling via `recordInfo`, and buffer retrieval).
+    - `OpenAiImageGenerator`: Photorealistic commercial studio photography via OpenAI DALL-E 3 API.
+    - `GeminiImageGenerator`: Reference photo ground-truth conditioning via Gemini 2.5 Flash Image.
+    - `image-generator-factory.ts`: Resolves selected generator or auto-detects based on available environment keys (`KIE_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`).
+  - **Orchestration & Server Actions (`lib/ai/vision-enrichment.ts` & `actions.ts`)**:
+    - Refactored `runFullProductAiVisionEnrichment` to delegate directly to provider abstractions with dependency injection support (`customProvider`, `customGenerator`).
+    - Updated `generateFullAiProductEnrichmentAction` to accept user-chosen `textProvider` and `imageProvider`.
+  - **UI Modular Deconstruction (`components/product-vision-enrich/`)**:
+    - Broken monolithic dialog into clean, focused subcomponents:
+      - `model-selector.tsx`: Expandable model and engine configuration panel with provider badges and descriptions.
+      - `vision-report-card.tsx`: Vision intelligence report banner with detected angles, materials, and colors.
+      - `details-tab.tsx`: Title optimization, Shopify Product Taxonomy breadcrumb and ID, and product tags.
+      - `description-tab.tsx`: Sanitized structured HTML description viewer.
+      - `seo-tab.tsx`: SERP snippet preview and character-counter inputs.
+      - `photos-tab.tsx`: Interactive multi-select perspective photography grid.
+      - `progress-view.tsx`: Step-by-step progress indicator showing active model names.
+  - **Verification**:
+    - Vitest: All 35 test files and 236 unit tests pass green (`tests/lib/ai/factories.test.ts`, `tests/lib/ai/vision-enrichment.test.ts`, `tests/components/product-vision-enrich-dialog.test.ts`, etc.).
+    - TypeScript & Production Build: `npx tsc --noEmit` and `npm run build` clean with 0 errors.
+
+- **AI Vision Multimodal Analysis, Full Product Field Generation & Perspective Photography**:
+  - **Multimodal Computer Vision Analysis & Catalog Enrichment (`lib/ai/vision-enrichment.ts`)**:
+    - Built multimodal vision analysis using Gemini (`gemini-3.8-flash`) inspecting product imagery for visual features, materials, colors, angles, and craftsmanship.
+    - Automated full-catalog field generation: standardized e-commerce title, structured HTML description (overview narrative, key features bullets, specifications, care notes adhering to allowlist), Shopify Taxonomy resolution (`resolveProductTaxonomyCategory`), relevant tags, and character-budgeted SEO metadata (title ~60 chars, meta description ~155 chars).
+    - Added perspective photography generation using `gemini-2.5-flash-image` with primary reference photo as ground truth, rendering alternative studio angles (90° side profile, 45° hero angle, macro texture close-up) uploaded directly to Vercel Blob (`uploadGeneratedProductImage`).
+  - **Interactive Review Studio Modal (`components/product-vision-enrich-dialog.tsx`)**:
+    - Dialog accessible from both the **Product Details Page** (`components/product-form.tsx`) and the **Products Table Page** (`components/product-table.tsx` & `components/product-table-row.tsx`).
+    - Multi-tab preview and customization: Vision Intelligence Report, Core Details (title, taxonomy category, tags), Rich Description HTML preview, Google Search Snippet Preview, and Generated Photography selection grid.
+    - Dual application modes: directly populates editor state in `ProductForm` with visual feedback cues, or directly saves to Postgres with revalidation in `ProductTable`.
+  - **Verification**:
+    - Vitest: All 34 test files and 224 unit tests pass green (`tests/lib/validation/ai-vision-enrichment.test.ts`, `tests/lib/ai/vision-enrichment.test.ts`, `tests/components/product-vision-enrich-dialog.test.ts`).
+    - TypeScript & Production Build: `npx tsc --noEmit` and `npm run build` clean with 0 errors.
+
+- **Dashboard Visual Analytics Charts & Status Breakdown Layout Redesign**:
+  - **Interactive Analytics Components**:
+    - Installed `recharts: "^3.10.1"` and created modern chart infrastructure (`components/ui/chart.tsx`) with SSR/JSDOM safety (`initialDimension`).
+    - Added analytics calculations in `lib/analytics/dashboard.ts` (`getActivityTimelineData`, `getStatusDistributionData`, `getCategoryBreakdownData`, `getCatalogMetrics`).
+    - Built `ActivityTimelineChart` (`components/dashboard/activity-timeline-chart.tsx`) with area curves, synced vs edited series, and 7d/14d/30d timeframe filters.
+    - Built `CategoryBarChart` (`components/dashboard/category-bar-chart.tsx`) showing top categories with percentage bars.
+    - Built `MetricsCards` (`components/dashboard/metrics-cards.tsx`) showing total products, active catalog, draft queue, and sync coverage metrics.
+  - **Status Breakdown Layout Redesign (`components/dashboard/status-donut-chart.tsx`)**:
+    - Fixed horizontal clipping/truncation where status legend pills (`Active`, `Draft`, `Conflict` counts and percentages) overflowed past the card border on narrow grid column containers (`lg:col-span-1`).
+    - Redesigned the card layout with a centered donut chart (`h-40 w-40`, innerRadius 50, outerRadius 70, center product count) and full-width status rows below it (`w-full flex flex-col gap-2`).
+    - Each status item features color dot indicator, status title, count, and percentage badge, maintaining equal height and crisp layout across all viewport widths.
+  - **Verification**:
+    - Vitest: All 31 test files and 208 unit tests pass green (`tests/lib/analytics/dashboard.test.ts`, `tests/components/dashboard-overview.test.tsx`).
+    - TypeScript: `npx tsc --noEmit` passes cleanly with 0 errors.
 
 - **False Conflict Resolution, Selective Product Sync Modal & Automated Category Taxonomy Import**:
   - **Immediate False Conflict Elimination & Auto-Healing**:
@@ -27,6 +230,16 @@ change.
     - Enqueues background sync job for selected product IDs via `syncSelectedShopifyProductsAction` and tracks completion via `useJobPolling`.
     - Polished modal footer layout: eliminated negative margins (`-mb-4`) inherited from default `DialogFooter`, ensured `shrink-0` with comfortable padding (`px-6 py-4`), and placed selection count on the far left with Cancel and Import action buttons cleanly aligned on the right.
     - Unified search and catalog fetching lifecycle: fixed issue where clearing search input returned no results by allowing query resets to refetch all products, added dedicated clear search button, and ensured selection state persists across searches.
+    - **Mobile Responsiveness, Action Buttons & Text Refinements**:
+      - Responsive modal container: dynamic width `w-[calc(100vw-1.5rem)] sm:w-[min(94vw,46rem)] max-w-2xl` with `max-h-[92dvh] sm:max-h-[85vh]` using dynamic viewport units (`dvh`) to prevent mobile bottom bars from clipping footer controls.
+      - Adaptive padding: switched header, body, and footer from rigid `px-6 py-4` to responsive `px-4 py-3.5 sm:px-6 sm:py-4` giving ~32px extra usable width on narrow mobile viewports.
+      - Search input & action button responsiveness: updated search placeholder to concise `"Search products..."` to prevent text truncation on narrow screens, enhanced clear search button hit target, and styled "Select all" / "Deselect all" button with clean outline variant and whitespace-nowrap.
+      - Header typography & layout: set `DialogTitle` to `text-base sm:text-lg font-semibold pr-8 sm:pr-0` with smooth wrap to ensure title never collides with the top-right dialog close button.
+      - Product list cards: refined card padding (`p-2.5 sm:p-3`), thumbnail sizes (`size-11 sm:size-12`), and badge typography (`text-[10px] sm:text-xs`) with clean dot separators and truncated category tags (`max-w-32 sm:max-w-44`) to eliminate awkward wrapping.
+      - Responsive footer & touch action buttons: redesigned footer into a 2-tier layout on mobile:
+        - Top tier: clean selection counter (`X products selected of Y`) with a mobile-only quick "Clear" link.
+        - Bottom tier: touch-friendly 50/50 action button grid (`grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:gap-3`) with 36px height (`h-9`), equal widths, and responsive action text (`Import (N)` on mobile vs `Import Selected (N)` on desktop).
+      - Unit tests: added `tests/components/shopify-sync-modal.test.ts` covering category display extraction, selection count pluralization, button label formatting, and batch selection limits (9/9 passing).
   - **Automated Category & Taxonomy Resolution**:
     - Added Shopify Standard Product Taxonomy (`lib/shopify/category-taxonomy.json`).
     - Implemented `resolveProductTaxonomyCategory` in `lib/shopify/taxonomy.ts` using token ranking and penalties to resolve category from `productType` and collection titles if Shopify `category` is missing.
@@ -34,7 +247,7 @@ change.
     - Updated `components/product-table-row.tsx` to display leaf category name with full taxonomy breadcrumb tooltip, falling back to collection title.
   - **Verification**:
     - TypeScript: `npx tsc --noEmit` passed with 0 errors.
-    - Vitest: All 29 test files and 193 unit tests pass green (`tests/lib/shopify/taxonomy.test.ts`, `tests/lib/shopify/products.test.ts`, `tests/lib/db/products.test.ts`).
+    - Vitest: All 37 test files and 258 unit tests pass green (`tests/components/shopify-sync-modal.test.ts`, `tests/lib/shopify/taxonomy.test.ts`, `tests/lib/shopify/products.test.ts`, `tests/lib/db/products.test.ts`).
 
 - **Store Creation Decoupling, Settings Shopify Credentials Integration & Stale Sync Prevention**:
   - **Decoupled Local Store Creation**: Changed store creation so clicking "Add store" in the sidebar creates a named store record locally on our side first (`createStoreAction`), persists it to PostgreSQL with active tenant cookie set (`ACTIVE_STORE_COOKIE_NAME`), and immediately redirects the user to `/settings` with the new store active. Replaced `ConnectStoreDialog` with `CreateStoreDialog` in `components/store-switcher.tsx`.

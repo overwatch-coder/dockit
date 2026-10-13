@@ -113,9 +113,8 @@ export function toBareId(gid: string): string {
   return gid.split("/").pop() ?? gid;
 }
 
-// Schema's ProductStatus enum only has DRAFT | ACTIVE (context/00-build-plan.md
-// Unit 2), so Shopify's ARCHIVED collapses into DRAFT — a deliberate
-// simplification, not an oversight.
+// Schema's ProductStatus enum only has DRAFT | ACTIVE, so Shopify's
+// ARCHIVED collapses into DRAFT — a deliberate simplification, not an oversight.
 function toProductStatus(status: RawProductNode["status"]): "ACTIVE" | "DRAFT" {
   return status === "ACTIVE" ? "ACTIVE" : "DRAFT";
 }

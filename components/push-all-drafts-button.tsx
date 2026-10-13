@@ -12,12 +12,8 @@ import { useJobPolling } from "@/lib/hooks/use-job-polling";
 import type { ProductSummary } from "@/lib/db/products";
 import type { PushBatchResultItem, PushBatchResults } from "@/types/job";
 
-// Unit 16 follow-up, per explicit user request: "Push selected" (in
-// components/product-table.tsx's row-selection toolbar) still requires an
-// explicit selection every time — this is the no-selection counterpart for
-// the common case of "just push everything that isn't on Shopify yet."
-// Reuses the same batch job/eligibility machinery via pushAllDrafts, just
-// with a server-computed id list instead of a caller-supplied one.
+// "Push all drafts" action — pushes all unsynced products (shopifyProductId === null)
+// to Shopify in batch without needing manual selection.
 //
 // Eligibility, corrected per explicit user feedback: never synced to
 // Shopify (shopifyProductId === null) — a product's local DRAFT/ACTIVE
@@ -82,12 +78,22 @@ export function PushAllDraftsButton({ products }: { products: ProductSummary[] }
     <>
       <Button
         variant="outline"
+        size="sm"
         disabled={isBusy || unsyncedCount === 0}
         title={unsyncedCount === 0 ? "Every product has already been pushed to Shopify" : undefined}
         onClick={handleClick}
+        className="text-xs sm:text-sm h-8 sm:h-9"
       >
-        <Send className="size-4" />
-        {isBusy ? "Pushing..." : `Push new products${unsyncedCount > 0 ? ` (${unsyncedCount})` : ""}`}
+        <Send className="size-3.5 sm:size-4" />
+        {isBusy ? (
+          "Pushing..."
+        ) : (
+          <>
+            <span className="hidden sm:inline">Push new products</span>
+            <span className="sm:hidden">Push</span>
+            {unsyncedCount > 0 ? ` (${unsyncedCount})` : ""}
+          </>
+        )}
       </Button>
       <PushResultsDialog
         open={resultsItems !== null}

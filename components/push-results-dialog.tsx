@@ -12,14 +12,8 @@ import {
 import { Button } from "@/components/ui/button";
 import type { PushBatchResultItem } from "@/types/job";
 
-// Unit 16 follow-up: a batch push's per-product outcome (already durably
-// saved in Job.results — see lib/jobs/push.ts's pushBatchJob) had no UI
-// surface beyond a summary toast that disappears. This is a lightweight
-// stand-in for that: auto-opened by the caller whenever a batch settles with
-// at least one failure, listing each product's result and error inline.
-// Unit 20's job status indicator will eventually own a fuller, persistent
-// version of this same view — this doesn't replace that, just closes the
-// immediate "where did the error go" gap in the meantime.
+// Displays detailed per-product batch push results and error messages inline
+// when a batch finishes with failures.
 export function PushResultsDialog({
   open,
   onOpenChange,

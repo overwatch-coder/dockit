@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { Prisma } from "@/lib/generated/prisma/client";
 import {
   decryptAccessToken,
   decryptSecret,
@@ -238,6 +239,53 @@ export async function disconnectStoreShopify(input: {
     prisma.shopifyToken.deleteMany({
       where: { storeId: input.storeId, accountId: input.accountId },
     }),
+  ]);
+}
+
+/**
+ * Unlinks a store from Shopify without deleting its products or data from Dockit's database.
+ * Clears Shopify tokens, shop domain, and resets shopifyProductId/shopifyVariantId so
+ * the existing database products can later be linked and pushed to a newly connected Shopify store.
+ */
+export async function unlinkStoreShopify(input: {
+  accountId: string;
+  storeId: string;
+}): Promise<void> {
+  const products = await prisma.product.findMany({
+    where: { storeId: input.storeId, accountId: input.accountId },
+    select: { id: true },
+  });
+  const productIds = products.map((p) => p.id);
+
+  await prisma.$transaction([
+    // Unlink the store connection and clear domain so another store can be connected
+    prisma.store.updateMany({
+      where: { id: input.storeId, accountId: input.accountId },
+      data: { connectedAt: null, shopifyDomain: null },
+    }),
+    // Delete Shopify tokens and credentials
+    prisma.shopifyToken.deleteMany({
+      where: { storeId: input.storeId, accountId: input.accountId },
+    }),
+    // Reset product Shopify linkages while keeping all product data in Dockit
+    prisma.product.updateMany({
+      where: { storeId: input.storeId, accountId: input.accountId },
+      data: {
+        shopifyProductId: null,
+        lastSyncedAt: null,
+        isConflicted: false,
+        conflictAppSnapshot: Prisma.JsonNull,
+        conflictShopifySnapshot: Prisma.JsonNull,
+      },
+    }),
+    ...(productIds.length > 0
+      ? [
+          prisma.variant.updateMany({
+            where: { productId: { in: productIds } },
+            data: { shopifyVariantId: null },
+          }),
+        ]
+      : []),
   ]);
 }
 

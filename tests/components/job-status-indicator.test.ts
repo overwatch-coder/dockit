@@ -130,4 +130,17 @@ describe("JobStatusIndicator dismissal", () => {
     rerenderAfterRemount(createElement(JobStatusIndicator));
     expect(screen.getByText("Syncing…")).toBeInTheDocument();
   });
+
+  test("renders running image generation job with progress percentage", () => {
+    mockedUseLatestJobStatus.mockReturnValue({
+      job: baseJob({
+        id: "job-img-1",
+        type: "GENERATE_IMAGE",
+        status: "RUNNING",
+        results: { progress: 35, stage: "Rendering variations…" },
+      }),
+    });
+    render(createElement(JobStatusIndicator));
+    expect(screen.getByText("Generating images… 35%")).toBeInTheDocument();
+  });
 });

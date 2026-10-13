@@ -8,7 +8,7 @@ import { AutoDismissBanner } from "@/components/auto-dismiss-banner";
 import { ConnectStoreEmptyState } from "@/components/connect-store-empty-state";
 import { DashboardOverview } from "@/components/dashboard-overview";
 
-// Unit 8: the dashboard is an overview/analytics landing page (store status,
+// The dashboard is an overview/analytics landing page (store status,
 // product counts, a link into /products), not the product list itself — the
 // real list lives at /products, per code-standards.md's existing
 // app/(dashboard)/products/ reservation for product-related pages.

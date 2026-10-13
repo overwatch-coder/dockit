@@ -1,10 +1,9 @@
 import { del, put } from "@vercel/blob";
 
-// Unit 12: draft-state product images live in Vercel Blob until a push
-// replaces them with the Shopify CDN URL (context/architecture.md invariant
-// 8) — this file is the only place that touches the Blob SDK directly, same
-// isolation principle as lib/shopify/ for Shopify calls and lib/db/ for
-// Prisma.
+// Draft-state product images live in Vercel Blob until a push replaces
+// them with the Shopify CDN URL (context/architecture.md invariant 8) —
+// this file is the only place that touches the Blob SDK directly, following
+// the same isolation principle as lib/shopify/ and lib/db/.
 export async function uploadProductImage(input: {
   productId: string;
   file: File;
@@ -17,6 +16,24 @@ export async function uploadProductImage(input: {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return { success: false, error: `Image upload failed: ${message}` };
+  }
+}
+
+export async function uploadGeneratedProductImage(input: {
+  productId: string;
+  buffer: Buffer;
+  filename?: string;
+}): Promise<{ success: true; url: string } | { success: false; error: string }> {
+  try {
+    const filename = input.filename ?? `ai-${crypto.randomUUID()}.png`;
+    const blob = await put(`products/${input.productId}/${filename}`, input.buffer, {
+      access: "public",
+      contentType: "image/png",
+    });
+    return { success: true, url: blob.url };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return { success: false, error: `Generated image upload failed: ${message}` };
   }
 }
 

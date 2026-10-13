@@ -12,24 +12,21 @@ const JOB_TYPE_LABEL: Record<JobType, string> = {
   PUSH: "Push",
   SYNC: "Sync",
   DELETE: "Delete",
+  GENERATE_IMAGE: "Image Generation",
 };
 
 const JOB_TYPE_RUNNING_LABEL: Record<JobType, string> = {
   PUSH: "Pushing…",
   SYNC: "Syncing…",
   DELETE: "Deleting…",
+  GENERATE_IMAGE: "Generating images…",
 };
 
 export type JobResultItem = { productId: string; success: boolean; detail?: string };
 export type JobResultDescription = { summary: string; items?: JobResultItem[] };
 
-// Unit 20: Job.results has 5 distinct shapes across the three job types
-// (see lib/jobs/push.ts, lib/jobs/import.ts, lib/jobs/delete.ts) — this is
-// the one place that has to know about all of them, so every caller
-// downstream (the popover below) can render one consistent view regardless
-// of which job produced it. Exported and pure so it's testable without
-// mounting the component; falls back to a generic message for any shape it
-// doesn't recognize rather than throwing.
+// Maps Job.results shapes across job types to human-readable summaries and item lists.
+// Exported and pure so it's testable without mounting the component.
 export function describeJobResult(job: Job): JobResultDescription {
   const results = job.results;
   if (!results || typeof results !== "object") {
@@ -78,6 +75,12 @@ export function describeJobResult(job: Job): JobResultDescription {
     return { summary: `${r.importedCount} product${r.importedCount === 1 ? "" : "s"} imported.` };
   }
 
+  // Image Generation: { generatedUrls, count }
+  if (Array.isArray(r.generatedUrls)) {
+    const count = typeof r.count === "number" ? r.count : r.generatedUrls.length;
+    return { summary: `Generated ${count} product image${count === 1 ? "" : "s"}.` };
+  }
+
   // Generic sync/import failure: { error }
   if (typeof r.error === "string") {
     return { summary: r.error };
@@ -123,12 +126,8 @@ function dismissJob(jobId: string): void {
   window.dispatchEvent(new Event(DISMISSED_JOB_EVENT));
 }
 
-// Unit 20: the persistent top-bar indicator (ui-context.md's Layout
-// Patterns) — mounted once in app/(dashboard)/layout.tsx's header, always
-// present, unlike lib/hooks/use-job-polling.ts's per-trigger polling which
-// stops the moment its owning component unmounts (e.g. the owner navigates
-// away mid-push). Renders nothing only when there's genuinely no job to
-// show (idle store, or this exact job was dismissed).
+// Persistent top-bar job status indicator — mounted in app/(dashboard)/layout.tsx's header
+// to display ambient job progress across pages. Renders nothing when idle or dismissed.
 //
 // Follow-up, per explicit user feedback from live use: this originally also
 // hid a clean SUCCEEDED job, on the assumption the triggering page's own
@@ -157,10 +156,20 @@ export function JobStatusIndicator() {
   }
 
   if (job.status === "PENDING" || job.status === "RUNNING") {
+    const r = job.results as Record<string, unknown> | null;
+    const progress = typeof r?.progress === "number" ? r.progress : null;
+    const stage = typeof r?.stage === "string" ? r.stage : null;
+
     return (
-      <div className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 text-label text-foreground-muted">
-        <Loader2 className="size-3.5 animate-spin" />
-        {JOB_TYPE_RUNNING_LABEL[job.type]}
+      <div
+        className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 text-label text-foreground-muted shadow-xs"
+        title={stage || JOB_TYPE_RUNNING_LABEL[job.type]}
+      >
+        <Loader2 className="size-3.5 animate-spin text-primary" />
+        <span className="font-medium">
+          {JOB_TYPE_RUNNING_LABEL[job.type]}
+          {progress !== null ? ` ${progress}%` : ""}
+        </span>
       </div>
     );
   }

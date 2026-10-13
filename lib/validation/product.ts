@@ -14,11 +14,10 @@ export const productFormSchema = z.object({
       message: "Enter a valid, non-negative price",
     }),
   status: z.enum(["DRAFT", "ACTIVE"], { message: "Select a status" }),
-  // Unit 13: manual collection assignment. Empty string means "no
+  // Manual collection assignment. Empty string means "no
   // collection" — collectionTitle rides alongside it (the client already
   // knows the title of whichever collection it picked from the fetched
-  // list), same "write both together" convention lib/db/products.ts's
-  // importProducts already uses.
+  // list), matching the "write both together" convention.
   collectionId: z.string().trim().optional(),
   collectionTitle: z.string().trim().optional(),
   // Shopify's separate standardized Product Taxonomy category — same "empty
@@ -26,7 +25,7 @@ export const productFormSchema = z.object({
   // collectionTitle above.
   categoryId: z.string().trim().optional(),
   categoryFullName: z.string().trim().optional(),
-  // Unit 14: Shopify's own SEO title/description — distinct from the main
+  // Shopify's own SEO title/description — distinct from the main
   // title/description above, manually editable and/or AI-suggested. Empty
   // string means "not set."
   seoTitle: z.string().trim().optional(),

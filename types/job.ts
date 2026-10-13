@@ -1,6 +1,19 @@
-export type JobType = "PUSH" | "SYNC" | "DELETE";
+export type JobType = "PUSH" | "SYNC" | "DELETE" | "GENERATE_IMAGE";
 
 export type JobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "PARTIAL";
+
+export type ImageGenerationJobResult =
+  | {
+      productId: string;
+      success: true;
+      generatedUrls: string[];
+      count: number;
+    }
+  | {
+      productId: string;
+      success: false;
+      error: string;
+    };
 
 export type Job = {
   id: string;
@@ -10,13 +23,11 @@ export type Job = {
   results: unknown;
   startedAt: Date | null;
   completedAt: Date | null;
-  // Unit 20: the job status indicator orders by/displays this ("started Xm
-  // ago") — not needed by any earlier caller, which is why it wasn't on the
-  // domain type until now even though the Prisma column has always existed.
+  // The job status indicator orders by/displays this ("started Xm ago").
   createdAt: Date;
 };
 
-// Unit 16: the shape of Job.results for a batch push (lib/jobs/push.ts's
+// The shape of Job.results for a batch push (lib/jobs/push.ts's
 // pushBatchJob writes this, components/product-table.tsx's "Push selected"
 // action reads it back after polling) — kept as a shared type so neither
 // side duplicates an inline cast of the opaque Job.results Json column.
@@ -26,10 +37,8 @@ export type PushBatchResultItem =
 
 export type PushBatchResults = { items: PushBatchResultItem[] };
 
-// Unit 17/18: the shape of Job.results for a successful "Sync Store" run
+// The shape of Job.results for a successful "Sync Store" run
 // (lib/jobs/import.ts's syncStoreJob writes this, components/sync-store-button.tsx
-// reads it back after polling). skippedCount was renamed conflictedCount in
-// Unit 18: what used to be a silent no-op skip is now a flagged conflict
-// (Product.isConflicted + snapshots) that the owner needs to know about and
-// resolve (Unit 19), not just a count of nothing-happened.
+// reads it back after polling). Conflicted products are flagged for review
+// (Product.isConflicted + snapshots) rather than silently skipped.
 export type SyncStoreResults = { syncedCount: number; conflictedCount: number; errorCount: number };

@@ -6,7 +6,13 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
-import { createStore, deleteStore, getStoresForAccount, isShopDomainConnected } from "@/lib/db/stores";
+import {
+  createStore,
+  deleteStore,
+  getStoresForAccount,
+  isShopDomainConnected,
+  unlinkStoreShopify,
+} from "@/lib/db/stores";
 import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import {
   buildAuthorizeUrl,
@@ -29,13 +35,10 @@ const storeNameSchema = z
   .min(1, "Enter a name for your store")
   .max(100, "Store name is too long");
 
-// Unit 22 follow-up: setActiveStore/disconnectStore's storeId params were
-// only ever validated by *membership* (does this account actually own a
-// store with this id), never by *format* — a non-string-shaped value would
-// have reached that membership check (or deleteStore's Prisma call) as
-// whatever raw value a direct request supplied. Same
-// "validate every server action input with a schema" rule as
-// app/(dashboard)/products/actions.ts's identical idSchema.
+// Store id validation: setActiveStore/disconnectStore's storeId params are
+// validated both by format and by membership (does this account actually own a
+// store with this id), following the "validate every server action input with a schema"
+// rule as in app/(dashboard)/products/actions.ts's identical idSchema.
 const idSchema = z.string().trim().min(1, "Missing id.");
 
 export async function createStoreAction(
@@ -108,7 +111,7 @@ export async function connectStore(
   redirect(buildAuthorizeUrl(shopDomain, nonce));
 }
 
-// Unit 21: sets the active-store cookie after validating storeId actually
+// Sets the active-store cookie after validating storeId actually
 // belongs to the caller's account — never trusts a client-supplied id
 // on its own, same defensive stance as every other store-scoped query in
 // this codebase (architecture.md's Invariants #3).
@@ -160,6 +163,24 @@ export async function disconnectStore(storeId: string): Promise<{ error: string 
 
   // Layout-wide (not just "/dashboard") — the store switcher (and the store
   // list it renders) lives in the shared sidebar, so removal needs to
-  // refresh regardless of which page it was triggered from (Unit 21).
+  // refresh regardless of which page it was triggered from.
   revalidatePath("/", "layout");
 }
+
+export async function unlinkStore(storeId: string): Promise<{ error?: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(storeId).success) {
+    return { error: "Invalid store." };
+  }
+
+  try {
+    await unlinkStoreShopify({ accountId: account.id, storeId });
+    revalidatePath("/", "layout");
+    return {};
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Failed to unlink store." };
+  }
+}
+

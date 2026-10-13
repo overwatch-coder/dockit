@@ -42,11 +42,11 @@ const COLLECTIONS_QUERY = `
   }
 `;
 
-// Unit 13: the full list of a store's Shopify collections, for the product
+// The full list of a store's Shopify collections, for the product
 // editor's manual Collection select — mirrors lib/shopify/products.ts's
 // fetchAllProducts pagination shape exactly (same typed result, same
 // cursor-loop). This is a plain read, called live on each product-editor page
-// load rather than cached in Postgres, per this unit's own scope decision.
+// load rather than cached in Postgres.
 export async function fetchAllCollections(
   shopDomain: string,
   accessToken: string

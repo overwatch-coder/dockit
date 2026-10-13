@@ -8,13 +8,11 @@ import { deleteProductImage, isBlobUrl } from "@/lib/blob/products";
 
 export type DeleteOneProductResult = { success: true } | { success: false; step: string; error: string };
 
-// Unit 16 follow-up, per explicit user request: mirrors lib/jobs/push.ts's
-// pushOneProduct shape exactly (load product/token -> call Shopify -> only
-// touch the local row once the Shopify side is confirmed). Deliberately
-// never deletes the local row first: if the Shopify call fails, the local
-// row has to stay, or the app would lose its own record of a product
-// that's still live on Shopify with no way back to it short of a full
-// re-sync.
+// Mirrors lib/jobs/push.ts's pushOneProduct shape exactly (load product/token ->
+// call Shopify -> only touch the local row once the Shopify side is confirmed).
+// Deliberately never deletes the local row first: if the Shopify call fails, the
+// local row has to stay, or the app would lose its own record of a product
+// that's still live on Shopify with no way back to it short of a full re-sync.
 export async function deleteOneProduct(input: {
   accountId: string;
   storeId: string;
@@ -62,10 +60,9 @@ export async function deleteOneProduct(input: {
   return { success: true };
 }
 
-// Unit 16 follow-up: mirrors lib/jobs/push.ts's triggerProductPush — the
-// server action (deleteProductEverywhere in
-// app/(dashboard)/products/actions.ts) creates the Job row first so it has
-// a jobId to return for the confirmation dialog's polling.
+// Mirrors lib/jobs/push.ts's triggerProductPush — the server action
+// (deleteProductEverywhere in app/(dashboard)/products/actions.ts) creates
+// the Job row first so it has a jobId to return for the confirmation dialog's polling.
 export async function triggerProductDelete(input: {
   accountId: string;
   storeId: string;

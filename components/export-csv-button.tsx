@@ -8,10 +8,8 @@ import { Button } from "@/components/ui/button";
 
 type StatusFilter = "all" | "DRAFT" | "ACTIVE" | "CONFLICT";
 
-// Unit 26: no dedicated API route (architecture.md: anything triggered by a
-// dashboard click is a server action, never a new API route) — the server
-// action returns the CSV as plain text, and this purely client-side helper
-// turns it into a real file download the browser handles on its own.
+// The server action returns the CSV as plain text, and this client-side helper
+// triggers a browser file download.
 function downloadCsv(csv: string, filename: string) {
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -24,11 +22,8 @@ function downloadCsv(csv: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-// Unit 26: lives in the product table's filter row (components/product-table.tsx)
-// so it sits right next to the search/status/category controls whose
-// current values it reads and sends — confirmed with the owner via
-// AskUserQuestion that "the current view" means every product matching
-// those filters across every page, not just the rows on the current page.
+// Lives in the product table's filter row (components/product-table.tsx)
+// reading active search/status/category filters and exporting all matching products.
 export function ExportCsvButton({
   search,
   statusFilter,

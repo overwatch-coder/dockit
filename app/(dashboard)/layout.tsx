@@ -18,7 +18,7 @@ export default async function DashboardLayout({
         {/* Fixed above the scroll area (not `sticky` inside it) so it never
             moves — the sidebar collapse toggle stays reachable regardless of
             scroll position. */}
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-2">
+        <header className="flex h-12 sm:h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:px-4">
           <SidebarTrigger />
           <div className="ml-auto">
             <JobStatusIndicator />

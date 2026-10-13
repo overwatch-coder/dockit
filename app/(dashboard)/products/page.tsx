@@ -12,9 +12,9 @@ import { ProductTable } from "@/components/product-table";
 import { PushAllDraftsButton } from "@/components/push-all-drafts-button";
 import { SyncStoreButton } from "@/components/sync-store-button";
 
-// Unit 8: real product list, read-only. Scoped to the active store (Unit 21).
+// Real product list. Scoped to the active store.
 // No store connected is handled by redirecting to /dashboard, since that's
-// where the "Connect store" entry points live (Unit 5) — this page doesn't
+// where the "Connect store" entry points live — this page doesn't
 // duplicate that empty state.
 export default async function ProductsPage({
   searchParams,
@@ -67,20 +67,21 @@ export default async function ProductsPage({
   ]);
 
   return (
-    <div className="flex flex-1 flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="flex flex-1 flex-col gap-3.5 sm:gap-4 p-3.5 sm:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-page-title font-semibold text-foreground">Products</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Products</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
             {currentStore.name ?? currentStore.shopifyDomain ?? "Untitled Store"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto pb-0.5 sm:pb-0 sm:overflow-visible">
           <SyncStoreButton />
           <PushAllDraftsButton products={productSummaries} />
-          <Button nativeButton={false} render={<Link href="/products/new" />}>
-            <Plus className="size-4" />
-            New product
+          <Button nativeButton={false} size="sm" render={<Link href="/products/new" />} className="text-xs sm:text-sm h-8 sm:h-9">
+            <Plus className="size-3.5 sm:size-4" />
+            <span className="hidden sm:inline">New product</span>
+            <span className="sm:hidden">New</span>
           </Button>
         </div>
       </div>

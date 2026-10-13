@@ -7,6 +7,7 @@ import {
   saveLegacyTokenAction,
   disconnectStoreAction,
   deleteStoreAction,
+  unlinkStoreAction,
 } from "@/app/(dashboard)/settings/actions";
 import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import * as storeDb from "@/lib/db/stores";
@@ -207,5 +208,91 @@ describe("disconnectStoreAction & deleteStoreAction", () => {
     const result = await deleteStoreAction({ storeId: "store_1" });
     expect(result.success).toBe(true);
     expect(mockDeleteCookie).toHaveBeenCalledWith(ACTIVE_STORE_COOKIE_NAME);
+  });
+
+  it("unlinkStoreAction calls unlinkStoreShopify and keeps store data", async () => {
+    const unlinkSpy = vi.spyOn(storeDb, "unlinkStoreShopify").mockResolvedValue();
+
+    const result = await unlinkStoreAction({ storeId: "store_1" });
+    expect(result.success).toBe(true);
+    expect(unlinkSpy).toHaveBeenCalledWith({
+      accountId: "acc_123",
+      storeId: "store_1",
+    });
+  });
+});
+
+describe("saveStoreAiRulesAction & resetStoreAiRulesAction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("fails if storeId is missing", async () => {
+    const { saveStoreAiRulesAction } = await import("@/app/(dashboard)/settings/actions");
+    const result = await saveStoreAiRulesAction({
+      storeId: "   ",
+      rules: {
+        brandTone: "Tone",
+        titleRule: "Title",
+        descriptionRule: "Desc",
+        tagsRule: "Tags",
+        seoRule: "SEO",
+        customInstructions: "",
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("saves valid AI generation rules scoped to store", async () => {
+    const aiDb = await import("@/lib/db/ai-rules");
+    const saveSpy = vi.spyOn(aiDb, "saveAiRulesForStore").mockResolvedValue({
+      brandTone: "Custom Tone",
+      titleRule: "Custom Title",
+      descriptionRule: "Custom Desc",
+      tagsRule: "Custom Tags",
+      seoRule: "Custom SEO",
+      customInstructions: "No clickbait",
+    });
+
+    const { saveStoreAiRulesAction } = await import("@/app/(dashboard)/settings/actions");
+    const result = await saveStoreAiRulesAction({
+      storeId: "store_1",
+      rules: {
+        brandTone: "Custom Tone",
+        titleRule: "Custom Title",
+        descriptionRule: "Custom Desc",
+        tagsRule: "Custom Tags",
+        seoRule: "Custom SEO",
+        customInstructions: "No clickbait",
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.rules.brandTone).toBe("Custom Tone");
+      expect(result.rules.customInstructions).toBe("No clickbait");
+    }
+    expect(saveSpy).toHaveBeenCalledWith("acc_123", "store_1", expect.objectContaining({
+      brandTone: "Custom Tone",
+      customInstructions: "No clickbait",
+    }));
+  });
+
+  it("resets AI rules back to default", async () => {
+    const aiDb = await import("@/lib/db/ai-rules");
+    const resetSpy = vi.spyOn(aiDb, "resetAiRulesForStore").mockResolvedValue({
+      brandTone: "Default Tone",
+      titleRule: "Default Title",
+      descriptionRule: "Default Desc",
+      tagsRule: "Default Tags",
+      seoRule: "Default SEO",
+      customInstructions: "",
+    });
+
+    const { resetStoreAiRulesAction } = await import("@/app/(dashboard)/settings/actions");
+    const result = await resetStoreAiRulesAction({ storeId: "store_1" });
+
+    expect(result.success).toBe(true);
+    expect(resetSpy).toHaveBeenCalledWith("acc_123", "store_1");
   });
 });

@@ -15,14 +15,10 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import type { ProductStatus } from "@/types/product";
 
-// Unit 16 follow-up, per explicit user request: changes a product's status
-// (or a bulk selection's) directly from the products list — a single row's
-// dropdown, or the selection toolbar — with an explicit confirmation before
-// anything happens, and an explicit choice of whether to also push that
-// change to Shopify right now (matches the app's existing "nothing reaches
-// Shopify without the owner asking for it" convention — same as the
-// editor's own Save-vs-Push split). Shared between both call sites in
-// components/product-table.tsx, same pattern as DeleteProductDialog.
+// Changes a product's status (or a bulk selection's) directly from the
+// products list with explicit confirmation and choice of whether to push
+// changes to Shopify immediately. Shared between both call sites in
+// components/product-table.tsx.
 export function ChangeStatusDialog({
   target,
   onOpenChange,

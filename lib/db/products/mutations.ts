@@ -136,6 +136,67 @@ export async function updateProduct(input: {
   return { success: true, product: toDomainProduct(product) };
 }
 
+export async function applyFullAiEnrichmentInDb(input: {
+  accountId: string;
+  productId: string;
+  fields: {
+    title: string;
+    description: string;
+    categoryId?: string | null;
+    categoryFullName?: string | null;
+    collectionId?: string | null;
+    collectionTitle?: string | null;
+    tags?: string[];
+    seoTitle?: string | null;
+    seoDescription?: string | null;
+  };
+  addImageUrls?: string[];
+}): Promise<
+  | { success: true; product: Product }
+  | { success: false; reason: "not-found" | "conflicted" }
+> {
+  const existing = await prisma.product.findFirst({
+    where: { id: input.productId, accountId: input.accountId },
+  });
+  if (!existing) {
+    return { success: false, reason: "not-found" };
+  }
+  if (existing.isConflicted) {
+    return { success: false, reason: "conflicted" };
+  }
+
+  const currentImageUrls = existing.imageUrls || [];
+  const nextImageUrls = [...currentImageUrls];
+  for (const url of input.addImageUrls || []) {
+    if (!nextImageUrls.includes(url)) {
+      nextImageUrls.push(url);
+    }
+  }
+
+  const nextPrimaryImageUrl = existing.imageUrl || nextImageUrls[0] || null;
+
+  const product = await prisma.product.update({
+    where: { id: input.productId },
+    data: {
+      title: input.fields.title,
+      description: input.fields.description,
+      categoryId: input.fields.categoryId ?? existing.categoryId,
+      categoryFullName: input.fields.categoryFullName ?? existing.categoryFullName,
+      collectionId: input.fields.collectionId !== undefined ? input.fields.collectionId : existing.collectionId,
+      collectionTitle: input.fields.collectionTitle !== undefined ? input.fields.collectionTitle : existing.collectionTitle,
+      tags: input.fields.tags ?? existing.tags,
+      seoTitle: input.fields.seoTitle ?? existing.seoTitle,
+      seoDescription: input.fields.seoDescription ?? existing.seoDescription,
+      imageUrls: nextImageUrls,
+      imageUrl: nextPrimaryImageUrl,
+      lastEditedAt: new Date(),
+    },
+    include: { variants: true },
+  });
+
+  return { success: true, product: toDomainProduct(product) };
+}
+
 export async function addProductImage(input: {
   accountId: string;
   productId: string;
@@ -153,6 +214,39 @@ export async function addProductImage(input: {
     data: {
       imageUrls: { push: input.url },
       imageUrl: existing.imageUrl ?? input.url,
+      lastEditedAt: new Date(),
+    },
+    include: { variants: true },
+  });
+  return toDomainProduct(product);
+}
+
+export async function appendProductImages(input: {
+  accountId: string;
+  productId: string;
+  urls: string[];
+}): Promise<Product | null> {
+  const existing = await prisma.product.findFirst({
+    where: { id: input.productId, accountId: input.accountId },
+    include: { variants: true },
+  });
+  if (!existing || input.urls.length === 0) {
+    return existing ? toDomainProduct(existing) : null;
+  }
+
+  const currentUrls = existing.imageUrls || [];
+  const nextUrls = [...currentUrls];
+  for (const url of input.urls) {
+    if (!nextUrls.includes(url)) {
+      nextUrls.push(url);
+    }
+  }
+
+  const product = await prisma.product.update({
+    where: { id: input.productId },
+    data: {
+      imageUrls: nextUrls,
+      imageUrl: existing.imageUrl || nextUrls[0] || null,
       lastEditedAt: new Date(),
     },
     include: { variants: true },

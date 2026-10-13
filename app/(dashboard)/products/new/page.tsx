@@ -9,8 +9,8 @@ import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import { Button } from "@/components/ui/button";
 import { ProductForm } from "@/components/product-form";
 
-// Unit 10: creates a brand-new local-only draft product (no shopifyProductId
-// until a future push — Units 15-17). Scoped to the active store (Unit 21).
+// Creates a brand-new local-only draft product (no shopifyProductId
+// until pushed to Shopify). Scoped to the active store.
 export default async function NewProductPage() {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -24,7 +24,7 @@ export default async function NewProductPage() {
   const activeStore = getActiveStoreForAccount(stores, cookieStoreId)!;
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-6">
+    <div className="flex flex-1 flex-col gap-4 sm:gap-6 p-3.5 sm:p-6">
       <div>
         <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/products" />}>
           <ArrowLeft className="size-4" />

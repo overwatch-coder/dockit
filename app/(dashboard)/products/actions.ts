@@ -10,6 +10,7 @@ import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import {
   addProductImage as addProductImageInDb,
   applyBulkAiSuggestions as applyBulkAiSuggestionsInDb,
+  applyFullAiEnrichmentInDb,
   createProduct as createProductInDb,
   deleteProducts as deleteProductsFromDb,
   duplicateProduct as duplicateProductInDb,
@@ -56,9 +57,22 @@ import {
   generateProductDescription as generateProductDescriptionSuggestion,
   suggestProductSeo as generateProductSuggestion,
 } from "@/lib/ai/suggestions";
+import { runFullProductAiVisionEnrichment } from "@/lib/ai/vision-enrichment";
+import { getAiRulesForStore } from "@/lib/db/ai-rules";
+import type {
+  FullAiVisionEnrichmentResult,
+  EnrichedProductFields,
+} from "@/lib/validation/ai-vision-enrichment";
+import type {
+  TextVisionProviderName,
+  ImageProviderName,
+  ImageAspectRatio,
+  ImageGenerationMode,
+} from "@/lib/ai/contracts";
 import { triggerBatchPush, triggerProductPush } from "@/lib/jobs/push";
 import { triggerProductDelete } from "@/lib/jobs/delete";
 import { triggerStoreSync } from "@/lib/jobs/import";
+import { triggerImageGenerationJob } from "@/lib/jobs/image-gen";
 import { productFormSchema } from "@/lib/validation/product";
 import { variantFormSchema } from "@/lib/validation/variant";
 import type {
@@ -105,15 +119,9 @@ const bulkAiReviewItemsSchema = z
   .array(bulkAiReviewItemSchema)
   .min(1, "Select at least one suggestion.");
 
-// Unit 22 follow-up: resolveConflictWithSelections' `selections` param was
-// completely unvalidated — a plain object literal type with ten "app" |
-// "shopify" fields, called directly rather than via FormData. Each field
-// already degrades safely today (resolveConflictWithSelectionsInDb reads it
-// via a plain `=== "app"` ternary, so any other value already falls through
-// to the Shopify side rather than crashing), but that's a happy accident of
-// how the ternary happens to be written, not a validated contract — a real
-// schema makes the actual constraint explicit instead of relying on every
-// future reader noticing the ternary's fallback behavior.
+// Validate resolveConflictWithSelections' `selections` param: each field
+// must be explicitly "app" or "shopify". A real schema makes the actual
+// constraint explicit instead of relying on ternary fallback behavior.
 const conflictSideSchema = z.enum(["app", "shopify"]);
 const conflictFieldSelectionsSchema = z.object({
   title: conflictSideSchema,
@@ -154,7 +162,7 @@ export async function deleteProducts(
   revalidatePath("/dashboard");
 }
 
-// Unit 23: creates a new local-only draft from an existing product. The
+// Creates a new local-only draft from an existing product. The
 // database helper owns the copy/reset rules; this action only authenticates,
 // validates, calls it, and refreshes the product views.
 export async function duplicateProduct(
@@ -231,8 +239,8 @@ function parseProductForm(
   return parsed.data;
 }
 
-// Unit 10: creates a brand-new local-only draft product (shopifyProductId
-// stays null until a future push — Units 15-17). storeId is bound via
+// Creates a brand-new local-only draft product (shopifyProductId
+// stays null until pushed to Shopify). storeId is bound via
 // createProduct.bind(null, storeId) from the client form since it isn't
 // part of the form's own fields.
 export async function createProduct(
@@ -266,15 +274,14 @@ export async function createProduct(
   redirect(`/products/${product.id}`);
 }
 
-// Unit 10: edits a product's core fields. productId is bound via
+// Edits a product's core fields. productId is bound via
 // updateProduct.bind(null, productId) from the client form.
 //
-// Unit 11 follow-up, per explicit user request: variants are staged
-// client-side and only reach the database here, alongside the product's own
-// fields — reconciled in one call to syncProductVariants rather than the
-// three separate immediate-persist add/update/delete actions this
-// superseded, so nothing about a variant saves until this button is
-// pressed, same as title/price/status/description.
+// Variants are staged client-side and only reach the database here,
+// alongside the product's own fields — reconciled in one call to
+// syncProductVariants rather than separate immediate-persist actions,
+// so nothing about a variant saves until this button is pressed,
+// same as title/price/status/description.
 export async function updateProduct(
   productId: string,
   _prevState: ProductFormState,
@@ -379,7 +386,7 @@ const ALLOWED_IMAGE_TYPES = [
   "image/gif",
 ];
 
-// Unit 12: uploads a draft-state image to Vercel Blob and adds it to the
+// Uploads a draft-state image to Vercel Blob and adds it to the
 // product's gallery. Unlike title/price/status/variants, this is an
 // immediate action, not staged behind the main Save button — an upload has
 // to actually complete against Blob before there's a URL to show at all, so
@@ -425,10 +432,34 @@ export async function uploadProductImage(
   revalidatePath("/products");
 }
 
-// Unit 12: removes one image from the gallery — a draft Blob upload gets
+export async function addProductImageUrlAction(
+  productId: string,
+  url: string,
+): Promise<{ error: string } | undefined> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(productId).success || !url) {
+    return { error: "Invalid request." };
+  }
+
+  const product = await addProductImageInDb({
+    accountId: account.id,
+    productId,
+    url,
+  });
+  if (!product) {
+    return { error: "This product no longer exists." };
+  }
+
+  revalidatePath(`/products/${productId}`);
+  revalidatePath("/products");
+}
+
+// Removes one image from the gallery — a draft Blob upload gets
 // actually deleted from storage; a Shopify-imported image is just removed
 // from the list (there's nothing in Blob to delete for it, and this never
-// touches Shopify itself, per the unit's own "no Shopify interaction" scope).
+// touches Shopify itself).
 export async function removeProductImage(
   productId: string,
   url: string,
@@ -463,13 +494,13 @@ export async function removeProductImage(
   revalidatePath("/products");
 }
 
-// Unit 14: fetches an AI suggestion for a product's SEO title/description,
+// Fetches an AI suggestion for a product's SEO title/description,
 // tags, and collection. Deliberately does NOT persist anything or call
 // revalidatePath — per architecture.md invariant 7, AI-generated content is
 // only ever returned as a suggestion; it's written to the product record
 // the same way any other edit is, only when the owner presses Save.
 //
-// New (Shopify Product Category unit): the model's structured output only
+// Shopify Product Category: the model's structured output only
 // ever contains a plain-text categoryGuess (lib/ai/suggestions.ts) — it's
 // never shown Shopify's real ~10,000-category taxonomy. That guess is
 // resolved into a real category here, server-side, by searching the actual
@@ -515,12 +546,14 @@ export async function suggestProductSeo(productId: string): Promise<
     }
   }
 
+  const storeAiRules = await getAiRulesForStore(account.id, product.storeId);
   const suggestion = await generateProductSuggestion({
     title: product.title,
     description: product.description,
     price: product.price,
     tags: product.tags,
     collections,
+    rules: storeAiRules,
   });
   if (!suggestion.success) {
     return { error: suggestion.error };
@@ -547,7 +580,7 @@ export async function suggestProductSeo(productId: string): Promise<
   };
 }
 
-// Unit 24: generates suggestions sequentially through the existing
+// Generates suggestions sequentially through the existing
 // single-product AI path. Generation returns review data only; no product is
 // written until applyBulkAiSuggestions below receives the owner's explicit
 // acceptance from the bulk-review dialog.
@@ -694,7 +727,7 @@ export async function searchProductCategories(
   return { success: true, data: result.data };
 }
 
-// Unit 16: generates or improves a product description via AI. Deliberately
+// Generates or improves a product description via AI. Deliberately
 // takes no productId — it works from whatever's currently staged in the
 // form (title/price/description), so it's usable on /products/new before a
 // product row even exists, not just in edit mode. Only auth-gated, same as
@@ -705,16 +738,25 @@ export async function generateProductDescription(input: {
   price: string;
   existingDescriptionHtml: string | null;
   instructions: string;
+  storeId?: string;
 }): Promise<
   { success: true; data: ProductDescriptionSuggestion } | { error: string }
 > {
-  await auth.protect();
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
 
   if (!input.title.trim()) {
     return { error: "Enter a product title first." };
   }
 
-  const result = await generateProductDescriptionSuggestion(input);
+  const storeAiRules = input.storeId
+    ? await getAiRulesForStore(account.id, input.storeId)
+    : undefined;
+
+  const result = await generateProductDescriptionSuggestion({
+    ...input,
+    rules: storeAiRules,
+  });
   if (!result.success) {
     return { error: result.error };
   }
@@ -722,19 +764,15 @@ export async function generateProductDescription(input: {
   return { success: true, data: result.data };
 }
 
-// Unit 15: enqueues a push job — never calls Shopify itself (architecture.md
+// Enqueues a push job — never calls Shopify itself (architecture.md
 // invariants 4/5). The Job row is created here (not inside pushProductJob,
 // unlike the import job's own pattern) so its id can be returned
 // synchronously for the Push button's polling.
 //
-// Unit 22 follow-up: components/product-form.tsx already disables the
-// Republish button while `product.isConflicted` is true, but — unlike
-// pushSelectedProducts/setProductsStatus below, which both filter through
-// getEligibleUnsyncedProducts/getProductsForStatusSync (`isConflicted:
-// false`) — this single-product path had no server-side check at all,
-// meaning it would happily push the app's current (pre-resolution) state
-// over whatever the flagged Shopify-side conflicting change was. Brought in
-// line with the same already-established rule the batch paths enforce.
+// Conflict check: components/product-form.tsx already disables the
+// Republish button while `product.isConflicted` is true, and this
+// single-product path enforces that server-side to ensure un-resolved
+// conflicting products cannot be pushed.
 export async function pushProduct(
   productId: string,
 ): Promise<{ jobId: string } | { error: string }> {
@@ -771,11 +809,11 @@ export async function pushProduct(
   return { jobId: job.id };
 }
 
-// Unit 16: mirrors pushProduct's shape — never calls Shopify itself
+// Mirrors pushProduct's shape — never calls Shopify itself
 // (architecture.md invariant 4). Operates on a caller-supplied selection
 // (components/product-table.tsx's existing row-selection UI), not an
 // implicit "every unsynced product" filter, per explicit product decision.
-// Eligibility, corrected per explicit user feedback: whether a product has
+// Eligibility: whether a product has
 // ever reached Shopify (shopifyProductId === null) — NOT its local DRAFT/
 // ACTIVE status, which is independent. A product that's locally DRAFT but
 // was already pushed once is not re-pushed here, since that would silently
@@ -819,8 +857,8 @@ export async function pushSelectedProducts(
   return { jobId: job.id, count: eligibleIds.length };
 }
 
-// Unit 21: resolves the active store the same way every server entry point
-// now does — reads the active-store-id cookie (set by
+// Resolves the active store the same way every server entry point
+// does — reads the active-store-id cookie (set by
 // app/(dashboard)/stores/actions.ts's setActiveStore) and validates it
 // against this account's actual stores via getActiveStoreForAccount, falling
 // back to the first connected store if the cookie is unset/stale/tampered.
@@ -831,7 +869,7 @@ async function resolveActiveStore(accountId: string) {
   return getActiveStoreForAccount(stores, cookieStoreId);
 }
 
-// Unit 16 follow-up: the no-selection counterpart to pushSelectedProducts —
+// The no-selection counterpart to pushSelectedProducts —
 // pushes every product for the active store that's never reached Shopify.
 // Zero eligible products is a typed error, not a job — nothing to enqueue.
 export async function pushAllDrafts(): Promise<
@@ -869,11 +907,10 @@ export async function pushAllDrafts(): Promise<
   return { jobId: job.id, count: productIds.length };
 }
 
-// Unit 17: the "Sync Store" trigger — pulls the store's current Shopify
+// The "Sync Store" trigger — pulls the store's current Shopify
 // catalog into the database. A product with an unpushed local edit
-// (lastEditedAt after lastSyncedAt) is left untouched by the job itself
-// (lib/db/products.ts's syncProducts/shouldSkipSync), not flagged as a
-// Conflict yet (that's Unit 18). Store scope resolves the active store, same
+// (lastEditedAt after lastSyncedAt) is flagged as a conflict.
+// Store scope resolves the active store, same
 // as pushAllDrafts above. Creates the Job row itself, same as every other
 // dashboard-button-triggered job, so the button can poll it (invariant 4:
 // never calls Shopify here, only enqueues).
@@ -1055,7 +1092,7 @@ export async function syncSelectedShopifyProductsAction(
 }
 
 
-// Unit 16 follow-up: changes one or more products' status directly from the
+// Changes one or more products' status directly from the
 // products list (a single row's dropdown, or a bulk selection) with an
 // explicit choice of whether to also sync that change to Shopify right now
 // — never calls Shopify itself here (invariant 4); syncToShopify just
@@ -1119,9 +1156,8 @@ export async function setProductsStatus(
   return { jobId: job.id, count: eligibleIds.length };
 }
 
-// Unit 16 follow-up, per explicit user request: a genuinely destructive
-// action distinct from deleteProducts (above), which only ever touches
-// Dockit's own database — this permanently removes the product from
+// Destructive action distinct from deleteProducts (above), which only
+// ever touches Dockit's own database — this permanently removes the product from
 // Shopify too. Gated client-side by
 // components/delete-from-shopify-dialog.tsx's type-the-product-name
 // confirmation before this is ever called. Never calls Shopify itself here
@@ -1159,13 +1195,10 @@ export async function deleteProductEverywhere(
   return { jobId: job.id };
 }
 
-// Unit 19 follow-up, per explicit user request: real per-field conflict
-// resolution — replaces the old resolveConflictKeepShopify/"just push"
-// two-path setup with one action covering both as special cases (all-
-// "shopify" needs no push at all, invariant 1 stays satisfied; anything else
-// does). Enqueues the push itself (same createJob/triggerProductPush calls
-// pushProduct above makes) rather than making the dialog orchestrate two
-// separate action calls the way it used to for "Keep app version."
+// Per-field conflict resolution: replaces keeping either side in bulk
+// with granular choices per field (all-"shopify" needs no push at all,
+// invariant 1 stays satisfied; anything else does). Enqueues the push itself
+// rather than making the dialog orchestrate two separate action calls.
 export async function resolveConflictWithSelections(
   productId: string,
   selections: ConflictFieldSelections,
@@ -1215,7 +1248,7 @@ export async function resolveConflictWithSelections(
   return { jobId: job.id };
 }
 
-// Unit 15: a plain polling read for the Push button's own inline status —
+// A plain polling read for the Push button's own inline status —
 // no revalidatePath here, since nothing server-rendered changes per poll
 // tick; the client refreshes itself once it observes SUCCEEDED. Generic by
 // implementation despite the push-specific name — reused as-is by the
@@ -1239,7 +1272,7 @@ export async function getPushJobStatus(
   return { status: job.status, results: job.results };
 }
 
-// Unit 20: backs the persistent job status indicator (components/job-status-indicator.tsx)
+// Backs the persistent job status indicator (components/job-status-indicator.tsx)
 // — unlike getPushJobStatus above (poll a caller-known jobId until it
 // settles), this discovers whatever the most recent job is on its own, so
 // the indicator can show a job's status even when it wasn't the component
@@ -1261,9 +1294,8 @@ export async function getLatestJobStatus(): Promise<
   return { job };
 }
 
-// Unit 26: "Export CSV" on the product list — read-only, adds no new
-// server-side state, per context/00-build-plan.md's spec. Confirmed with
-// the owner via AskUserQuestion: exports every product matching the
+// "Export CSV" on the product list — read-only, adds no new
+// server-side state. Exports every product matching the
 // current search/status/category filters across every page, not just the
 // rows on the current page — reuses getPaginatedProductsForStore with
 // pageSize: "all" (the same escape hatch the table's own "Rows per page"
@@ -1302,3 +1334,161 @@ export async function exportProductsCsv(filters: {
 
   return { csv: buildProductsCsv(products) };
 }
+
+export async function generateFullAiProductEnrichmentAction(input: {
+  productId: string;
+  generateAlternativeImages?: boolean;
+  textProvider?: TextVisionProviderName;
+  imageProvider?: ImageProviderName;
+}): Promise<
+  | { success: true; data: FullAiVisionEnrichmentResult }
+  | { error: string }
+> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(input.productId).success) {
+    return { error: "Invalid product." };
+  }
+
+  const product = await getProductById(account.id, input.productId);
+  if (!product) {
+    return { error: "This product no longer exists." };
+  }
+
+  try {
+    const candidateUrls =
+      product.imageUrls && product.imageUrls.length > 0
+        ? product.imageUrls
+        : product.imageUrl
+          ? [product.imageUrl]
+          : [];
+
+    let collections: Collection[] = [];
+    const storeToken = await getStoreToken(account.id, product.storeId);
+    if (storeToken) {
+      const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
+      const collectionsRes = await fetchAllCollections(
+        storeToken.shopifyDomain,
+        accessToken,
+      );
+      if (collectionsRes.success) {
+        collections = collectionsRes.data;
+      }
+    }
+
+    const storeAiRules = await getAiRulesForStore(account.id, product.storeId);
+
+    const result = await runFullProductAiVisionEnrichment({
+      productId: product.id,
+      title: product.title,
+      price: product.price,
+      description: product.description,
+      imageUrls: candidateUrls,
+      generateImages: input.generateAlternativeImages ?? true,
+      textProvider: input.textProvider,
+      imageProvider: input.imageProvider,
+      rules: storeAiRules,
+      collections,
+    });
+
+    return { success: true, data: result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "AI enrichment failed";
+    return { error: message };
+  }
+}
+
+export async function applyFullAiProductEnrichmentAction(input: {
+  productId: string;
+  fields: EnrichedProductFields;
+  selectedImageUrls: string[];
+}): Promise<{ success: true } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(input.productId).success) {
+    return { error: "Invalid product." };
+  }
+
+  const res = await applyFullAiEnrichmentInDb({
+    accountId: account.id,
+    productId: input.productId,
+    fields: {
+      title: input.fields.title,
+      description: input.fields.descriptionHtml,
+      categoryId: input.fields.categoryId,
+      categoryFullName: input.fields.categoryFullName,
+      collectionId: input.fields.collectionId,
+      collectionTitle: input.fields.collectionTitle,
+      tags: input.fields.tags,
+      seoTitle: input.fields.seoTitle,
+      seoDescription: input.fields.seoDescription,
+    },
+    addImageUrls: input.selectedImageUrls,
+  });
+
+  if (!res.success) {
+    if (res.reason === "conflicted") {
+      return { error: "Cannot enrich a conflicted product. Resolve conflict first." };
+    }
+    return { error: "Product no longer exists." };
+  }
+
+  revalidatePath(`/products/${input.productId}`);
+  revalidatePath("/products");
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+export async function enqueueGenerateProductImagesAction(input: {
+  productId: string;
+  prompt: string;
+  referenceImageUrl?: string | null;
+  aspectRatio?: ImageAspectRatio;
+  size?: string;
+  mode?: ImageGenerationMode;
+  provider?: ImageProviderName;
+  count?: number;
+}): Promise<{ success: true; jobId: string } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(input.productId).success) {
+    return { error: "Invalid product." };
+  }
+
+  const product = await getProductById(account.id, input.productId);
+  if (!product) {
+    return { error: "Product not found." };
+  }
+
+  try {
+    const job = await createJob({
+      accountId: account.id,
+      storeId: product.storeId,
+      type: "GENERATE_IMAGE",
+    });
+
+    await triggerImageGenerationJob({
+      accountId: account.id,
+      storeId: product.storeId,
+      productId: product.id,
+      jobId: job.id,
+      prompt: input.prompt,
+      referenceImageUrl: input.referenceImageUrl,
+      aspectRatio: input.aspectRatio,
+      size: input.size,
+      mode: input.mode,
+      provider: input.provider,
+      count: input.count,
+    });
+
+    return { success: true, jobId: job.id };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to start image generation job.";
+    return { error: message };
+  }
+}
+

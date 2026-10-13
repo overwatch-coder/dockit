@@ -52,9 +52,17 @@ export function SyncStoreButton() {
         size="sm"
         disabled={isPolling}
         onClick={() => setIsModalOpen(true)}
+        className="text-xs sm:text-sm h-8 sm:h-9"
       >
-        <RefreshCw className={isPolling ? "size-4 animate-spin" : "size-4"} />
-        {isPolling ? "Syncing..." : "Sync store"}
+        <RefreshCw className={isPolling ? "size-3.5 sm:size-4 animate-spin" : "size-3.5 sm:size-4"} />
+        {isPolling ? (
+          "Syncing..."
+        ) : (
+          <>
+            <span className="hidden sm:inline">Sync store</span>
+            <span className="sm:hidden">Sync</span>
+          </>
+        )}
       </Button>
 
       <ShopifySyncModal

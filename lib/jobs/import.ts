@@ -9,12 +9,10 @@ type FetchAndImportResult =
   | { success: true; importedCount: number }
   | { success: false; error: string };
 
-// Extracted verbatim from importStoreProductsJob's former inline
-// "fetch-and-import" step callback — no behavior change, just lifted out of
-// the closure so Unit 17's syncStoreJob (below) can share the token-load +
-// Shopify-fetch half without duplicating it. importStoreProductsJob still
-// calls this inside the same step.run with the same step id and return
-// shape.
+// Extracted from importStoreProductsJob's inline "fetch-and-import" step callback
+// so syncStoreJob can share the token-load + Shopify-fetch logic without duplication.
+// importStoreProductsJob still calls this inside the same step.run with the same step id
+// and return shape.
 async function fetchAndImport(input: {
   accountId: string;
   storeId: string;
@@ -44,11 +42,9 @@ async function fetchAndImport(input: {
 }
 
 // Fires once per store connection (see triggerStoreImport below), pulling
-// the store's full catalog into Postgres. Uses JobType "SYNC" — the schema's
-// JobType is deliberately just PUSH | SYNC | DELETE (context/00-build-plan.md
-// Unit 2/6), and an initial import is a pull from Shopify like Unit 17's
-// sync, just for a brand-new store instead of a re-sync. Unlike syncStoreJob
-// below, this job creates its own Job row (see the "create-job" step) —
+// the store's full catalog into Postgres. Uses JobType "SYNC" — an initial
+// import is a pull from Shopify just for a brand-new store instead of a re-sync.
+// Unlike syncStoreJob below, this job creates its own Job row (see the "create-job" step) —
 // there's no UI polling this at OAuth-callback time, so there's no jobId to
 // hand back to anything.
 export const importStoreProductsJob = inngest.createFunction(
@@ -97,7 +93,7 @@ export const importStoreProductsJob = inngest.createFunction(
 
 // Thin inngest.send wrapper — the natural pairing for the function it
 // triggers, called by the OAuth callback route right after a store is
-// connected (context/00-build-plan.md Unit 7: "on first connect").
+// connected on first connect.
 export async function triggerStoreImport(input: {
   accountId: string;
   storeId: string;
@@ -113,7 +109,7 @@ type FetchAndSyncResult =
   | { success: true; syncedCount: number; conflictedCount: number; errorCount: number }
   | { success: false; error: string };
 
-// Unit 17: the re-sync counterpart of fetchAndImport above. Can sync either
+// The re-sync counterpart of fetchAndImport above. Can sync either
 // the full catalog or a specific caller-provided selection of product IDs.
 async function fetchAndSync(input: {
   accountId: string;
@@ -148,10 +144,10 @@ async function fetchAndSync(input: {
   return { success: true, syncedCount, conflictedCount, errorCount };
 }
 
-// Unit 17: mirrors triggerProductPush's pattern — the caller
-// (syncStore in app/(dashboard)/products/actions.ts) creates the Job row
-// itself, since this is triggered from a "Sync Store" button that needs a
-// jobId back synchronously to poll. Supports optional productIds for selective sync.
+// Mirrors triggerProductPush's pattern — the caller (syncStore in
+// app/(dashboard)/products/actions.ts) creates the Job row itself, since this
+// is triggered from a "Sync Store" button that needs a jobId back synchronously
+// to poll. Supports optional productIds for selective sync.
 export async function triggerStoreSync(input: {
   accountId: string;
   storeId: string;

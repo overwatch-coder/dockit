@@ -21,13 +21,10 @@ function toDomainVariant(variant: VariantRecord): Variant {
   };
 }
 
-// Unit 25: a variant's imageUrl is only ever trusted if it's actually one of
-// its own product's current gallery images — never a bare client-supplied
-// URL, same "never trust a client-supplied id on its own" convention
-// architecture.md's invariants already require elsewhere. Falls back to the
-// single legacy imageUrl for products imported before the imageUrls gallery
-// field existed. Exported and pure so it's testable on its own, same
-// pattern as shouldSkipSync (lib/db/products.ts).
+// A variant's imageUrl is only ever trusted if it's actually one of
+// its own product's current gallery images — never an untrusted bare client-supplied
+// URL. Falls back to the single legacy imageUrl for products imported before
+// the imageUrls gallery field existed. Exported and pure so it's testable on its own.
 export function isValidVariantImageUrl(
   product: { imageUrl: string | null; imageUrls: string[] },
   url: string | null
@@ -37,10 +34,9 @@ export function isValidVariantImageUrl(
   return product.imageUrl === url;
 }
 
-// Unit 11 follow-up, per explicit user request: variant add/edit/remove is
-// staged client-side (components/variant-list.tsx) and only reaches the
-// database when the product editor's Save button is pressed — so instead of
-// three separate add/update/delete server calls firing per row interaction,
+// Variant add/edit/remove is staged client-side (components/variant-list.tsx)
+// and only reaches the database when the product editor's Save button is pressed — so
+// instead of three separate add/update/delete server calls firing per row interaction,
 // updateProduct (app/(dashboard)/products/actions.ts) calls this once per
 // save with the full current variant list and the DB is reconciled to match
 // it: ids that already exist get updated, ids that don't (the client's

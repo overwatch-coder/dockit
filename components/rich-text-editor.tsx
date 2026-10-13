@@ -80,10 +80,8 @@ export function RichTextEditor({
 }: {
   defaultValue: string;
   onChange?: (html: string) => void;
-  // Unit 16: lets a parent push AI-generated/-improved HTML into the editor
-  // after mount (e.g. clicking "Generate"/"Apply" in the description AI
-  // dialog). Bumping `version` is the trigger — comparing HTML strings alone
-  // wouldn't let the same suggestion be re-applied twice in a row.
+  // Lets a parent push AI-generated/-improved HTML into the editor
+  // after mount (e.g. applying a suggestion from the AI dialog).
   externalContent?: { html: string; version: number };
 }) {
   const editor = useEditor({

@@ -10,6 +10,9 @@ import {
 import { DESCRIPTION_ALLOWED_TAGS, sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import type { Collection } from "@/types/collection";
 
+import type { StoreAiRules } from "@/lib/ai/rules";
+import { resolveEffectiveAiRules } from "@/lib/ai/rules";
+
 type SuggestionResult = { success: true; data: AiSuggestion } | { success: false; error: string };
 type DescriptionResult =
   | { success: true; data: ProductDescriptionSuggestion }
@@ -24,7 +27,9 @@ export async function suggestProductSeo(input: {
   price: string;
   tags: string[];
   collections: Collection[];
+  rules?: StoreAiRules;
 }): Promise<SuggestionResult> {
+  const effectiveRules = resolveEffectiveAiRules(input.rules);
   // The model doesn't need markup — strip it to plain text for the prompt.
   const plainDescription = input.description
     ? DOMPurify.sanitize(input.description, { ALLOWED_TAGS: [] })
@@ -35,6 +40,7 @@ export async function suggestProductSeo(input: {
     : "(no collections exist in this store)";
 
   const prompt = `You are helping an e-commerce store owner improve a product's search engine optimization (SEO) and organization.
+${effectiveRules.brandTone}
 
 Product:
 - Title: ${input.title}
@@ -44,6 +50,11 @@ Product:
 
 Candidate collections (pick the single best match by id, or use null if none fit):
 ${collectionsList}
+
+Rules & Guidelines:
+- Tags: ${effectiveRules.tagsRule}
+- SEO: ${effectiveRules.seoRule}
+${effectiveRules.customInstructions ? `- Custom store constraints: ${effectiveRules.customInstructions}` : ""}
 
 Write:
 - seoTitle: a concise SEO title (around 60 characters) suitable for a search engine result snippet.
@@ -65,18 +76,18 @@ Write:
   }
 }
 
-// Unit 16: generates a fresh description from a natural-language brief when
-// the product has none yet, or rewrites/improves the existing one against
-// optional custom instructions. One function handles both — the only
-// difference is which branch of the prompt is used — rather than two nearly
-// identical functions, since the model call and error handling are
-// identical either way.
+// Generates a fresh description from a natural-language brief when the
+// product has none yet, or rewrites/improves the existing one against
+// optional custom instructions. One function handles both paths based on
+// existing content presence.
 export async function generateProductDescription(input: {
   title: string;
   price: string;
   existingDescriptionHtml: string | null;
   instructions: string;
+  rules?: StoreAiRules;
 }): Promise<DescriptionResult> {
+  const effectiveRules = resolveEffectiveAiRules(input.rules);
   const allowedTags = DESCRIPTION_ALLOWED_TAGS.join(", ");
   const plainExisting = input.existingDescriptionHtml
     ? DOMPurify.sanitize(input.existingDescriptionHtml, { ALLOWED_TAGS: [] })
@@ -84,6 +95,7 @@ export async function generateProductDescription(input: {
 
   const prompt = plainExisting
     ? `You are helping an e-commerce store owner improve their product description.
+${effectiveRules.brandTone}
 
 Product title: ${input.title}
 Price: ${input.price}
@@ -91,26 +103,33 @@ Current description: ${plainExisting}
 
 Owner's instructions for the rewrite: ${input.instructions || "(none — just improve clarity, tone, and persuasiveness)"}
 
-CRITICAL CONSTRAINTS:
+CRITICAL CONSTRAINTS & RULES:
 1. Do NOT include the product title as an <h1>, <h2>, or top heading in the HTML output.
 2. Do NOT include price, cost, currency symbols, or monetary values anywhere in the description.
 3. Do NOT list product variants, SKUs, option names, or stock quantities.
 4. Do NOT include hyperlinks (<a> tags) or external URLs.
 5. Focus strictly on narrative product description, key features, and benefits using standard prose paragraphs and bulleted lists.
+6. Description formatting rules:
+${effectiveRules.descriptionRule}
+${effectiveRules.customInstructions ? `7. Custom store rules: ${effectiveRules.customInstructions}` : ""}
 
 Rewrite the description as HTML using only these tags: ${allowedTags}. Keep it well-organized (short paragraphs and/or a bullet list of key features/benefits where useful). Return only the rewritten description as descriptionHtml.`
     : `You are helping an e-commerce store owner write a product description from scratch.
+${effectiveRules.brandTone}
 
 Product title: ${input.title}
 Price: ${input.price}
 Owner's brief: ${input.instructions || "(none given — write a compelling general-purpose description from the title alone)"}
 
-CRITICAL CONSTRAINTS:
+CRITICAL CONSTRAINTS & RULES:
 1. Do NOT include the product title as an <h1>, <h2>, or top heading in the HTML output.
 2. Do NOT include price, cost, currency symbols, or monetary values anywhere in the description.
 3. Do NOT list product variants, SKUs, option names, or stock quantities.
 4. Do NOT include hyperlinks (<a> tags) or external URLs.
 5. Focus strictly on narrative product description, key features, and benefits using standard prose paragraphs and bulleted lists.
+6. Description formatting rules:
+${effectiveRules.descriptionRule}
+${effectiveRules.customInstructions ? `7. Custom store rules: ${effectiveRules.customInstructions}` : ""}
 
 Write the description as HTML using only these tags: ${allowedTags}. Keep it well-organized (short paragraphs and/or a bullet list of key features/benefits where useful). Return only the generated description as descriptionHtml.`;
 

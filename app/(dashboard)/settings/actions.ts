@@ -11,6 +11,7 @@ import {
   isShopDomainConnected,
   saveStoreAccessToken,
   saveStoreAppCredentials,
+  unlinkStoreShopify,
 } from "@/lib/db/stores";
 import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import {
@@ -20,6 +21,14 @@ import {
 } from "@/lib/shopify/oauth";
 import { fetchShopName } from "@/lib/shopify/shop";
 import { triggerStoreImport } from "@/lib/jobs/import";
+import {
+  type StoreAiRules,
+  storeAiRulesFormSchema,
+} from "@/lib/ai/rules";
+import {
+  saveAiRulesForStore,
+  resetAiRulesForStore,
+} from "@/lib/db/ai-rules";
 
 const idSchema = z.string().trim().min(1, "Missing store id.");
 const shopDomainSchema = z
@@ -199,6 +208,79 @@ export async function deleteStoreAction(input: {
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to delete store.";
+    return { success: false, error: message };
+  }
+}
+
+export async function unlinkStoreAction(input: {
+  storeId: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(input.storeId).success) {
+    return { success: false, error: "Invalid store." };
+  }
+
+  try {
+    await unlinkStoreShopify({
+      accountId: account.id,
+      storeId: input.storeId,
+    });
+
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to unlink store.";
+    return { success: false, error: message };
+  }
+}
+
+export async function saveStoreAiRulesAction(input: {
+  storeId: string;
+  rules: StoreAiRules;
+}): Promise<{ success: true; rules: StoreAiRules } | { success: false; error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(input.storeId).success) {
+    return { success: false, error: "Invalid store." };
+  }
+
+  const parsedRules = storeAiRulesFormSchema.safeParse(input.rules);
+  if (!parsedRules.success) {
+    return {
+      success: false,
+      error: parsedRules.error.issues[0]?.message ?? "Invalid AI rules format.",
+    };
+  }
+
+  try {
+    const saved = await saveAiRulesForStore(account.id, input.storeId, parsedRules.data);
+    revalidatePath("/settings");
+    return { success: true, rules: saved };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to save AI rules.";
+    return { success: false, error: message };
+  }
+}
+
+export async function resetStoreAiRulesAction(input: {
+  storeId: string;
+}): Promise<{ success: true; rules: StoreAiRules } | { success: false; error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!idSchema.safeParse(input.storeId).success) {
+    return { success: false, error: "Invalid store." };
+  }
+
+  try {
+    const reset = await resetAiRulesForStore(account.id, input.storeId);
+    revalidatePath("/settings");
+    return { success: true, rules: reset };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to reset AI rules.";
     return { success: false, error: message };
   }
 }

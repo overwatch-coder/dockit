@@ -5,22 +5,16 @@ import { getPushJobStatus } from "@/app/(dashboard)/products/actions";
 
 type SettledStatus = "SUCCEEDED" | "FAILED" | "PARTIAL";
 
-// Unit 16: extracted from components/product-form.tsx's original
-// single-product push polling effect once a second consumer
-// (components/product-table.tsx's "Push selected" action) needed the exact
-// same 1500ms poll/settle loop. Only owns the interval/fetch mechanics that
-// were genuinely identical between both call sites — each caller still owns
-// its own status state and toast copy via onSettled/onError, so
-// product-form.tsx's existing behavior (SUCCEEDED -> router.refresh() +
-// "Republished/Published to Shopify"; FAILED -> results.error toast) is
-// unchanged, just now driven by this hook's callbacks instead of an inline
-// effect.
+// Reusable job polling effect used by product-form, product-table, and modal dialogs
+// to poll background jobs every 1500ms until settled. Manages the interval/fetch
+// lifecycle while callers receive lifecycle notifications via onSettled/onError/onProgress.
 export function useJobPolling(options: {
   onSettled: (status: SettledStatus, results: unknown) => void;
   onError: (message: string) => void;
+  onProgress?: (results: unknown) => void;
   intervalMs?: number;
 }): { isPolling: boolean; start: (jobId: string) => void } {
-  const { onSettled, onError, intervalMs = 1500 } = options;
+  const { onSettled, onError, onProgress, intervalMs = 1500 } = options;
   const [isPolling, setIsPolling] = useState(false);
   const jobIdRef = useRef<string | null>(null);
 
@@ -45,6 +39,8 @@ export function useJobPolling(options: {
         clearInterval(interval);
         setIsPolling(false);
         onSettled(result.status, result.results);
+      } else {
+        onProgress?.(result.results);
       }
     }, intervalMs);
     return () => clearInterval(interval);

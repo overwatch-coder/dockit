@@ -11,8 +11,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
-// Overview (dashboard/analytics) and Products (the real product list, Unit
-// 8) are separate destinations, per explicit user request during Unit 8.
+// Overview (dashboard/analytics), Products (the catalog list), and Settings navigation destinations.
 const navItems = [
   { title: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { title: "Products", href: "/products", icon: Package },

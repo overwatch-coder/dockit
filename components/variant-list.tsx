@@ -19,8 +19,8 @@ export type DraftVariant = {
   optionName: string;
   price: string;
   inventory: string;
-  // Unit 25: one of the product's own gallery images (passed in as
-  // `images` below), or null for no variant-specific image.
+  // One of the product's own gallery images (passed in as `images` below),
+  // or null for no variant-specific image.
   imageUrl: string | null;
 };
 
@@ -28,11 +28,7 @@ function makeTempId(): string {
   return `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// Unit 25: a small per-row picker limited to the product's own already-
-// persisted gallery. A just-dropped, not-yet-uploaded image
-// (components/product-images.tsx's pendingImages) has no durable URL yet —
-// it's a local blob: object URL, meaningless once the tab closes — so it
-// isn't offered here; the owner links it after the next Save uploads it.
+// A per-row picker limited to the product's own already-persisted gallery.
 function VariantImagePicker({
   images,
   value,
@@ -108,20 +104,15 @@ function VariantImagePicker({
   );
 }
 
-// Unit 11 follow-up, per explicit user request: add/edit/remove is purely
-// local/staged state, not an immediate per-row server call — nothing about
-// a variant persists to the database until the product editor's own Save
-// button is pressed (components/product-form.tsx serializes this array into
-// a hidden input on submit). Fully controlled by the parent so the preview
-// panel can mirror the same in-progress list.
+// Add/edit/remove is staged client-side and only persists when the product
+// editor's Save button is pressed. Fully controlled by the parent component.
 export function VariantList({
   variants,
   images,
   onChange,
 }: {
   variants: DraftVariant[];
-  // Unit 25: the product's own current gallery (components/product-form.tsx's
-  // `gallery`) — the pool of images each row's picker can choose from.
+  // The product's own current gallery — the pool of images each row's picker can choose from.
   images: string[];
   onChange: (variants: DraftVariant[]) => void;
 }) {

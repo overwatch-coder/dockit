@@ -1,5 +1,5 @@
 // Shared low-level transport for every Shopify Admin GraphQL API call in
-// this codebase (Unit 22: retry-with-backoff for Shopify rate limits, per
+// this codebase (retry-with-backoff for Shopify rate limits, per
 // code-standards.md's "Rate limit handling... lives inside lib/shopify/,
 // not duplicated"). Every exported function elsewhere in lib/shopify/ that
 // talks to Shopify's GraphQL endpoint routes its fetch through here instead

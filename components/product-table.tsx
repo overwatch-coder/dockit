@@ -67,6 +67,8 @@ import { ProductStatusBadge } from "@/components/product-status-badge";
 import { ProductTableRow } from "@/components/product-table-row";
 import { PushResultsDialog } from "@/components/push-results-dialog";
 import { BulkAiReviewDialog } from "@/components/bulk-ai-review-dialog";
+import { ProductVisionEnrichDialog } from "@/components/product-vision-enrich-dialog";
+import { GenerateProductImageDialog } from "@/components/generate-product-image-dialog";
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
 import type {
   PaginatedProductsResult,
@@ -249,6 +251,8 @@ export function ProductTable({
   const [bulkReview, setBulkReview] = useState<BulkAiGenerationResult | null>(
     null,
   );
+  const [visionEnrichProduct, setVisionEnrichProduct] = useState<Product | null>(null);
+  const [generateImagesProduct, setGenerateImagesProduct] = useState<Product | null>(null);
   const { isPolling: isPushPolling, start: startPushPolling } = useJobPolling({
     onSettled: (status, results) => {
       const items = (results as PushBatchResults | undefined)?.items ?? [];
@@ -427,68 +431,90 @@ export function ProductTable({
           updateParams({ status: value ?? "all", page: 1 })
         }
       >
-        <TabsList>
-          <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="DRAFT">Draft</TabsTrigger>
-          <TabsTrigger value="ACTIVE">Active</TabsTrigger>
-          <TabsTrigger value="CONFLICT">
+        <TabsList className="w-full sm:w-auto grid grid-cols-4 sm:flex">
+          <TabsTrigger value="all" className="text-xs">All</TabsTrigger>
+          <TabsTrigger value="DRAFT" className="text-xs">Draft</TabsTrigger>
+          <TabsTrigger value="ACTIVE" className="text-xs">Active</TabsTrigger>
+          <TabsTrigger value="CONFLICT" className="text-xs">
             Conflict
             {conflictCount > 0 && (
-              <span className="ml-1.5 rounded-full bg-conflict/15 px-1.5 py-0.5 text-label font-medium text-conflict">
+              <span className="ml-1 rounded-full bg-conflict/15 px-1.5 py-0.2 text-[10px] font-medium text-conflict">
                 {conflictCount}
               </span>
             )}
           </TabsTrigger>
         </TabsList>
       </Tabs>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
         <Input
           placeholder="Search by title..."
           value={searchText}
           onChange={(event) => setSearchText(event.target.value)}
-          className="max-w-64"
+          className="w-full sm:max-w-64"
         />
-        <Select
-          value={initialCategoryFilter}
-          onValueChange={(value) =>
-            updateParams({ category: value ?? "all", page: 1 })
-          }
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Category" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All categories</SelectItem>
-            {categories.map((category) => (
-              <SelectItem key={category} value={category}>
-                {category}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {/* Unit 26: reads the live (not yet URL-debounced) search text, so
-            exporting right after typing doesn't lag one keystroke behind
-            what's about to be searched. */}
-        <ExportCsvButton
-          search={searchText}
-          statusFilter={initialStatusFilter}
-          categoryFilter={initialCategoryFilter}
-        />
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Select
+            value={initialCategoryFilter}
+            onValueChange={(value) =>
+              updateParams({ category: value ?? "all", page: 1 })
+            }
+          >
+            <SelectTrigger className="flex-1 sm:w-40 sm:flex-initial">
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All categories</SelectItem>
+              {categories.map((category) => (
+                <SelectItem key={category} value={category}>
+                  {category}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {/* Reads live search text so exporting immediately reflects current input. */}
+          <ExportCsvButton
+            search={searchText}
+            statusFilter={initialStatusFilter}
+            categoryFilter={initialCategoryFilter}
+          />
+        </div>
       </div>
       {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between rounded-md border border-border bg-muted/50 px-4 py-2">
-          <p className="text-sm text-muted-foreground">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 rounded-lg border border-border bg-muted/50 p-2.5 sm:px-4 sm:py-2">
+          <p className="text-xs sm:text-sm font-medium text-muted-foreground">
             {selectedIds.size} selected
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {selectedIds.size === 1 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const singleId = Array.from(selectedIds)[0];
+                  const prod = paginatedProducts.find((p) => p.id === singleId);
+                  if (prod) setVisionEnrichProduct(prod);
+                }}
+                className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10 text-xs h-8"
+              >
+                <Sparkles className="size-3.5" />
+                <span className="hidden sm:inline">Generate with AI Vision</span>
+                <span className="sm:hidden">AI Vision</span>
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
               disabled={isBulkGenerating}
               onClick={handleGenerateBulkSuggestions}
+              className="text-xs h-8"
             >
-              <Sparkles className="size-4" />
-              {isBulkGenerating ? "Generating..." : "Generate AI suggestions"}
+              <Sparkles className="size-3.5" />
+              <span className="hidden sm:inline">
+                {isBulkGenerating ? "Generating..." : "Generate AI suggestions"}
+              </span>
+              <span className="sm:hidden">
+                {isBulkGenerating ? "Generating..." : "AI suggestions"}
+              </span>
             </Button>
             <Button
               variant="outline"
@@ -504,15 +530,21 @@ export function ProductTable({
                   : undefined
               }
               onClick={handlePushSelected}
+              className="text-xs h-8"
             >
-              <Send className="size-4" />
-              {isPushPending || isPushPolling
-                ? "Pushing..."
-                : `Push selected (${pushableSelectedIds.length})`}
+              <Send className="size-3.5" />
+              {isPushPending || isPushPolling ? (
+                "Pushing..."
+              ) : (
+                <>
+                  <span className="hidden sm:inline">Push selected</span>
+                  <span className="sm:hidden">Push</span> ({pushableSelectedIds.length})
+                </>
+              )}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger
-                render={<Button variant="outline" size="sm" />}
+                render={<Button variant="outline" size="sm" className="text-xs h-8" />}
               >
                 Change status
               </DropdownMenuTrigger>
@@ -552,120 +584,139 @@ export function ProductTable({
                   label: `${selectedIds.size} products`,
                 })
               }
+              className="text-xs h-8"
             >
-              Delete selected
+              Delete
             </Button>
           </div>
         </div>
       )}
-      <Table className="table-fixed">
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-10">
-              <Checkbox
-                checked={allSelected}
-                onCheckedChange={toggleAll}
-                aria-label="Select all products"
-              />
-            </TableHead>
-            <TableHead className="w-14"></TableHead>
-            <TableHead className="w-auto">Title</TableHead>
-            <TableHead className="w-36 sm:w-40">Category</TableHead>
-            <TableHead className="w-24 sm:w-28">Price</TableHead>
-            <TableHead className="w-24 sm:w-28">Status</TableHead>
-            <TableHead className="w-36 sm:w-44">Last synced</TableHead>
-            <TableHead className="w-20 text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {paginatedProducts.length === 0 && (
+      <div className="rounded-lg border border-border/80 bg-card overflow-hidden">
+        <Table className="table-fixed min-w-[760px]">
+          <TableHeader>
             <TableRow>
-              <TableCell
-                colSpan={8}
-                className="text-center text-sm text-muted-foreground py-8"
-              >
-                No products match your search or filters.
-              </TableCell>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={toggleAll}
+                  aria-label="Select all products"
+                />
+              </TableHead>
+              <TableHead className="w-14"></TableHead>
+              <TableHead className="min-w-[180px] w-auto">Title</TableHead>
+              <TableHead className="w-36 sm:w-40">Category</TableHead>
+              <TableHead className="w-20 sm:w-24">Price</TableHead>
+              <TableHead className="w-24 sm:w-28">Status</TableHead>
+              <TableHead className="w-32 sm:w-44">Last synced</TableHead>
+              <TableHead className="w-16 sm:w-20 text-right">Actions</TableHead>
             </TableRow>
-          )}
-          {paginatedProducts.map((product) => (
-            <ProductTableRow
-              key={product.id}
-              product={product}
-              shopDomain={shopDomain}
-              isSelected={selectedIds.has(product.id)}
-              onToggleSelect={handleToggleSelect}
-              onEdit={handleEdit}
-              onDuplicate={handleDuplicate}
-              onChangeStatus={handleChangeStatus}
-              onDelete={handleDelete}
-              onDeleteShopify={handleDeleteShopify}
-              onResolveConflict={handleResolveConflict}
-            />
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {paginatedProducts.length === 0 && (
+              <TableRow>
+                <TableCell
+                  colSpan={8}
+                  className="text-center text-sm text-muted-foreground py-8"
+                >
+                  No products match your search or filters.
+                </TableCell>
+              </TableRow>
+            )}
+            {paginatedProducts.map((product) => (
+              <ProductTableRow
+                key={product.id}
+                product={product}
+                shopDomain={shopDomain}
+                isSelected={selectedIds.has(product.id)}
+                onToggleSelect={handleToggleSelect}
+                onEdit={handleEdit}
+                onDuplicate={handleDuplicate}
+                onEnrichWithAi={setVisionEnrichProduct}
+                onGenerateImages={setGenerateImagesProduct}
+                onChangeStatus={handleChangeStatus}
+                onDelete={handleDelete}
+                onDeleteShopify={handleDeleteShopify}
+                onResolveConflict={handleResolveConflict}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </div>
 
       {/* Database Pagination Footer Controls */}
       {totalCount > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-4 py-2 px-1 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <span>Rows per page</span>
-            <Select
-              value={String(pageSize)}
-              onValueChange={(val) => {
-                updateParams({ pageSize: val ?? "25", page: 1 });
-              }}
-            >
-              <SelectTrigger className="h-8 w-20">
-                <SelectValue placeholder="25" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-                <SelectItem value="all">All</SelectItem>
-              </SelectContent>
-            </Select>
-            <span className="text-xs sm:text-sm">
-              {pageSize === "all"
-                ? `Showing all ${totalCount} items`
-                : `Showing ${Math.min((currentPage - 1) * (pageSize as number) + 1, totalCount)}–${Math.min(
-                    currentPage * (pageSize as number),
-                    totalCount,
-                  )} of ${totalCount} items`}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-4 py-2 px-1 text-xs sm:text-sm text-muted-foreground border-t border-border/50">
+          <div className="flex items-center justify-between sm:justify-start gap-2.5">
+            <div className="flex items-center gap-1.5">
+              <span className="hidden sm:inline">Rows per page:</span>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(val) => {
+                  updateParams({ pageSize: val ?? "25", page: 1 });
+                }}
+              >
+                <SelectTrigger className="h-7 sm:h-8 w-16 sm:w-20 text-xs">
+                  <SelectValue placeholder="25" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <span className="text-xs text-muted-foreground font-mono sm:font-sans">
+              <span className="sm:hidden">
+                {pageSize === "all"
+                  ? `${totalCount} items`
+                  : `${Math.min((currentPage - 1) * (pageSize as number) + 1, totalCount)}–${Math.min(
+                      currentPage * (pageSize as number),
+                      totalCount,
+                    )} of ${totalCount}`}
+              </span>
+              <span className="hidden sm:inline">
+                {pageSize === "all"
+                  ? `Showing all ${totalCount} items`
+                  : `Showing ${Math.min((currentPage - 1) * (pageSize as number) + 1, totalCount)}–${Math.min(
+                      currentPage * (pageSize as number),
+                      totalCount,
+                    )} of ${totalCount} items`}
+              </span>
             </span>
           </div>
 
           {pageSize !== "all" && totalPages > 1 && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between sm:justify-end gap-2 pt-1 sm:pt-0">
               <Button
                 variant="outline"
                 size="sm"
+                className="h-7 sm:h-8 px-2 text-xs"
                 disabled={currentPage <= 1 || isNavigating}
                 onClick={() =>
                   updateParams({ page: Math.max(1, currentPage - 1) })
                 }
                 aria-label="Previous page"
               >
-                <ChevronLeft className="size-4" />
-                Previous
+                <ChevronLeft className="size-3.5 sm:size-4" />
+                <span className="hidden xs:inline">Prev</span>
               </Button>
-              <span className="font-medium text-foreground text-xs sm:text-sm">
+              <span className="font-medium text-foreground text-xs font-mono">
                 Page {currentPage} of {totalPages}
               </span>
               <Button
                 variant="outline"
                 size="sm"
+                className="h-7 sm:h-8 px-2 text-xs"
                 disabled={currentPage >= totalPages || isNavigating}
                 onClick={() =>
                   updateParams({ page: Math.min(totalPages, currentPage + 1) })
                 }
                 aria-label="Next page"
               >
-                Next
-                <ChevronRight className="size-4" />
+                <span className="hidden xs:inline">Next</span>
+                <ChevronRight className="size-3.5 sm:size-4" />
               </Button>
             </div>
           )}
@@ -776,6 +827,37 @@ export function ProductTable({
         isApplying={isBulkApplying}
         onApply={handleApplyBulkSuggestions}
       />
+      {visionEnrichProduct && (
+        <ProductVisionEnrichDialog
+          open={Boolean(visionEnrichProduct)}
+          onOpenChange={(open) => {
+            if (!open) setVisionEnrichProduct(null);
+          }}
+          product={visionEnrichProduct}
+          onSavedSuccessfully={() => {
+            setVisionEnrichProduct(null);
+            router.refresh();
+          }}
+        />
+      )}
+      {generateImagesProduct && (
+        <GenerateProductImageDialog
+          open={Boolean(generateImagesProduct)}
+          onOpenChange={(open) => {
+            if (!open) setGenerateImagesProduct(null);
+          }}
+          product={{
+            id: generateImagesProduct.id,
+            title: generateImagesProduct.title,
+            imageUrl: generateImagesProduct.imageUrl,
+            imageUrls: generateImagesProduct.imageUrls,
+          }}
+          onGenerated={() => {
+            setGenerateImagesProduct(null);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

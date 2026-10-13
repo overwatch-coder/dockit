@@ -51,7 +51,7 @@ const nextConfig: NextConfig = {
     // this wasn't verified yet.
     remotePatterns: [
       { protocol: "https", hostname: "cdn.shopify.com" },
-      // Unit 12: each Vercel Blob store gets a random subdomain (confirmed
+      // Each Vercel Blob store gets a random subdomain (confirmed
       // against a real uploaded file's URL), so this needs a wildcard, not
       // a fixed hostname.
       { protocol: "https", hostname: "*.public.blob.vercel-storage.com" },

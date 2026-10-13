@@ -41,18 +41,17 @@ export async function createJob(input: {
   return toDomainJob(job);
 }
 
-// Unit 15: scoped by accountId, mirrors getProductById's null-on-not-found
-// pattern — used by the push button's polling server action.
+// Scoped by accountId, mirrors getProductById's null-on-not-found
+// pattern — used by the push and background job polling server actions.
 export async function getJobById(accountId: string, jobId: string): Promise<Job | null> {
   const job = await prisma.job.findFirst({ where: { id: jobId, accountId } });
   return job ? toDomainJob(job) : null;
 }
 
-// Unit 20: backs the persistent job status indicator — the single most
+// Backs the persistent job status indicator — returns the single most
 // recent job for a store. If the latest job is PENDING or RUNNING but has
-// been running for more than 90 seconds, it is timed out / stalled (e.g. queue
-// worker disconnected or unresponsive store); auto-expire it to FAILED so the
-// UI never gets stuck showing "Syncing…" forever.
+// exceeded its stale timeout threshold, auto-expire it to FAILED so the
+// UI never gets stuck showing in-progress status indefinitely.
 export async function getLatestJobForStore(accountId: string, storeId: string): Promise<Job | null> {
   const job = await prisma.job.findFirst({
     where: { accountId, storeId },
@@ -60,9 +59,13 @@ export async function getLatestJobForStore(accountId: string, storeId: string): 
   });
   if (!job) return null;
 
+  // AI image generation can take 1-3 minutes for multi-image batches, so allow 5 minutes (300s)
+  // before considering stale. Push and sync jobs keep standard 90s.
+  const timeoutMs = job.type === "GENERATE_IMAGE" ? 300_000 : 90_000;
+
   const isStale =
     (job.status === "PENDING" || job.status === "RUNNING") &&
-    Date.now() - new Date(job.createdAt).getTime() > 90_000;
+    Date.now() - new Date(job.createdAt).getTime() > timeoutMs;
 
   if (isStale) {
     const errorMsg =
@@ -87,6 +90,28 @@ export async function getLatestJobForStore(accountId: string, storeId: string): 
   }
 
   return toDomainJob(job);
+}
+
+export async function updateJobProgress(input: {
+  accountId: string;
+  jobId: string;
+  progress: number;
+  stage: string;
+  current?: number;
+  total?: number;
+}): Promise<void> {
+  await prisma.job.updateMany({
+    where: { id: input.jobId, accountId: input.accountId },
+    data: {
+      status: "RUNNING",
+      results: {
+        progress: input.progress,
+        stage: input.stage,
+        current: input.current,
+        total: input.total,
+      },
+    },
+  });
 }
 
 export async function updateJobStatus(input: {

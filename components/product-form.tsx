@@ -10,9 +10,10 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ImageOff, Maximize2, Sparkles } from "lucide-react";
+import { ImageOff, Maximize2, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  addProductImageUrlAction,
   createProduct,
   generateProductDescription,
   pushProduct,
@@ -23,6 +24,7 @@ import {
 import { ActionConfirmationModal } from "@/components/action-confirmation-modal";
 import { CategoryPicker } from "@/components/category-picker";
 import { ConflictResolutionDialog } from "@/components/conflict-resolution-dialog";
+import { ProductVisionEnrichDialog } from "@/components/product-vision-enrich-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +53,7 @@ import { ProductImageLightbox } from "@/components/product-image-lightbox";
 import { TagInput } from "@/components/tag-input";
 import { VariantList, type DraftVariant } from "@/components/variant-list";
 import { AiDescriptionReviewDialog } from "@/components/ai-description-review-dialog";
+import { GenerateProductImageDialog } from "@/components/generate-product-image-dialog";
 import {
   AiSeoReviewDialog,
   type AiSuggestedField,
@@ -148,11 +151,11 @@ export function ProductForm({
   const [pendingSeoSuggestion, setPendingSeoSuggestion] =
     useState<SuggestedSeoState | null>(null);
 
-  // Unit 16: AI generate/improve for the main description. Separate from
-  // the seoTitle/seoDescription/tags/collection "Suggest SEO & tags" flow
-  // above — that one requires a saved product (it fetches store
-  // collections); this one only needs whatever's currently staged in the
-  // form, so it also works on /products/new before a product row exists.
+  const [isVisionEnrichOpen, setIsVisionEnrichOpen] = useState(false);
+  const [isGenerateImageOpen, setIsGenerateImageOpen] = useState(false);
+
+  // AI generate/improve for the main description. Works with staged
+  // form fields so it can also be used on /products/new before a product exists.
   const [isDescriptionAiOpen, setIsDescriptionAiOpen] = useState(false);
   const [descriptionInstructions, setDescriptionInstructions] = useState("");
   const [isGeneratingDescription, startDescriptionTransition] = useTransition();
@@ -235,12 +238,9 @@ export function ProductForm({
     toast.success("SEO suggestions applied — review before saving");
   }
 
-  // Unit 15: the push job reads the product from Postgres, not this form's
-  // in-memory state — pushing while there are unsaved edits would silently
-  // push the last-*saved* version while looking like it pushed what's on
-  // screen. isDirty compares the current staged fields against a snapshot
-  // taken on mount and re-taken after every successful save, gating the
-  // Push button until the owner saves first.
+  // The push job reads the product from Postgres, not this form's in-memory state.
+  // isDirty compares current staged fields against the saved snapshot, gating
+  // the Push button until changes are saved first.
   function currentSnapshot() {
     return JSON.stringify({
       title,
@@ -273,15 +273,12 @@ export function ProductForm({
     description?: string;
   } | null>(null);
 
-  // Unit 19: the editor's own entry point into the shared conflict
-  // resolution dialog — same component components/product-table.tsx uses,
-  // just triggered from the badge/banner near the title instead of a table
-  // cell.
+  // Entry point into the shared conflict resolution dialog from the
+  // editor's banner/badge.
   const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false);
 
-  // Unit 16: the poll-until-settled mechanics live in useJobPolling now
-  // (shared with components/product-table.tsx's "Push selected" action) —
-  // this component keeps only its own status state and toast copy.
+  // Poll-until-settled mechanics via useJobPolling (shared with the
+  // product table push action).
   const { start: startPushPolling } = useJobPolling({
     onSettled: (status, results) => {
       if (status === "SUCCEEDED") {
@@ -317,12 +314,9 @@ export function ProductForm({
     startPushPolling(result.jobId);
   }
 
-  // Shopify products can have more than one image, and Unit 12 added
-  // uploading draft-state ones too (components/product-images.tsx) — both
-  // land in the same imageUrls array. Falls back to the single featured
-  // imageUrl for products imported before this field existed. Clicking a
-  // thumbnail just changes which one shows as the main preview image — a
-  // display-only selection, not saved anywhere.
+  // Supports multi-image galleries (components/product-images.tsx), falling
+  // back to the single featured imageUrl if needed. Clicking a thumbnail changes
+  // which image is shown in the main preview.
   const gallery = product?.imageUrls?.length
     ? product.imageUrls
     : product?.imageUrl
@@ -332,12 +326,9 @@ export function ProductForm({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const mainImage = gallery[selectedImageIndex] ?? null;
 
-  // Unit 16, per explicit user request superseding Unit 12's original
-  // "upload immediately on drop" design: a dropped/selected file is only
-  // staged locally (a blob: object URL, never touches Vercel Blob) until
-  // the owner actually saves — removing a staged image before then costs
-  // nothing, since nothing was ever uploaded. Only actually persisted
-  // images (product.imageUrls) still remove via an immediate server call.
+  // Dropped/selected files are staged locally as object URLs until the user
+  // saves, avoiding premature uploads. Persisted gallery images remove via
+  // server action.
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [isUploadingPending, startImageUploadTransition] = useTransition();
 
@@ -378,11 +369,8 @@ export function ProductForm({
     });
   }
 
-  // Fired only after a successful Save (see the effect below) — uploads
-  // every currently-staged file to Vercel Blob, sequentially (same pattern
-  // Unit 16's drag-and-drop follow-up already used for a multi-file drop),
-  // then clears the staged list and refreshes so the server-fetched gallery
-  // picks up the new Blob URLs.
+  // Fired after a successful Save — uploads every currently staged file to
+  // Vercel Blob sequentially, then clears staged images and refreshes.
   function uploadPendingImages(toUpload: PendingImage[]) {
     if (!product || toUpload.length === 0) return;
     startImageUploadTransition(async () => {
@@ -480,10 +468,7 @@ export function ProductForm({
 
   return (
     <div className="flex flex-col gap-8">
-      {/* Unit 19: closes the gap where Save/Republish below previously had
-          no isConflicted check at all — a conflicted product can't be edited
-          or pushed here until it's resolved via the same dialog
-          components/product-table.tsx's Conflict badge opens. */}
+      {/* A conflicted product must be resolved before editing or pushing. */}
       {product?.isConflicted && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-conflict/30 bg-conflict/10 px-4 py-3">
           <div className="flex items-center gap-2">
@@ -507,6 +492,44 @@ export function ProductForm({
       )}
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <form action={formAction} className="flex flex-col gap-6">
+          {mode === "edit" && product && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Sparkles className="size-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-foreground">AI Vision Catalog Studio</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Analyze imagery, generate all metadata, and render perspective photography
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsGenerateImageOpen(true)}
+                  className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10"
+                >
+                  <Wand2 className="size-3.5" />
+                  Generate Images
+                </Button>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={() => setIsVisionEnrichOpen(true)}
+                  className="gap-1.5"
+                >
+                  <Sparkles className="size-3.5" />
+                  Generate with AI Vision
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col gap-2">
             <Label htmlFor="title">Title</Label>
             <Input
@@ -530,6 +553,7 @@ export function ProductForm({
                 onFilesAdded={handleFilesAdded}
                 onRemovePending={handleRemovePending}
                 isUploadingPending={isUploadingPending}
+                onOpenGenerateDialog={() => setIsGenerateImageOpen(true)}
               />
             </ProductImagesErrorBoundary>
           )}
@@ -1028,6 +1052,56 @@ export function ProductForm({
           router.refresh();
         }}
       />
+      {mode === "edit" && product && (
+        <ProductVisionEnrichDialog
+          open={isVisionEnrichOpen}
+          onOpenChange={setIsVisionEnrichOpen}
+          product={product}
+          collections={collections}
+          onApplyInEditor={async (fields, selectedImages) => {
+            setTitle(fields.title);
+            setDescriptionHtml(fields.descriptionHtml);
+            setDescriptionExternalContent({
+              html: fields.descriptionHtml,
+              version: Date.now(),
+            });
+            if (fields.categoryId) setCategoryId(fields.categoryId);
+            if (fields.categoryFullName) setCategoryFullName(fields.categoryFullName);
+            if (fields.collectionId !== undefined && fields.collectionId !== null) {
+              setCollectionId(fields.collectionId);
+              setCollectionTitle(fields.collectionTitle ?? "");
+            }
+            setTags(fields.tags);
+            setSeoTitle(fields.seoTitle);
+            setSeoDescription(fields.seoDescription);
+            setAiSuggested(
+              new Set(["seoTitle", "seoDescription", "tags", "category", "collection"])
+            );
+
+            if (selectedImages.length > 0) {
+              for (const imgUrl of selectedImages) {
+                await addProductImageUrlAction(product.id, imgUrl);
+              }
+              router.refresh();
+            }
+          }}
+        />
+      )}
+      {mode === "edit" && product && (
+        <GenerateProductImageDialog
+          open={isGenerateImageOpen}
+          onOpenChange={setIsGenerateImageOpen}
+          product={{
+            id: product.id,
+            title: product.title,
+            imageUrl: product.imageUrl,
+            imageUrls: gallery,
+          }}
+          onGenerated={() => {
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

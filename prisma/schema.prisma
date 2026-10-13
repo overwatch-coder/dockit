@@ -1,7 +1,6 @@
 // Prisma schema for the Shopify product-management dashboard.
 // See context/architecture.md (Storage Model, Auth and Access Model,
-// Invariants) and context/00-build-plan.md (Unit 2) for the spec this
-// implements.
+// Invariants) for the spec this implements.
 
 generator client {
   provider = "prisma-client"
@@ -56,15 +55,35 @@ model Store {
 
   account  Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
   token    ShopifyToken?
+  aiRule   StoreAiRule?
   products Product[]
   jobs     Job[]
 
   @@index([accountId])
 }
 
+// Scoped per-store AI generation rules so store owners can customize
+// and adapt prompts, voice, title formats, description structure, tags, and constraints.
+model StoreAiRule {
+  id                 String   @id @default(cuid())
+  accountId          String
+  storeId            String   @unique
+  brandTone          String?  @db.Text
+  titleRule          String?  @db.Text
+  descriptionRule    String?  @db.Text
+  tagsRule           String?  @db.Text
+  seoRule            String?  @db.Text
+  customInstructions String?  @db.Text
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
 // Kept as its own model (not fields on Store) since Shopify OAuth tokens
-// are a distinct entity in context/architecture.md's Storage Model table
-// and context/00-build-plan.md's Unit 2 description.
+// are a distinct entity in context/architecture.md's Storage Model table.
 model ShopifyToken {
   id                   String   @id @default(cuid())
   accountId            String
@@ -95,23 +114,21 @@ model Product {
   title            String
   description      String?       @db.Text
   // Shopify CDN URL, source of truth for published-state images
-  // (context/architecture.md Storage Model). Set on import/sync; Unit 12's
+  // (context/architecture.md Storage Model). Set on import/sync;
   // draft-state Vercel Blob upload is a separate, pre-push concern.
   // Kept as the "primary/featured" image (unchanged usage everywhere it
   // already appears — table thumbnails, dashboard) even now that a product
   // can have more than one image.
   imageUrl         String?
   // Every image Shopify has for this product (including the featured one),
-  // read-only display only — reordering/setting a new featured image is
-  // still Unit 12/15-17's job, not this field's.
+  // read-only display only.
   imageUrls        String[]      @default([])
   price            Decimal       @db.Decimal(10, 2)
   status           ProductStatus @default(DRAFT)
   tags             String[]      @default([])
   collectionId     String?
   // Display name of collectionId's Shopify collection, read-only denormalized
-  // copy for the product list's Category column. Collection *assignment*
-  // (select field, AI suggestion) is still Unit 13 — this only reflects the
+  // copy for the product list's Category column. Reflects the
   // product's existing primary collection from Shopify.
   collectionTitle  String?
   categoryId       String?
@@ -150,7 +167,7 @@ model Variant {
   optionName       String
   price            Decimal  @db.Decimal(10, 2)
   inventory        Int      @default(0)
-  // Unit 25: one specific image from the parent product's own gallery
+  // One specific image from the parent product's own gallery
   // (Product.imageUrls), stored the same way every other image reference in
   // this app already is — a plain URL string, not a separate id/media
   // table. Null means this variant has no image of its own and falls back
@@ -169,11 +186,12 @@ model Variant {
 enum JobType {
   PUSH
   SYNC
-  // Unit 16 follow-up, per explicit user request: a background job for
-  // permanently deleting a product from Shopify (not just from Dockit's own
-  // database, which lib/db/products.ts's deleteProducts already handles
-  // synchronously with no job at all).
+  // A background job for permanently deleting a product from Shopify (not just
+  // from Dockit's own database, which lib/db/products.ts's deleteProducts already
+  // handles synchronously with no job at all).
   DELETE
+  // Background AI image generation pipeline for creating, refining, and generating product variations
+  GENERATE_IMAGE
 }
 
 enum JobStatus {
@@ -184,8 +202,7 @@ enum JobStatus {
   PARTIAL
 }
 
-// One table for both push and sync jobs (context/00-build-plan.md Unit 6
-// refers to "the SyncJob/PushJob table", singular). `type` is the
+// One table for all background jobs. `type` is the
 // discriminator called for by context/code-standards.md's TypeScript rules.
 model Job {
   id          String    @id @default(cuid())

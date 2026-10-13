@@ -21,15 +21,9 @@ function displayName(store: Store): string {
   return store.name ?? store.shopifyDomain ?? "Untitled Store";
 }
 
-// Unit 21: activeStoreId is the server-resolved active store (cookie-backed,
-// read in components/app-sidebar.tsx) — the authoritative default on every
-// render. useActiveStoreStore (lib/store/active-store.ts) only holds a
-// *pending optimistic* pick made this session: null until the owner clicks
-// a different store, at which point it wins over the prop so the trigger
-// label/highlight update instantly, without waiting on the server action +
-// router.refresh() round-trip below to finish. No useEffect/hydration dance
-// needed — both starting values are null/prop on server and first client
-// render, so there's nothing to reconcile.
+// activeStoreId is the server-resolved active store (cookie-backed,
+// read in components/app-sidebar.tsx). useActiveStoreStore holds pending
+// optimistic picks so trigger label/highlight update instantly upon selection.
 export function StoreSwitcher({ stores, activeStoreId }: { stores: Store[]; activeStoreId: string | null }) {
   const router = useRouter();
   const pathname = usePathname();

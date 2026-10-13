@@ -105,4 +105,25 @@ describe("getLatestJobForStore timeout auto-expiration", () => {
     expect(result?.status).toBe("FAILED");
     expect(result?.results).toEqual({ error: "push job timed out." });
   });
+
+  it("does not auto-expire GENERATE_IMAGE job at 120s because timeout threshold is 300s", async () => {
+    const runningDate = new Date(Date.now() - 120_000);
+    const imageJob = {
+      id: "job-img-1",
+      accountId: "acc-1",
+      storeId: "store-1",
+      type: "GENERATE_IMAGE" as const,
+      status: "RUNNING" as const,
+      results: { progress: 35, stage: "Rendering..." },
+      startedAt: runningDate,
+      completedAt: null,
+      createdAt: runningDate,
+    };
+    vi.mocked(prisma.job.findFirst).mockResolvedValue(imageJob as any);
+
+    const result = await getLatestJobForStore("acc-1", "store-1");
+    expect(result).not.toBeNull();
+    expect(result?.status).toBe("RUNNING");
+    expect(prisma.job.update).not.toHaveBeenCalled();
+  });
 });

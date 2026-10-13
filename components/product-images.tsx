@@ -4,7 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useDropzone, type FileRejection } from "react-dropzone";
 import Image from "next/image";
-import { Clock, ImagePlus, X } from "lucide-react";
+import { Clock, ImagePlus, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { removeProductImage } from "@/app/(dashboard)/products/actions";
 import { Button } from "@/components/ui/button";
@@ -31,13 +31,9 @@ const ALLOWED_IMAGE_TYPES = {
 // unrelated to (and never confused with) a real Vercel Blob URL.
 export type PendingImage = { id: string; file: File; previewUrl: string };
 
-// Unit 16, per explicit user request superseding Unit 12's original design:
-// dropping/selecting a file no longer uploads to Vercel Blob immediately —
-// it only stages a local preview (owned by the parent form, so it can be
-// uploaded together once the owner actually saves, and discarded for free
-// if they change their mind first). Only already-persisted images (real
-// Blob or Shopify URLs) still remove via an immediate server call, since
-// those already exist in storage.
+// Staging workflow: dropping/selecting a file stages a local preview
+// owned by the parent form to be uploaded upon Save. Persisted images
+// are removed via immediate server call.
 //
 // Uses react-dropzone for drag-and-drop on top of click-to-browse — shadcn
 // has no first-party file upload/dropzone primitive in this project's
@@ -50,6 +46,7 @@ export function ProductImages({
   onFilesAdded,
   onRemovePending,
   isUploadingPending,
+  onOpenGenerateDialog,
 }: {
   productId: string;
   images: string[];
@@ -57,6 +54,7 @@ export function ProductImages({
   onFilesAdded: (files: File[]) => void;
   onRemovePending: (id: string) => void;
   isUploadingPending: boolean;
+  onOpenGenerateDialog?: () => void;
 }) {
   const router = useRouter();
   const [isRemoving, startTransition] = useTransition();
@@ -96,7 +94,21 @@ export function ProductImages({
 
   return (
     <div className="flex flex-col gap-2">
-      <Label>Images</Label>
+      <div className="flex items-center justify-between">
+        <Label>Images</Label>
+        {onOpenGenerateDialog && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onOpenGenerateDialog}
+            className="h-7 gap-1.5 px-2 text-xs text-primary hover:bg-primary/10"
+          >
+            <Wand2 className="size-3.5" />
+            Generate Images with AI
+          </Button>
+        )}
+      </div>
       <div className="flex flex-wrap gap-2">
         {images.map((url) => (
           <div key={url} className="group relative size-16 shrink-0 overflow-hidden rounded-md border border-border">

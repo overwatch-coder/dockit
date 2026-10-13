@@ -21,6 +21,8 @@ export type ProductRecord = {
   conflictAppSnapshot: unknown;
   conflictShopifySnapshot: unknown;
   lastSyncedAt: Date | null;
+  lastEditedAt?: Date;
+  createdAt?: Date;
   variants: {
     id: string;
     shopifyVariantId: string | null;
@@ -55,6 +57,8 @@ export function toDomainProduct(product: ProductRecord): Product {
     conflictShopifySnapshot:
       (product.conflictShopifySnapshot as ConflictSnapshot | null) ?? null,
     lastSyncedAt: product.lastSyncedAt,
+    lastEditedAt: product.lastEditedAt,
+    createdAt: product.createdAt,
     variants: product.variants.map((variant) => ({
       id: variant.id,
       shopifyVariantId: variant.shopifyVariantId,

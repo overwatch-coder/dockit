@@ -17,15 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
 
-// Unit 16 follow-up, per explicit user request: the products table's plain
-// "Delete" (components/delete-product-dialog.tsx) only ever removes a
-// product from Dockit's own database — safe, fast, and reversible via a
-// future re-sync. This is a deliberately separate, much more dangerous
-// action: it permanently deletes the product from Shopify too, so it's
-// gated behind typing the product's exact title (same "type to confirm"
-// pattern GitHub/Vercel use for destructive actions) rather than a plain
-// Yes/No. Single product only — there's no one name to type-match against
-// for a bulk selection, so this isn't offered from the toolbar.
+// Permanently deletes a product from Shopify as well as the local database,
+// gated behind typing the product's exact title for safety. Single product only.
 export function DeleteFromShopifyDialog({
   product,
   onOpenChange,

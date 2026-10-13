@@ -10,9 +10,19 @@ function createPrismaClient(): PrismaClient {
   return new PrismaClient({ adapter });
 }
 
-// Singleton across hot reloads in dev so we don't exhaust Neon connections.
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+function getPrismaClient(): PrismaClient {
+  const existing = globalForPrisma.prisma;
+  // If a cached dev instance exists and has the storeAiRule model, reuse it.
+  // Otherwise (e.g. after schema changes or prisma generate), create a fresh instance.
+  if (existing && "storeAiRule" in existing) {
+    return existing;
+  }
+  const client = createPrismaClient();
+  if (process.env.NODE_ENV !== "production") {
+    globalForPrisma.prisma = client;
+  }
+  return client;
 }
+
+// Singleton across hot reloads in dev so we don't exhaust Neon connections.
+export const prisma = getPrismaClient();

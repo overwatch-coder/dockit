@@ -44,14 +44,9 @@ function StatusPreview({ status }: { status: ProductStatus }) {
   return <Badge className="border-transparent bg-warning/10 text-warning">Draft</Badge>;
 }
 
-// Unit 19 follow-up, per explicit user request ("something like git diff"):
-// word-level highlighting inside a field, not just "this whole field
-// differs." diffWords(shopifyText, appText) walks both strings once; each
-// side then renders the same parts, skipping whichever half doesn't apply
-// to it. Added (green, only in the app's text) and removed (red
-// strikethrough, only in Shopify's text) mirror git diff's own convention —
-// reuses --success/--destructive rather than inventing new colors, per
-// ui-context.md's "never introduce a new color" rule.
+// Word-level highlighting inside a field using git diff conventions:
+// diffWords(shopifyText, appText) walks both strings once; each
+// side then renders the corresponding added or removed parts.
 function renderWordDiff(oldText: string, newText: string, side: Side): ReactNode {
   const parts = diffWords(oldText, newText);
   return parts
@@ -238,12 +233,9 @@ type VariantDiffEntry =
   | { kind: "added"; app: VariantSnapshot }
   | { kind: "removed"; shopify: VariantSnapshot };
 
-// Variants are more like git diff's *lines* than its inline words — a
-// variant either exists on both sides (unchanged/changed), only in the app
-// (added), or only on Shopify (removed). Matched by shopifyVariantId, which
-// both snapshots now carry (Unit 19) — a local-only draft variant has none,
-// so it always shows as "added," which is exactly correct: it genuinely
-// doesn't exist on Shopify yet.
+// Variants are compared by shopifyVariantId — a variant either exists on
+// both sides (unchanged/changed), only in the app (added), or only on Shopify (removed).
+// A local-only draft variant has no shopifyVariantId, so it shows as "added".
 function diffVariants(appVariants: VariantSnapshot[], shopifyVariants: VariantSnapshot[]): VariantDiffEntry[] {
   const shopifyById = new Map(
     shopifyVariants.filter((v) => v.shopifyVariantId).map((v) => [v.shopifyVariantId as string, v])
@@ -338,18 +330,10 @@ function VariantsDiff({
   );
 }
 
-// Unit 19: shows conflictAppSnapshot/conflictShopifySnapshot side by side
-// (app left, Shopify right, per ui-context.md's conflict resolution spec).
-// Shared between the product list (components/product-table.tsx) and the
-// product editor (components/product-form.tsx) — both just pass the
-// conflicted `product`.
-//
-// Unit 19 follow-up, per explicit user request: real per-field resolution
-// instead of two wholesale buttons. Every differing field gets a picker
-// (default "keep mine"); the old "Keep Shopify version"/"Keep app version"
-// buttons are just the special cases of every picker pointing the same way,
-// now both reachable through one resolve action
-// (resolveConflictWithSelections) instead of two separate code paths.
+// Shows conflictAppSnapshot and conflictShopifySnapshot side by side with
+// per-field resolution controls. Every differing field gets a picker (default
+// "keep mine"). Shared between the product list (components/product-table.tsx)
+// and the product editor (components/product-form.tsx).
 export function ConflictResolutionDialog({
   product,
   onOpenChange,

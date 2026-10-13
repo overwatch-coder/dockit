@@ -157,7 +157,7 @@ describe("pushProductToShopify — variant/option payload shape", () => {
   });
 });
 
-describe("pushProductToShopify — variant image linking (Unit 25)", () => {
+describe("pushProductToShopify — variant image linking", () => {
   test("links a variant to a brand-new (Blob-origin) image via originalSource, listed in both files and variants[].file", async () => {
     const blobUrl = "https://abc123.public.blob.vercel-storage.com/staged.jpg";
     const fetchMock = vi

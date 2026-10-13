@@ -5,13 +5,8 @@ import { X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 
-// Unit 13: a small custom free-text chip input for manual tag assignment —
-// no shadcn combobox/command dependency pulled in, matching how
-// components/variant-list.tsx already handles a similar "small structured
-// array" editing need with a fully custom, controlled component rather than
-// a new UI primitive. Purely local/controlled (tags + onChange), no server
-// calls — persistence happens only when the product form's own Save button
-// is pressed, same staging convention as variants.
+// Custom free-text chip input for tag assignment. Controlled component
+// (tags + onChange) staged client-side until the parent form saves.
 export function TagInput({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => void }) {
   const [draft, setDraft] = useState("");
 

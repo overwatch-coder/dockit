@@ -4,7 +4,9 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle,
+  Database,
   ExternalLink,
   Loader2,
   Lock,
@@ -12,16 +14,20 @@ import {
   SlidersHorizontal,
   Store as StoreIcon,
   Trash2,
+  Unlink,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   saveAppCredentialsAction,
   saveLegacyTokenAction,
   disconnectStoreAction,
   deleteStoreAction,
+  unlinkStoreAction,
 } from "@/app/(dashboard)/settings/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -72,6 +78,8 @@ export function ShopifyCredentialsForm({
   const [saving, setSaving] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteWithData, setDeleteWithData] = useState(false);
+  const [isUnlinkingOrDeleting, setIsUnlinkingOrDeleting] = useState(false);
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
@@ -238,20 +246,54 @@ export function ShopifyCredentialsForm({
     }
   };
 
-  const handleDeleteStore = async () => {
-    setDeleting(true);
+  const handleUnlinkOrDeleteStore = async () => {
+    setIsUnlinkingOrDeleting(true);
     try {
-      const result = await deleteStoreAction({ storeId });
-      if (!result.success) {
-        setStatusMessage({ tone: "bad", text: result.error ?? "Failed to delete store." });
-        return;
+      if (deleteWithData) {
+        const result = await deleteStoreAction({ storeId });
+        if (!result.success) {
+          setStatusMessage({ tone: "bad", text: result.error ?? "Failed to delete store." });
+          return;
+        }
+        setDeleteDialogOpen(false);
+        toast.success("Store and data permanently deleted.");
+        router.push("/dashboard");
+      } else {
+        const result = await unlinkStoreAction({ storeId });
+        if (!result.success) {
+          setStatusMessage({ tone: "bad", text: result.error ?? "Failed to unlink store." });
+          return;
+        }
+        setDeleteDialogOpen(false);
+        setCredentials((prev) =>
+          prev
+            ? {
+                ...prev,
+                isConnected: false,
+                shopDomain: "",
+                tokenPreview: null,
+                hasOAuthAppCredentials: false,
+              }
+            : null
+        );
+        setShopDomainInput("");
+        setApiKey("");
+        setApiSecret("");
+        setLegacyToken("");
+        setStatusMessage({
+          tone: "good",
+          text: "Store unlinked from Shopify. All products and data remain safely saved in your database.",
+        });
+        toast.success("Store unlinked. Products preserved in database.");
+        router.refresh();
       }
-      setDeleteDialogOpen(false);
-      router.push("/dashboard");
     } catch {
-      setStatusMessage({ tone: "bad", text: "Failed to delete store." });
+      setStatusMessage({
+        tone: "bad",
+        text: deleteWithData ? "Failed to delete store." : "Failed to unlink store.",
+      });
     } finally {
-      setDeleting(false);
+      setIsUnlinkingOrDeleting(false);
     }
   };
 
@@ -259,14 +301,14 @@ export function ShopifyCredentialsForm({
     <div className="flex flex-col gap-8 max-w-4xl">
       {/* Shopify Integration Card */}
       <section
-        className="flex flex-col gap-5 rounded-xl border bg-card p-5 shadow-sm sm:p-6"
+        className="flex flex-col gap-4 sm:gap-5 rounded-xl border bg-card p-3.5 shadow-sm sm:p-6"
         aria-label="Shopify Store Settings"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b pb-4">
+        <div className="flex items-center justify-between border-b pb-3 sm:pb-4">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="size-4 text-muted-foreground" aria-hidden="true" />
-            <h3 className="text-base font-semibold">Shopify Connection</h3>
+            <h3 className="text-sm sm:text-base font-semibold">Shopify Connection</h3>
           </div>
           {isConnected && credentials?.shopDomain ? (
             <div className="flex items-center gap-2">
@@ -275,36 +317,39 @@ export function ShopifyCredentialsForm({
               </span>
               <Badge
                 variant="outline"
-                className="border-emerald-600/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                className="border-emerald-600/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[11px] sm:text-xs"
               >
-                <ShieldCheck className="mr-1 size-3.5" />
+                <ShieldCheck className="mr-1 size-3 sm:size-3.5" />
                 Connected
               </Badge>
             </div>
           ) : (
             <Badge
               variant="outline"
-              className="border-amber-600/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+              className="border-amber-600/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] sm:text-xs"
             >
-              <AlertCircle className="mr-1 size-3.5" />
+              <AlertCircle className="mr-1 size-3 sm:size-3.5" />
               Not connected
             </Badge>
           )}
         </div>
 
         {/* Subheading & Switcher */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-            <StoreIcon className="size-4" aria-hidden="true" />
-            <span>Store: {storeName}</span>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-4">
+          <div className="flex items-center gap-2 text-xs sm:text-sm font-medium text-muted-foreground">
+            <StoreIcon className="size-4 shrink-0" aria-hidden="true" />
+            <span className="truncate">
+              Store: <strong className="text-foreground font-semibold">{storeName}</strong>
+            </span>
           </div>
 
-          <div className="flex gap-2" role="group" aria-label="Connection mode">
+          <div className="grid grid-cols-2 sm:flex gap-1.5 sm:gap-2" role="group" aria-label="Connection mode">
             <Button
               type="button"
               size="sm"
               variant={connectionMode === "oauth" ? "default" : "outline"}
               onClick={() => setConnectionMode("oauth")}
+              className="text-xs h-8"
             >
               OAuth App
             </Button>
@@ -313,6 +358,7 @@ export function ShopifyCredentialsForm({
               size="sm"
               variant={connectionMode === "legacy" ? "default" : "outline"}
               onClick={() => setConnectionMode("legacy")}
+              className="text-xs h-8"
             >
               Custom App (Token)
             </Button>
@@ -435,9 +481,9 @@ export function ShopifyCredentialsForm({
             </p>
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" size="sm" disabled={saving}>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <Button type="submit" size="sm" disabled={saving} className="w-full sm:w-auto text-xs sm:text-sm">
                 {saving && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
                 {connectionMode === "legacy"
                   ? "Save and Connect"
@@ -450,12 +496,13 @@ export function ShopifyCredentialsForm({
                   nativeButton={false}
                   variant="outline"
                   size="sm"
+                  className="w-full sm:w-auto"
                   render={
                     <a
                       href={`https://${toShopDomain(credentials.shopDomain)}/admin`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-xs"
+                      className="flex items-center justify-center gap-1.5 text-xs sm:text-sm"
                     />
                   }
                 >
@@ -471,7 +518,7 @@ export function ShopifyCredentialsForm({
                 variant="ghost"
                 size="sm"
                 onClick={() => setDisconnectDialogOpen(true)}
-                className="text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                className="w-full sm:w-auto text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
               >
                 Disconnect
               </Button>
@@ -480,28 +527,46 @@ export function ShopifyCredentialsForm({
         </form>
       </section>
 
-      {/* Danger Zone: Delete Store */}
+      {/* Danger Zone: Unlink or Delete Store */}
       <section
-        className="flex flex-col gap-4 rounded-xl border border-destructive/20 bg-destructive/5 p-5 shadow-sm sm:p-6"
+        className="flex flex-col gap-4 rounded-xl border border-destructive/20 bg-destructive/5 p-3.5 sm:p-6 shadow-sm"
         aria-label="Danger Zone"
       >
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h4 className="text-sm font-semibold text-destructive">Delete Store</h4>
+            <h4 className="text-sm font-semibold text-destructive">Unlink or Delete Store</h4>
             <p className="text-xs text-muted-foreground">
-              Permanently remove <span className="font-semibold">{storeName}</span> and its catalog data from Dockit.
+              Unlink <span className="font-semibold">{storeName}</span> to clear credentials on this page while keeping all catalog products safe in your database for a new store, or permanently delete everything.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setDeleteDialogOpen(true)}
-            className="border-destructive/30 text-destructive hover:bg-destructive hover:text-destructive-foreground text-xs"
-          >
-            <Trash2 className="mr-1.5 size-3.5" />
-            Delete Store
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setDeleteWithData(false);
+                setDeleteDialogOpen(true);
+              }}
+              className="w-full sm:w-auto text-xs border-amber-600/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+            >
+              <Unlink className="size-3.5 mr-1.5" />
+              Unlink Store
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setDeleteWithData(true);
+                setDeleteDialogOpen(true);
+              }}
+              className="w-full sm:w-auto text-xs self-start sm:self-auto shrink-0"
+            >
+              <Trash2 className="size-3.5 mr-1.5" />
+              Delete Store
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -536,33 +601,104 @@ export function ShopifyCredentialsForm({
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Unlink / Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete Store Permanently</DialogTitle>
-            <DialogDescription>
-              This action cannot be undone. This will permanently delete <strong>{storeName}</strong> and all associated products and sync jobs from Dockit.
+            <DialogTitle>
+              {deleteWithData ? "Permanently Delete Store & Data" : "Unlink Shopify Store"}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Configure how you want to handle <strong>{storeName}</strong> and your product catalog.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+
+          <div className="space-y-3 py-2 text-left">
+            {/* Shopify Store Untouched Notice */}
+            <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-xs text-blue-950 dark:text-blue-200 flex items-start gap-2.5">
+              <ShieldCheck className="size-4 shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" />
+              <div>
+                <span className="font-semibold">Shopify Store Untouched:</span>
+                <p className="mt-0.5 text-blue-900/80 dark:text-blue-300/80 leading-relaxed">
+                  The data inside your Shopify store will <strong>not</strong> be deleted. Only credentials and the connection on this page will be removed.
+                </p>
+              </div>
+            </div>
+
+            {/* Dockit Database Preservation Notice */}
+            {deleteWithData ? (
+              <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive flex items-start gap-2.5">
+                <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold">Permanent Deletion from Dockit:</span>
+                  <p className="mt-0.5 text-destructive/80 leading-relaxed">
+                    This action cannot be undone. This will permanently delete <strong>{storeName}</strong>, all associated products, variants, and sync jobs from your Dockit database.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-950 dark:text-emerald-200 flex items-start gap-2.5">
+                <Database className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                <div>
+                  <span className="font-semibold">Database Products Preserved:</span>
+                  <p className="mt-0.5 text-emerald-900/80 dark:text-emerald-300/80 leading-relaxed">
+                    All products, descriptions, images, variants, and AI generation rules will remain saved in your database. If you link a new Shopify store later, you will still have all your existing data ready to publish.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Checkbox to opt-in to deleting database data */}
+            <div className="flex items-start space-x-3 rounded-lg border p-3 bg-muted/40">
+              <Checkbox
+                id="delete-with-data-check"
+                checked={deleteWithData}
+                onCheckedChange={(checked) => setDeleteWithData(Boolean(checked))}
+              />
+              <div className="grid gap-1.5 leading-none">
+                <label
+                  htmlFor="delete-with-data-check"
+                  className="text-xs font-semibold cursor-pointer text-foreground"
+                >
+                  Also permanently delete all products and sync jobs from Dockit database
+                </label>
+                <p className="text-[11px] text-muted-foreground leading-normal">
+                  Leave unchecked to keep your database products safe so you can link a new store later.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
             <Button
               type="button"
               variant="outline"
               onClick={() => setDeleteDialogOpen(false)}
-              disabled={deleting}
+              disabled={isUnlinkingOrDeleting}
             >
               Cancel
             </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={handleDeleteStore}
-              disabled={deleting}
-            >
-              {deleting && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
-              Permanently Delete
-            </Button>
+            {deleteWithData ? (
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleUnlinkOrDeleteStore}
+                disabled={isUnlinkingOrDeleting}
+              >
+                {isUnlinkingOrDeleting && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
+                Permanently Delete
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="default"
+                onClick={handleUnlinkOrDeleteStore}
+                disabled={isUnlinkingOrDeleting}
+              >
+                {isUnlinkingOrDeleting && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
+                Unlink Store (Keep Data)
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

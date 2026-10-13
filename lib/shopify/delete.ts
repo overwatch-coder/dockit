@@ -25,15 +25,10 @@ type RawDeleteResponse = {
   errors?: { message: string }[];
 };
 
-// Unit 16 follow-up, per explicit user request: the app could previously
-// only remove a product from its own database — Shopify itself was never
-// touched (lib/db/products.ts's deleteProducts, which stays unchanged and
-// remains the fast "just stop tracking this locally" action). This is the
-// first real Shopify delete mutation in the app; only ever called from
+// Deletes a product permanently from Shopify via GraphQL. Called from
 // lib/jobs/delete.ts's background job, gated client-side by
-// components/delete-from-shopify-dialog.tsx's type-the-product-name
-// confirmation — never inline from a server action (architecture.md
-// invariant 4).
+// components/delete-from-shopify-dialog.tsx's confirmation — never inline
+// from a server action (architecture.md invariant 4).
 export async function deleteProductFromShopify(
   shopDomain: string,
   accessToken: string,

@@ -32,7 +32,7 @@ function toPushInput(product: Product): PushProductInput {
   };
 }
 
-// Unit 15: unlike lib/jobs/import.ts's noopJob/importStoreProductsJob, this
+// Unlike lib/jobs/import.ts's noopJob/importStoreProductsJob, this
 // job does NOT create its own Job row — the server action (pushProduct in
 // app/(dashboard)/products/actions.ts) creates it first so it has a jobId to
 // return for the Push button's polling. This function only transitions an
@@ -53,12 +53,10 @@ export type PushOneProductResult =
   | { success: true; shopifyProductId: string }
   | { success: false; step: string; error: string };
 
-// Unit 16: extracted verbatim from pushProductJob's former inline
-// "push-to-shopify" step callback so pushBatchJob (below) can reuse the
-// exact same single-product push logic — load product/token, call Shopify,
-// save the result, clean up Blob images — instead of duplicating it. No
-// behavior change for the single-push path: pushProductJob still calls this
-// inside a step.run with the same step id and the same return shape.
+// Reusable single-product push logic extracted so pushBatchJob can reuse the
+// exact same workflow — load product/token, call Shopify, save the result,
+// and clean up Blob images — without duplication. pushProductJob calls this
+// inside a step.run with the same step id and return shape.
 export async function pushOneProduct(input: {
   accountId: string;
   storeId: string;
@@ -139,9 +137,8 @@ export const pushProductJob = inngest.createFunction(
   }
 );
 
-// Unit 16: the one piece of genuinely new business logic in the batch push
-// — decides the job's overall status from each product's individual
-// outcome. Pure and independently testable (tests/lib/jobs/push.test.ts).
+// Decides the batch job's overall status from each product's individual outcome.
+// Pure and independently testable (tests/lib/jobs/push.test.ts).
 // Precondition: items is non-empty — pushSelectedProducts (the server
 // action) never enqueues a batch job with zero productIds.
 export function computeBatchJobStatus(items: PushBatchResultItem[]): "SUCCEEDED" | "FAILED" | "PARTIAL" {
@@ -151,7 +148,7 @@ export function computeBatchJobStatus(items: PushBatchResultItem[]): "SUCCEEDED"
   return "PARTIAL";
 }
 
-// Unit 16: mirrors triggerProductPush's pattern — the caller (the
+// Mirrors triggerProductPush's pattern — the caller (the
 // pushSelectedProducts server action) already created the Job row, this
 // just fans the event out to Inngest.
 export async function triggerBatchPush(input: {
@@ -179,7 +176,7 @@ export const pushBatchJob = inngest.createFunction(
     await step.run("mark-running", () => updateJobStatus({ accountId, jobId, status: "RUNNING" }));
 
     const items: PushBatchResultItem[] = [];
-    // Sequential, not Promise.all: even with Unit 22's shared
+    // Sequential, not Promise.all: even with the shared
     // lib/shopify/client.ts now absorbing individual rate-limit responses
     // with retry-with-backoff, that budget is shared across the whole store
     // — firing many products' multi-call push sequences at Shopify

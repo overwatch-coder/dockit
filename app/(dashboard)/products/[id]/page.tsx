@@ -11,10 +11,9 @@ import { Button } from "@/components/ui/button";
 import { ProductForm } from "@/components/product-form";
 import type { Collection } from "@/types/collection";
 
-// Unit 10: editable core fields (title, description, price, status) for a
+// Editable core fields (title, description, price, status) for a
 // single product, saved via updateProduct (app/(dashboard)/products/actions.ts).
-// No variants, images, or AI yet — those are Units 11/12/14. Row click and
-// the product list's Edit action both land here (components/product-table.tsx).
+// Row click and the product list's Edit action both land here (components/product-table.tsx).
 export default async function ProductEditorPage({
   params,
 }: {
@@ -29,12 +28,11 @@ export default async function ProductEditorPage({
     notFound();
   }
 
-  // Unit 13: the store's Shopify collections, for the manual Collection
-  // select — fetched live on every page load, not cached (per this unit's
-  // own scope decision). Fails open: a fetch error just means an empty list
-  // (the select falls back to "No collection" plus whatever the product's
-  // existing collectionTitle already implies), matching fetchShopName's
-  // existing "best-effort, never blocks the page" convention.
+  // The store's Shopify collections, for the manual Collection
+  // select — fetched live on every page load, not cached. Fails open: a fetch
+  // error just means an empty list (the select falls back to "No collection"
+  // plus whatever the product's existing collectionTitle already implies),
+  // matching fetchShopName's existing "best-effort, never blocks the page" convention.
   let collections: Collection[] = [];
   const storeToken = await getStoreToken(account.id, product.storeId);
   if (storeToken) {
@@ -52,8 +50,8 @@ export default async function ProductEditorPage({
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="flex flex-1 flex-col gap-4 sm:gap-6 p-3.5 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
         <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/products" />}>
           <ArrowLeft className="size-4" />
           Back to products
