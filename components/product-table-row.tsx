@@ -28,13 +28,13 @@ const lastSyncedFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
-function shopifyAdminProductUrl(shopDomain: string, shopifyProductId: string): string {
-  return `https://${shopDomain}/admin/products/${shopifyProductId}`;
+function shopifyAdminProductUrl(shopDomain: string | null, shopifyProductId: string): string {
+  return shopDomain ? `https://${shopDomain}/admin/products/${shopifyProductId}` : "#";
 }
 
 interface ProductTableRowProps {
   product: Product;
-  shopDomain: string;
+  shopDomain: string | null;
   isSelected: boolean;
   onToggleSelect: (productId: string) => void;
   onEdit: (product: Product) => void;
@@ -93,8 +93,13 @@ export const ProductTableRow = memo(function ProductTableRow({
       <TableCell className="max-w-64 truncate font-medium text-foreground">
         {product.title}
       </TableCell>
-      <TableCell className="text-muted-foreground">{product.collectionTitle ?? "—"}</TableCell>
+      <TableCell className="max-w-48 truncate text-muted-foreground" title={product.categoryFullName ?? product.collectionTitle ?? undefined}>
+        {product.categoryFullName
+          ? (product.categoryFullName.split(" > ").pop() ?? product.categoryFullName)
+          : (product.collectionTitle ?? "—")}
+      </TableCell>
       <TableCell className="font-mono text-table-data">{product.price}</TableCell>
+
       <TableCell>
         <ProductStatusBadge product={product} />
       </TableCell>

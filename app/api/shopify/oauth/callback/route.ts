@@ -1,6 +1,11 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
-import { createStoreWithToken, isShopDomainConnected } from "@/lib/db/stores";
+import {
+  createStoreWithToken,
+  getStoreAppCredentials,
+  isShopDomainConnected,
+  saveStoreAccessToken,
+} from "@/lib/db/stores";
 import {
   encryptAccessToken,
   exchangeCodeForToken,
@@ -43,6 +48,49 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const stateResult = verifyOAuthState(stateCookie, state);
   if (!stateResult.valid) {
     return errorRedirect(request, "OAuth state mismatch, please try connecting again");
+  }
+
+  if (stateResult.storeId) {
+    const credentials = await getStoreAppCredentials(stateResult.accountId, stateResult.storeId);
+    if (!credentials || !credentials.apiSecret) {
+      const url = new URL("/settings", request.url);
+      url.searchParams.set("oauthError", "credentials_missing");
+      return NextResponse.redirect(url);
+    }
+
+    if (!verifyCallbackHmac(searchParams, credentials.apiSecret)) {
+      const url = new URL("/settings", request.url);
+      url.searchParams.set("oauthError", "invalid_hmac");
+      return NextResponse.redirect(url);
+    }
+
+    const tokenResult = await exchangeCodeForToken(shop, code, {
+      apiKey: credentials.apiKey,
+      apiSecret: credentials.apiSecret,
+    });
+    if (!tokenResult.success) {
+      const url = new URL("/settings", request.url);
+      url.searchParams.set("oauthError", "exchange_failed");
+      return NextResponse.redirect(url);
+    }
+
+    await saveStoreAccessToken({
+      accountId: stateResult.accountId,
+      storeId: stateResult.storeId,
+      shopDomain: shop,
+      accessToken: tokenResult.data.accessToken,
+      scope: tokenResult.data.scope,
+    });
+
+    await triggerStoreImport({
+      accountId: stateResult.accountId,
+      storeId: stateResult.storeId,
+      shopifyDomain: shop,
+    });
+
+    const url = new URL("/settings", request.url);
+    url.searchParams.set("connected", "1");
+    return NextResponse.redirect(url);
   }
 
   if (!verifyCallbackHmac(searchParams)) {

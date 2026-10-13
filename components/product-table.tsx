@@ -79,16 +79,16 @@ import type { BulkAiGenerationResult, BulkAiReviewItem } from "@/types/bulk-ai";
 type StatusFilter = "all" | "DRAFT" | "ACTIVE" | "CONFLICT";
 
 function shopifyAdminProductUrl(
-  shopDomain: string,
+  shopDomain: string | null,
   shopifyProductId: string,
 ): string {
-  return `https://${shopDomain}/admin/products/${shopifyProductId}`;
+  return shopDomain ? `https://${shopDomain}/admin/products/${shopifyProductId}` : "#";
 }
 
 interface ProductTableProps {
   paginatedResult: PaginatedProductsResult;
   categories: string[];
-  shopDomain: string;
+  shopDomain: string | null;
   initialSearch?: string;
   initialStatusFilter?: StatusFilter;
   initialCategoryFilter?: string;

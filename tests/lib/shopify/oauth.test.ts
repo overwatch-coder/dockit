@@ -164,4 +164,31 @@ describe("generateOAuthState / verifyOAuthState", () => {
 
     expect(verifyOAuthState(tampered, nonce)).toEqual({ valid: false });
   });
+
+  test("round-trips and validates account id and store id when provided", () => {
+    const { cookieValue, nonce } = generateOAuthState("account_123", "store_abc");
+
+    expect(verifyOAuthState(cookieValue, nonce)).toEqual({
+      valid: true,
+      accountId: "account_123",
+      storeId: "store_abc",
+    });
+  });
+
+  test("buildAuthorizeUrl uses clientIdOverride when provided", () => {
+    const url = buildAuthorizeUrl("test.myshopify.com", "nonce123", "custom-client-id");
+    expect(url).toContain("client_id=custom-client-id");
+  });
+
+  test("verifyCallbackHmac verifies with secretOverride when provided", () => {
+    const secret = "custom-secret-key";
+    const params = new URLSearchParams({ shop: "test.myshopify.com", timestamp: "123" });
+    const hmac = createHmac("sha256", secret)
+      .update("shop=test.myshopify.com&timestamp=123")
+      .digest("hex");
+    params.set("hmac", hmac);
+
+    expect(verifyCallbackHmac(params, secret)).toBe(true);
+    expect(verifyCallbackHmac(params, "wrong-secret")).toBe(false);
+  });
 });

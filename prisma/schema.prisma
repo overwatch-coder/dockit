@@ -46,10 +46,9 @@ model AccountUser {
 model Store {
   id            String    @id @default(cuid())
   accountId     String
-  shopifyDomain String    @unique
-  // Shop's display name from Shopify (`shop { name }`), fetched once at
-  // connect time. Nullable since the fetch is best-effort — a failure there
-  // shouldn't block the connection itself; the UI falls back to the domain.
+  shopifyDomain String?   @unique
+  // Shop's display name from Shopify (`shop { name }`), or name given by owner
+  // when creating store on our side.
   name          String?
   connectedAt   DateTime?
   createdAt     DateTime  @default(now())
@@ -70,8 +69,10 @@ model ShopifyToken {
   id                   String   @id @default(cuid())
   accountId            String
   storeId              String   @unique
-  accessTokenEncrypted String
-  scope                String
+  apiKeyEncrypted      String?
+  apiSecretEncrypted   String?
+  accessTokenEncrypted String?
+  scope                String?  @default("")
   tokenType            String   @default("bearer")
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

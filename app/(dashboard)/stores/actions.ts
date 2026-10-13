@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
-import { deleteStore, getStoresForAccount, isShopDomainConnected } from "@/lib/db/stores";
+import { createStore, deleteStore, getStoresForAccount, isShopDomainConnected } from "@/lib/db/stores";
 import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import {
   buildAuthorizeUrl,
@@ -23,6 +23,12 @@ const shopDomainSchema = z
   .min(1, "Enter your store's domain")
   .transform(normalizeShopDomainInput);
 
+const storeNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Enter a name for your store")
+  .max(100, "Store name is too long");
+
 // Unit 22 follow-up: setActiveStore/disconnectStore's storeId params were
 // only ever validated by *membership* (does this account actually own a
 // store with this id), never by *format* — a non-string-shaped value would
@@ -31,6 +37,35 @@ const shopDomainSchema = z
 // "validate every server action input with a schema" rule as
 // app/(dashboard)/products/actions.ts's identical idSchema.
 const idSchema = z.string().trim().min(1, "Missing id.");
+
+export async function createStoreAction(
+  name: string
+): Promise<{ success: true; storeId: string } | { success: false; error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const parsed = storeNameSchema.safeParse(name);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Enter a name for your store" };
+  }
+
+  const store = await createStore({
+    accountId: account.id,
+    name: parsed.data,
+  });
+
+  const cookieStore = await cookies();
+  cookieStore.set(ACTIVE_STORE_COOKIE_NAME, store.id, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 365,
+    path: "/",
+  });
+
+  revalidatePath("/", "layout");
+  return { success: true, storeId: store.id };
+}
 
 export type ConnectStoreState = { error: string } | undefined;
 

@@ -1,9 +1,9 @@
 import { inngest } from "@/lib/jobs/client";
 import { createJob, updateJobStatus } from "@/lib/db/jobs";
-import { getStoreToken } from "@/lib/db/stores";
+import { getStoreToken, markStoreDisconnected } from "@/lib/db/stores";
 import { importProducts, syncProducts } from "@/lib/db/products";
 import { decryptAccessToken } from "@/lib/shopify/oauth";
-import { fetchAllProducts } from "@/lib/shopify/products";
+import { fetchAllProducts, fetchProductsByIds } from "@/lib/shopify/products";
 
 type FetchAndImportResult =
   | { success: true; importedCount: number }
@@ -22,12 +22,16 @@ async function fetchAndImport(input: {
 }): Promise<FetchAndImportResult> {
   const tokenRecord = await getStoreToken(input.accountId, input.storeId);
   if (!tokenRecord) {
+    await markStoreDisconnected(input.storeId);
     return { success: false, error: "Store or token not found" };
   }
 
   const accessToken = decryptAccessToken(tokenRecord.accessTokenEncrypted);
   const fetched = await fetchAllProducts(input.shopifyDomain, accessToken);
   if (!fetched.success) {
+    if (fetched.status === 401 || fetched.status === 404) {
+      await markStoreDisconnected(input.storeId);
+    }
     return { success: false, error: fetched.error };
   }
 
@@ -109,24 +113,30 @@ type FetchAndSyncResult =
   | { success: true; syncedCount: number; conflictedCount: number; errorCount: number }
   | { success: false; error: string };
 
-// Unit 17: the re-sync counterpart of fetchAndImport above — not merged
-// with it, since a sync's final call (syncProducts) and result shape
-// genuinely differ from an import's (importProducts/{importedCount}). The
-// token-load/fetch preamble is duplicated rather than shared; it's four
-// lines and the two functions diverge immediately after.
+// Unit 17: the re-sync counterpart of fetchAndImport above. Can sync either
+// the full catalog or a specific caller-provided selection of product IDs.
 async function fetchAndSync(input: {
   accountId: string;
   storeId: string;
   shopifyDomain: string;
+  productIds?: string[];
 }): Promise<FetchAndSyncResult> {
   const tokenRecord = await getStoreToken(input.accountId, input.storeId);
   if (!tokenRecord) {
+    await markStoreDisconnected(input.storeId);
     return { success: false, error: "Store or token not found" };
   }
 
   const accessToken = decryptAccessToken(tokenRecord.accessTokenEncrypted);
-  const fetched = await fetchAllProducts(input.shopifyDomain, accessToken);
+  const fetched =
+    input.productIds && input.productIds.length > 0
+      ? await fetchProductsByIds(input.shopifyDomain, accessToken, input.productIds)
+      : await fetchAllProducts(input.shopifyDomain, accessToken);
+
   if (!fetched.success) {
+    if (fetched.status === 401 || fetched.status === 404) {
+      await markStoreDisconnected(input.storeId);
+    }
     return { success: false, error: fetched.error };
   }
 
@@ -141,12 +151,13 @@ async function fetchAndSync(input: {
 // Unit 17: mirrors triggerProductPush's pattern — the caller
 // (syncStore in app/(dashboard)/products/actions.ts) creates the Job row
 // itself, since this is triggered from a "Sync Store" button that needs a
-// jobId back synchronously to poll, unlike importStoreProductsJob above.
+// jobId back synchronously to poll. Supports optional productIds for selective sync.
 export async function triggerStoreSync(input: {
   accountId: string;
   storeId: string;
   shopifyDomain: string;
   jobId: string;
+  productIds?: string[];
 }): Promise<void> {
   await inngest.send({
     name: "store/sync.requested",
@@ -157,39 +168,49 @@ export async function triggerStoreSync(input: {
 export const syncStoreJob = inngest.createFunction(
   { id: "sync-store", triggers: { event: "store/sync.requested" } },
   async ({ event, step }) => {
-    const { accountId, storeId, shopifyDomain, jobId } = event.data as {
+    const { accountId, storeId, shopifyDomain, jobId, productIds } = event.data as {
       accountId: string;
       storeId: string;
       shopifyDomain: string;
       jobId: string;
+      productIds?: string[];
     };
 
-    await step.run("mark-running", () => updateJobStatus({ accountId, jobId, status: "RUNNING" }));
+    try {
+      await step.run("mark-running", () => updateJobStatus({ accountId, jobId, status: "RUNNING" }));
 
-    const result = await step.run("fetch-and-sync", () =>
-      fetchAndSync({ accountId, storeId, shopifyDomain })
-    );
+      const result = await step.run("fetch-and-sync", () =>
+        fetchAndSync({ accountId, storeId, shopifyDomain, productIds })
+      );
 
-    if (result.success) {
-      await step.run("mark-succeeded", () =>
-        updateJobStatus({
-          accountId,
-          jobId,
-          status: "SUCCEEDED",
-          results: {
-            syncedCount: result.syncedCount,
-            conflictedCount: result.conflictedCount,
-            errorCount: result.errorCount,
-          },
-        })
-      );
-    } else {
-      console.error(`syncStoreJob failed for account ${accountId}, store ${storeId}: ${result.error}`);
-      await step.run("mark-failed", () =>
-        updateJobStatus({ accountId, jobId, status: "FAILED", results: { error: result.error } })
-      );
+
+      if (result.success) {
+        await step.run("mark-succeeded", () =>
+          updateJobStatus({
+            accountId,
+            jobId,
+            status: "SUCCEEDED",
+            results: {
+              syncedCount: result.syncedCount,
+              conflictedCount: result.conflictedCount,
+              errorCount: result.errorCount,
+            },
+          })
+        );
+      } else {
+        console.error(`syncStoreJob failed for account ${accountId}, store ${storeId}: ${result.error}`);
+        await step.run("mark-failed", () =>
+          updateJobStatus({ accountId, jobId, status: "FAILED", results: { error: result.error } })
+        );
+      }
+
+      return result;
+    } catch (unhandledErr) {
+      const errMessage =
+        unhandledErr instanceof Error ? unhandledErr.message : "Sync job crashed unexpectedly";
+      console.error(`syncStoreJob crashed for account ${accountId}, store ${storeId}:`, unhandledErr);
+      await updateJobStatus({ accountId, jobId, status: "FAILED", results: { error: errMessage } });
+      throw unhandledErr;
     }
-
-    return result;
   }
 );

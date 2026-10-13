@@ -57,7 +57,18 @@ export function DashboardOverview({ store, products }: { store: Store; products:
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Store</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle>Store</CardTitle>
+            {store.connectedAt && store.shopifyDomain ? (
+              <span className="inline-flex items-center rounded-full border border-emerald-600/30 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                Connected
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-full border border-amber-600/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                Not connected
+              </span>
+            )}
+          </div>
           <SyncStoreButton />
         </CardHeader>
         <CardContent className="flex flex-col gap-1 text-sm text-muted-foreground">
@@ -66,14 +77,18 @@ export function DashboardOverview({ store, products }: { store: Store; products:
           </p>
           <p>
             Domain:{" "}
-            <Link
-              href={`https://${store.shopifyDomain}/admin`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-mono text-table-data text-primary hover:underline"
-            >
-              {store.shopifyDomain}
-            </Link>
+            {store.shopifyDomain ? (
+              <Link
+                href={`https://${store.shopifyDomain}/admin`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-table-data text-primary hover:underline"
+              >
+                {store.shopifyDomain}
+              </Link>
+            ) : (
+              <span className="text-foreground">Not configured</span>
+            )}
           </p>
           <p>
             Last synced:{" "}
@@ -81,6 +96,13 @@ export function DashboardOverview({ store, products }: { store: Store; products:
               {lastSyncedAt ? lastSyncedFormatter.format(lastSyncedAt) : "Never"}
             </span>
           </p>
+          {!store.connectedAt && (
+            <div className="pt-2">
+              <Link href="/settings" className="text-xs text-primary hover:underline font-medium">
+                Connect your Shopify account in Settings →
+              </Link>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

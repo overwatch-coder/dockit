@@ -14,6 +14,42 @@ change.
 
 ## Completed
 
+- **False Conflict Resolution, Selective Product Sync Modal & Automated Category Taxonomy Import**:
+  - **Immediate False Conflict Elimination & Auto-Healing**:
+    - Identified and fixed root cause of new imports instantly flagging false conflicts: `importProducts` previously omitted `lastEditedAt` on record creation, letting PostgreSQL default to `now()` (milliseconds after Node.js generated `lastSyncedAt`). Any subsequent sync triggered `shouldSkipSync` and unconditionally set `isConflicted: true` without inspecting field equality.
+    - Added `hasConflictDifferences(app, shopify)` to perform deep equality checks across titles, descriptions, status, price, collections, categories, tags, SEO fields, and variant lists. If data is identical, conflicts are never raised and `lastSyncedAt` is updated cleanly.
+    - Added sub-second clock drift tolerance (`diff > 1000ms`) to `shouldSkipSync` and explicitly persist `lastEditedAt: now` during imports.
+    - Added `autoHealFalseConflicts(accountId, storeId)` wired into `getPaginatedProductsForStore` and `getProductsForStore` to clear existing false conflicts automatically.
+  - **Selective Product Sync Modal (`ShopifySyncModal`)**:
+    - Replaced unconditional catalog-wide sync on "Sync store" click with an interactive selective import modal (`components/shopify-sync-modal.tsx`), mirroring the pattern in `spy-doc/agentify`.
+    - Allows searching products across Shopify Admin GraphQL (`previewShopifyProductsAction`), previewing thumbnails, status, categories, prices, and existing import status.
+    - Multi-select controls with "Select all", selection count, and capped batches (up to 100 products).
+    - Enqueues background sync job for selected product IDs via `syncSelectedShopifyProductsAction` and tracks completion via `useJobPolling`.
+    - Polished modal footer layout: eliminated negative margins (`-mb-4`) inherited from default `DialogFooter`, ensured `shrink-0` with comfortable padding (`px-6 py-4`), and placed selection count on the far left with Cancel and Import action buttons cleanly aligned on the right.
+    - Unified search and catalog fetching lifecycle: fixed issue where clearing search input returned no results by allowing query resets to refetch all products, added dedicated clear search button, and ensured selection state persists across searches.
+  - **Automated Category & Taxonomy Resolution**:
+    - Added Shopify Standard Product Taxonomy (`lib/shopify/category-taxonomy.json`).
+    - Implemented `resolveProductTaxonomyCategory` in `lib/shopify/taxonomy.ts` using token ranking and penalties to resolve category from `productType` and collection titles if Shopify `category` is missing.
+    - `toImportedProduct` in `lib/shopify/products.ts` now automatically attaches `categoryId` and `categoryFullName`.
+    - Updated `components/product-table-row.tsx` to display leaf category name with full taxonomy breadcrumb tooltip, falling back to collection title.
+  - **Verification**:
+    - TypeScript: `npx tsc --noEmit` passed with 0 errors.
+    - Vitest: All 29 test files and 193 unit tests pass green (`tests/lib/shopify/taxonomy.test.ts`, `tests/lib/shopify/products.test.ts`, `tests/lib/db/products.test.ts`).
+
+- **Store Creation Decoupling, Settings Shopify Credentials Integration & Stale Sync Prevention**:
+  - **Decoupled Local Store Creation**: Changed store creation so clicking "Add store" in the sidebar creates a named store record locally on our side first (`createStoreAction`), persists it to PostgreSQL with active tenant cookie set (`ACTIVE_STORE_COOKIE_NAME`), and immediately redirects the user to `/settings` with the new store active. Replaced `ConnectStoreDialog` with `CreateStoreDialog` in `components/store-switcher.tsx`.
+  - **Agentify-style Settings Credentials (`ShopifyCredentialsForm`)**: Built the full settings page (`/settings`) and credentials form (`components/shopify-credentials-form.tsx`) following the reference pattern in `spy-doc/agentify`:
+    - Supports two connection modes: **OAuth App** (store domain, Client ID, Client Secret, redirected through per-store OAuth flow) and **Custom App** (store domain, Admin API Access Token `shpat_...`, verified via GraphQL Admin API before saving).
+    - Added server actions in `app/(dashboard)/settings/actions.ts`: `saveAppCredentialsAction`, `saveLegacyTokenAction`, `disconnectStoreAction`, and `deleteStoreAction`.
+    - Added dedicated OAuth routes (`app/api/shopify/oauth/login/route.ts` and updated `callback/route.ts`) supporting store-scoped authentication states and encrypted secret lookups.
+    - Added Settings destination (`/settings`) in `components/nav-main.tsx`.
+  - **Stuck Sync & Invalid Store Prevention**:
+    - **Stale Job Auto-Expiration**: In `lib/db/jobs.ts` (`getLatestJobForStore`), added automatic expiration for `PENDING` and `RUNNING` jobs older than 90 seconds, setting them to `FAILED` with `"Sync timed out. Shopify connection did not respond."` so topbar polling never remains stuck in "Syncing…" forever.
+    - **Automatic Disconnect on Revocation/Deletion**: In `lib/jobs/import.ts` (`fetchAndImport`, `fetchAndSync`), when Shopify returns HTTP 401 (authorization revoked) or 404 (store deleted), `markStoreDisconnected` is called to immediately set `connectedAt: null`. Wrapped `syncStoreJob` in top-level try/catch to record `FAILED` on unhandled queue crashes.
+    - **Pre-sync Guarding**: `syncStore()` and `pushAllDrafts()` in `app/(dashboard)/products/actions.ts` now verify that `store.connectedAt`, `store.shopifyDomain`, and store token exist before creating a job row, returning a clear user-facing error otherwise.
+    - **UI Null-domain and Disconnection Handling**: `DashboardOverview` and `ProductsPage` now display clear connection states and avoid crashing on null `shopifyDomain`.
+  - **Verification**: `npx tsc --noEmit` passed (0 errors, 0 warnings), `npm run build` Turbopack production build succeeded cleanly, and all 28 test files (181/181 unit tests) pass green.
+
 - **Landing Page Complete Redesign & Dark Mode Overhaul**: Completely overhauled the public landing page (`/`) to replace the empty pitch-black void, disconnected cards, and wireframe look with an architectural, framed operator layout and cohesive dark palette:
   - **Rich Slate-Charcoal Dark Palette**: Replaced the harsh pitch-black void with a rich dark slate-charcoal foundation (`--background: #0C0D12`), elevated card surfaces (`--surface: #141620`), hairline framing borders (`--border: #24283B`), crisp white text (`--foreground: #F8FAFC`), and modern indigo accent (`--primary: #6366F1`). Updated `context/ui-context.md` table and `app/globals.css`.
   - **Framed Architectural Container (`app/page.tsx`)**: Bound the landing page inside an elegant structural frame (`max-w-6xl mx-auto border-x border-border/80`) with edge-to-edge section dividers, eliminating the "floating elements in deep space" issue.

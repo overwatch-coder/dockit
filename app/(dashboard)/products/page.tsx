@@ -72,7 +72,7 @@ export default async function ProductsPage({
         <div>
           <h1 className="text-page-title font-semibold text-foreground">Products</h1>
           <p className="text-sm text-muted-foreground">
-            {currentStore.name ?? currentStore.shopifyDomain}
+            {currentStore.name ?? currentStore.shopifyDomain ?? "Untitled Store"}
           </p>
         </div>
         <div className="flex items-center gap-2">

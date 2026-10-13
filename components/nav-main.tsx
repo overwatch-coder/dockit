@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Package } from "lucide-react";
+import { LayoutDashboard, Package, Settings } from "lucide-react";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -16,6 +16,7 @@ import {
 const navItems = [
   { title: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { title: "Products", href: "/products", icon: Package },
+  { title: "Settings", href: "/settings", icon: Settings },
 ];
 
 export function NavMain() {

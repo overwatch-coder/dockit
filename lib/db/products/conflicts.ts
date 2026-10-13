@@ -9,7 +9,71 @@ export function shouldSkipSync(product: {
   lastSyncedAt: Date | null;
 }): boolean {
   if (!product.lastSyncedAt) return false;
-  return product.lastEditedAt > product.lastSyncedAt;
+  const diff = product.lastEditedAt.getTime() - product.lastSyncedAt.getTime();
+  return diff > 1000;
+}
+
+export function valuesDiffer(a: string, b: string, numeric: boolean): boolean {
+  if (!numeric) return a !== b;
+  if (a.length === 0 || b.length === 0) return a !== b;
+  const numA = Number(a);
+  const numB = Number(b);
+  if (Number.isNaN(numA) || Number.isNaN(numB)) return a !== b;
+  return numA !== numB;
+}
+
+export function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<\/(p|li|h[1-6])>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .trim();
+}
+
+export function hasConflictDifferences(
+  app: ConflictSnapshot,
+  shopify: ConflictSnapshot,
+): boolean {
+  if (app.title.trim() !== shopify.title.trim()) return true;
+  if (
+    htmlToPlainText(app.description ?? "") !==
+    htmlToPlainText(shopify.description ?? "")
+  )
+    return true;
+  if (valuesDiffer(app.price, shopify.price, true)) return true;
+  if (app.status !== shopify.status) return true;
+  if (app.tags.slice().sort().join(",") !== shopify.tags.slice().sort().join(","))
+    return true;
+  if (
+    (app.collectionId ?? "") !== (shopify.collectionId ?? "") &&
+    (app.collectionTitle ?? "") !== (shopify.collectionTitle ?? "")
+  )
+    return true;
+  if (
+    (app.categoryId ?? "") !== (shopify.categoryId ?? "") &&
+    (app.categoryFullName ?? "") !== (shopify.categoryFullName ?? "")
+  )
+    return true;
+  if ((app.seoTitle ?? "").trim() !== (shopify.seoTitle ?? "").trim()) return true;
+  if ((app.seoDescription ?? "").trim() !== (shopify.seoDescription ?? "").trim())
+    return true;
+
+  if (app.variants.length !== shopify.variants.length) return true;
+  for (const av of app.variants) {
+    const sv =
+      shopify.variants.find(
+        (s) => s.shopifyVariantId && s.shopifyVariantId === av.shopifyVariantId,
+      ) ?? shopify.variants.find((s) => s.optionName === av.optionName);
+    if (!sv) return true;
+    if (av.optionName.trim() !== sv.optionName.trim()) return true;
+    if (valuesDiffer(av.price, sv.price, true)) return true;
+    if (av.inventory !== sv.inventory) return true;
+  }
+  return false;
 }
 
 function toAppSnapshot(existing: {
@@ -167,6 +231,10 @@ export async function importProducts(input: {
         seoTitle: product.seoTitle,
         seoDescription: product.seoDescription,
         lastSyncedAt: now,
+        lastEditedAt: now,
+        isConflicted: false,
+        conflictAppSnapshot: Prisma.JsonNull,
+        conflictShopifySnapshot: Prisma.JsonNull,
       },
       update: {
         title: product.title,
@@ -183,6 +251,10 @@ export async function importProducts(input: {
         seoTitle: product.seoTitle,
         seoDescription: product.seoDescription,
         lastSyncedAt: now,
+        lastEditedAt: now,
+        isConflicted: false,
+        conflictAppSnapshot: Prisma.JsonNull,
+        conflictShopifySnapshot: Prisma.JsonNull,
       },
     });
 
@@ -238,17 +310,23 @@ export async function syncProducts(input: {
         },
         include: { variants: true },
       });
+
       if (existing && shouldSkipSync(existing)) {
-        await prisma.product.update({
-          where: { id: existing.id },
-          data: {
-            isConflicted: true,
-            conflictAppSnapshot: toAppSnapshot(existing),
-            conflictShopifySnapshot: toShopifySnapshot(product),
-          },
-        });
-        conflictedCount += 1;
-        continue;
+        const appSnapshot = toAppSnapshot(existing);
+        const shopifySnapshot = toShopifySnapshot(product);
+
+        if (hasConflictDifferences(appSnapshot, shopifySnapshot)) {
+          await prisma.product.update({
+            where: { id: existing.id },
+            data: {
+              isConflicted: true,
+              conflictAppSnapshot: appSnapshot,
+              conflictShopifySnapshot: shopifySnapshot,
+            },
+          });
+          conflictedCount += 1;
+          continue;
+        }
       }
 
       const savedProduct = await prisma.product.upsert({
@@ -276,6 +354,10 @@ export async function syncProducts(input: {
           seoTitle: product.seoTitle,
           seoDescription: product.seoDescription,
           lastSyncedAt: now,
+          lastEditedAt: now,
+          isConflicted: false,
+          conflictAppSnapshot: Prisma.JsonNull,
+          conflictShopifySnapshot: Prisma.JsonNull,
         },
         update: {
           title: product.title,
@@ -292,6 +374,7 @@ export async function syncProducts(input: {
           seoTitle: product.seoTitle,
           seoDescription: product.seoDescription,
           lastSyncedAt: now,
+          lastEditedAt: now,
           isConflicted: false,
           conflictAppSnapshot: Prisma.JsonNull,
           conflictShopifySnapshot: Prisma.JsonNull,
@@ -334,6 +417,58 @@ export async function syncProducts(input: {
 
   return { syncedCount, conflictedCount, errorCount };
 }
+
+export async function autoHealFalseConflicts(
+  accountId: string,
+  storeId: string,
+): Promise<number> {
+  const conflicted = await prisma.product.findMany({
+    where: { accountId, storeId, isConflicted: true },
+    include: { variants: true },
+  });
+
+  if (conflicted.length === 0) return 0;
+
+  const now = new Date();
+  let healed = 0;
+
+  for (const prod of conflicted) {
+    if (prod.conflictAppSnapshot && prod.conflictShopifySnapshot) {
+      const app = prod.conflictAppSnapshot as unknown as ConflictSnapshot;
+      const shopify = prod.conflictShopifySnapshot as unknown as ConflictSnapshot;
+
+      if (!hasConflictDifferences(app, shopify)) {
+        await prisma.product.update({
+          where: { id: prod.id },
+          data: {
+            isConflicted: false,
+            conflictAppSnapshot: Prisma.JsonNull,
+            conflictShopifySnapshot: Prisma.JsonNull,
+            lastSyncedAt: now,
+            lastEditedAt: now,
+          },
+        });
+        healed += 1;
+      }
+    } else {
+      // Conflicted flag set but snapshot missing
+      await prisma.product.update({
+        where: { id: prod.id },
+        data: {
+          isConflicted: false,
+          conflictAppSnapshot: Prisma.JsonNull,
+          conflictShopifySnapshot: Prisma.JsonNull,
+          lastSyncedAt: now,
+          lastEditedAt: now,
+        },
+      });
+      healed += 1;
+    }
+  }
+
+  return healed;
+}
+
 
 export async function resolveConflictWithSelections(input: {
   accountId: string;

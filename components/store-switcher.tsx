@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronsUpDown, Plus, Store as StoreIcon, Trash2 } from "lucide-react";
 import { setActiveStore } from "@/app/(dashboard)/stores/actions";
-import { ConnectStoreDialog } from "@/components/connect-store-dialog";
+import { CreateStoreDialog } from "@/components/create-store-dialog";
 import { RemoveStoreDialog } from "@/components/remove-store-dialog";
 import {
   DropdownMenu,
@@ -18,7 +18,7 @@ import { useActiveStoreStore } from "@/lib/store/active-store";
 import type { Store } from "@/types/store";
 
 function displayName(store: Store): string {
-  return store.name ?? store.shopifyDomain;
+  return store.name ?? store.shopifyDomain ?? "Untitled Store";
 }
 
 // Unit 21: activeStoreId is the server-resolved active store (cookie-backed,
@@ -36,7 +36,7 @@ export function StoreSwitcher({ stores, activeStoreId }: { stores: Store[]; acti
   const [, startTransition] = useTransition();
   const optimisticStoreId = useActiveStoreStore((state) => state.activeStoreId);
   const setOptimisticStoreId = useActiveStoreStore((state) => state.setActiveStoreId);
-  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [storeToRemove, setStoreToRemove] = useState<Store | null>(null);
 
   const selectedStoreId = optimisticStoreId ?? activeStoreId ?? stores[0]?.id;
@@ -103,14 +103,14 @@ export function StoreSwitcher({ stores, activeStoreId }: { stores: Store[]; acti
               </DropdownMenuItem>
             ))}
             {stores.length > 0 && <DropdownMenuSeparator />}
-            <DropdownMenuItem onClick={() => setConnectDialogOpen(true)}>
+            <DropdownMenuItem onClick={() => setCreateDialogOpen(true)}>
               <Plus className="size-4" />
-              Connect store
+              Add store
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
-      <ConnectStoreDialog open={connectDialogOpen} onOpenChange={setConnectDialogOpen} />
+      <CreateStoreDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
       <RemoveStoreDialog
         store={storeToRemove}
         onOpenChange={(open) => {

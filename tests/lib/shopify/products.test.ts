@@ -252,13 +252,30 @@ describe("fetchAllProducts", () => {
     }
   });
 
-  test("returns a typed error on a non-ok response", async () => {
+  test("returns a typed error with status on 401 revoked response", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await fetchAllProducts("my-store.myshopify.com", "bad-token");
 
-    expect(result).toEqual({ success: false, error: "Product import fetch failed with status 401" });
+    expect(result).toEqual({
+      success: false,
+      error: "Shopify authorization expired or revoked (HTTP 401). Please reconnect in Settings.",
+      status: 401,
+    });
+  });
+
+  test("returns a typed error with status on 404 not found response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllProducts("my-store.myshopify.com", "token");
+
+    expect(result).toEqual({
+      success: false,
+      error: "Shopify store not found or deleted (HTTP 404). Check domain in Settings.",
+      status: 404,
+    });
   });
 
   test("returns a typed error on a network failure", async () => {
@@ -272,4 +289,121 @@ describe("fetchAllProducts", () => {
       error: "Product import request failed: network down",
     });
   });
+
+  test("resolves taxonomy category from title when Shopify category is null", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      pageResponse(
+        [
+          productNode({
+            title: "The Collection Snowboard: Liquid",
+            category: null,
+          }),
+        ],
+        false,
+        null
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllProducts("my-store.myshopify.com", "shpat_test_token");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data[0].categoryFullName).toContain("Snowboard");
+      expect(result.data[0].categoryId).toBeTruthy();
+    }
+  });
 });
+
+describe("fetchProductsByIds", () => {
+  test("fetches specific products by Shopify ID", async () => {
+    const node = {
+      id: "gid://shopify/Product/123",
+      title: "Target Snowboard",
+      descriptionHtml: "<p>Nice board</p>",
+      status: "ACTIVE" as const,
+      tags: ["winter"],
+      featuredImage: { url: "https://cdn.shopify.com/image.jpg" },
+      media: { nodes: [{ image: { url: "https://cdn.shopify.com/image.jpg" } }] },
+      collections: { edges: [{ node: { id: "gid://shopify/Collection/1", title: "Boards" } }] },
+      category: { id: "gid://shopify/TaxonomyCategory/sg-1", fullName: "Sporting Goods > Snowboards" },
+      productType: "Snowboards",
+      seo: { title: "Target", description: "Desc" },
+      priceRangeV2: { minVariantPrice: { amount: "299.00" } },
+      variants: {
+        edges: [
+          {
+            node: {
+              id: "gid://shopify/ProductVariant/456",
+              title: "Default",
+              price: "299.00",
+              inventoryQuantity: 10,
+            },
+          },
+        ],
+      },
+    };
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            nodes: [node],
+          },
+        })
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchProductsByIds } = await import("@/lib/shopify/products");
+    const result = await fetchProductsByIds("my-store.myshopify.com", "token", ["123"]);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.length).toBe(1);
+      expect(result.data[0].shopifyProductId).toBe("123");
+      expect(result.data[0].title).toBe("Target Snowboard");
+    }
+  });
+});
+
+describe("previewShopifyProducts", () => {
+  test("returns preview items and pagination info", async () => {
+    const previewNodes = [
+      {
+        id: "gid://shopify/Product/100",
+        title: "Liquid Board",
+        status: "ACTIVE" as const,
+        featuredImage: { url: "https://cdn.shopify.com/thumb.jpg" },
+        category: null,
+        productType: "Snowboards",
+        collections: { edges: [{ node: { id: "1", title: "Snow" } }] },
+      },
+    ];
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            products: {
+              nodes: previewNodes,
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        })
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { previewShopifyProducts } = await import("@/lib/shopify/products");
+    const result = await previewShopifyProducts("my-store.myshopify.com", "token");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.items.length).toBe(1);
+      expect(result.data.items[0].shopifyProductId).toBe("100");
+      expect(result.data.items[0].categoryFullName).toContain("Snowboard");
+    }
+  });
+});
+

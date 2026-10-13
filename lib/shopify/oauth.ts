@@ -54,8 +54,12 @@ export async function checkShopExists(shopDomain: string): Promise<boolean> {
   }
 }
 
-export function buildAuthorizeUrl(shopDomain: string, state: string): string {
-  const clientId = getEnv("SHOPIFY_API_KEY");
+export function buildAuthorizeUrl(
+  shopDomain: string,
+  state: string,
+  clientIdOverride?: string
+): string {
+  const clientId = clientIdOverride ?? getEnv("SHOPIFY_API_KEY");
   const appUrl = getEnv("SHOPIFY_APP_URL");
   const scopes = getEnv("SHOPIFY_SCOPES");
 
@@ -70,7 +74,10 @@ export function buildAuthorizeUrl(shopDomain: string, state: string): string {
 // Per Shopify's authorization code grant docs: remove `hmac`, sort the
 // remaining params alphabetically, HMAC-SHA256 the resulting query string
 // with the client secret, and timing-safe compare against the provided hmac.
-export function verifyCallbackHmac(searchParams: URLSearchParams): boolean {
+export function verifyCallbackHmac(
+  searchParams: URLSearchParams,
+  secretOverride?: string
+): boolean {
   const providedHmac = searchParams.get("hmac");
   if (!providedHmac) {
     return false;
@@ -84,7 +91,8 @@ export function verifyCallbackHmac(searchParams: URLSearchParams): boolean {
     .map(([key, value]) => `${key}=${value}`)
     .join("&");
 
-  const computedHmac = createHmac("sha256", getEnv("SHOPIFY_API_SECRET"))
+  const secret = secretOverride ?? getEnv("SHOPIFY_API_SECRET");
+  const computedHmac = createHmac("sha256", secret)
     .update(message)
     .digest("hex");
 
@@ -102,9 +110,12 @@ type TokenExchangeResult =
 
 export async function exchangeCodeForToken(
   shopDomain: string,
-  code: string
+  code: string,
+  credentialsOverride?: { apiKey: string; apiSecret: string }
 ): Promise<TokenExchangeResult> {
   try {
+    const clientId = credentialsOverride?.apiKey ?? getEnv("SHOPIFY_API_KEY");
+    const clientSecret = credentialsOverride?.apiSecret ?? getEnv("SHOPIFY_API_SECRET");
     const response = await fetch(`https://${shopDomain}/admin/oauth/access_token`, {
       method: "POST",
       headers: {
@@ -112,8 +123,8 @@ export async function exchangeCodeForToken(
         Accept: "application/json",
       },
       body: new URLSearchParams({
-        client_id: getEnv("SHOPIFY_API_KEY"),
-        client_secret: getEnv("SHOPIFY_API_SECRET"),
+        client_id: clientId,
+        client_secret: clientSecret,
         code,
       }),
     });
@@ -178,11 +189,24 @@ export function decryptAccessToken(encrypted: string): string {
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
 }
 
+export function maskAccessToken(token: string): string {
+  if (!token) return "";
+  const prefix = token.startsWith("shpat_") ? "shpat_" : token.slice(0, Math.min(6, token.length));
+  const suffix = token.length >= 4 ? token.slice(-4) : "";
+  return `${prefix}••••••••${suffix}`;
+}
+
+export const encryptSecret = encryptAccessToken;
+export const decryptSecret = decryptAccessToken;
+
 const STATE_COOKIE_NAME = "shopify_oauth_state";
 
-export function generateOAuthState(accountId: string): { cookieValue: string; nonce: string } {
+export function generateOAuthState(
+  accountId: string,
+  storeId?: string
+): { cookieValue: string; nonce: string } {
   const nonce = randomBytes(16).toString("hex");
-  const payload = `${nonce}.${accountId}`;
+  const payload = storeId ? `${nonce}.${accountId}.${storeId}` : `${nonce}.${accountId}`;
   const signature = createHmac("sha256", getEnv("SHOPIFY_API_SECRET")).update(payload).digest("hex");
   return { cookieValue: `${payload}.${signature}`, nonce };
 }
@@ -190,14 +214,26 @@ export function generateOAuthState(accountId: string): { cookieValue: string; no
 export function verifyOAuthState(
   cookieValue: string,
   expectedNonce: string
-): { valid: true; accountId: string } | { valid: false } {
+): { valid: true; accountId: string; storeId?: string } | { valid: false } {
   const parts = cookieValue.split(".");
-  if (parts.length !== 3) {
+  if (parts.length !== 3 && parts.length !== 4) {
     return { valid: false };
   }
-  const [nonce, accountId, signature] = parts;
 
-  const payload = `${nonce}.${accountId}`;
+  let nonce: string;
+  let accountId: string;
+  let storeId: string | undefined;
+  let signature: string;
+  let payload: string;
+
+  if (parts.length === 4) {
+    [nonce, accountId, storeId, signature] = parts;
+    payload = `${nonce}.${accountId}.${storeId}`;
+  } else {
+    [nonce, accountId, signature] = parts;
+    payload = `${nonce}.${accountId}`;
+  }
+
   const expectedSignature = createHmac("sha256", getEnv("SHOPIFY_API_SECRET")).update(payload).digest("hex");
 
   const provided = Buffer.from(signature, "hex");
@@ -208,7 +244,7 @@ export function verifyOAuthState(
   if (nonce !== expectedNonce) {
     return { valid: false };
   }
-  return { valid: true, accountId };
+  return { valid: true, accountId, storeId };
 }
 
 export { STATE_COOKIE_NAME };

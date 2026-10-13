@@ -14,6 +14,7 @@ import {
   deleteProducts as deleteProductsFromDb,
   duplicateProduct as duplicateProductInDb,
   getEligibleUnsyncedProducts,
+  getExistingShopifyProductIds,
   getPaginatedProductsForStore,
   getProductById,
   getProductsByIds,
@@ -45,6 +46,8 @@ import {
 } from "@/lib/blob/products";
 import { decryptAccessToken } from "@/lib/shopify/oauth";
 import { fetchAllCollections } from "@/lib/shopify/collections";
+import { previewShopifyProducts } from "@/lib/shopify/products";
+
 import {
   searchTaxonomyCategories,
   type ShopifyTaxonomyCategory,
@@ -842,6 +845,10 @@ export async function pushAllDrafts(): Promise<
     return { error: "Connect a store first." };
   }
 
+  if (!store.connectedAt || !store.shopifyDomain) {
+    return { error: "This store is not connected to Shopify. Connect it in Settings." };
+  }
+
   const productIds = await getUnsyncedProductIdsForStore(account.id, store.id);
   if (productIds.length === 0) {
     return { error: "Every product has already been pushed to Shopify." };
@@ -881,6 +888,15 @@ export async function syncStore(): Promise<
     return { error: "Connect a store first." };
   }
 
+  if (!store.connectedAt || !store.shopifyDomain) {
+    return { error: "This store is not connected to Shopify. Connect it in Settings." };
+  }
+
+  const tokenRecord = await getStoreToken(account.id, store.id);
+  if (!tokenRecord || !tokenRecord.accessTokenEncrypted) {
+    return { error: "This store is not connected to Shopify. Connect it in Settings." };
+  }
+
   const job = await createJob({
     accountId: account.id,
     storeId: store.id,
@@ -915,6 +931,129 @@ export async function syncStore(): Promise<
 
   return { jobId: job.id };
 }
+
+export type ProductPreviewItem = {
+  id: string;
+  shopifyProductId: string;
+  title: string;
+  status: "ACTIVE" | "DRAFT";
+  imageUrl: string | null;
+  categoryFullName: string | null;
+  collectionTitle: string | null;
+  existing: boolean;
+};
+
+export type ProductPreviewPage = {
+  items: ProductPreviewItem[];
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+};
+
+// Backs the selective product import modal (Agentify approach)
+export async function previewShopifyProductsAction(input?: {
+  query?: string;
+  after?: string | null;
+}): Promise<{ success: true; data: ProductPreviewPage } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  const store = await resolveActiveStore(account.id);
+  if (!store) {
+    return { error: "Connect a store first." };
+  }
+  if (!store.connectedAt || !store.shopifyDomain) {
+    return { error: "This store is not connected to Shopify. Connect it in Settings." };
+  }
+
+  const tokenRecord = await getStoreToken(account.id, store.id);
+  if (!tokenRecord || !tokenRecord.accessTokenEncrypted) {
+    return { error: "This store is not connected to Shopify. Connect it in Settings." };
+  }
+
+  const accessToken = decryptAccessToken(tokenRecord.accessTokenEncrypted);
+  const preview = await previewShopifyProducts(
+    store.shopifyDomain,
+    accessToken,
+    input?.query,
+    input?.after,
+  );
+
+  if (!preview.success) {
+    return { error: preview.error };
+  }
+
+  const bareIds = preview.data.items.map((item) => item.shopifyProductId);
+  const existingSet = await getExistingShopifyProductIds(account.id, store.id, bareIds);
+
+  const items: ProductPreviewItem[] = preview.data.items.map((item) => ({
+    ...item,
+    existing: existingSet.has(item.shopifyProductId),
+  }));
+
+  return {
+    success: true,
+    data: {
+      items,
+      pageInfo: preview.data.pageInfo,
+    },
+  };
+}
+
+// Enqueues a sync job for only the user-selected Shopify product IDs
+export async function syncSelectedShopifyProductsAction(
+  selectedProductIds: string[],
+): Promise<{ jobId: string } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+
+  if (!selectedProductIds || selectedProductIds.length === 0) {
+    return { error: "Select at least one product to sync." };
+  }
+  if (selectedProductIds.length > 100) {
+    return { error: "You can select up to 100 products at a time." };
+  }
+
+  const store = await resolveActiveStore(account.id);
+  if (!store) {
+    return { error: "Connect a store first." };
+  }
+  if (!store.connectedAt || !store.shopifyDomain) {
+    return { error: "This store is not connected to Shopify. Connect it in Settings." };
+  }
+
+  const tokenRecord = await getStoreToken(account.id, store.id);
+  if (!tokenRecord || !tokenRecord.accessTokenEncrypted) {
+    return { error: "This store is not connected to Shopify. Connect it in Settings." };
+  }
+
+  const job = await createJob({
+    accountId: account.id,
+    storeId: store.id,
+    type: "SYNC",
+  });
+
+  try {
+    await triggerStoreSync({
+      accountId: account.id,
+      storeId: store.id,
+      shopifyDomain: store.shopifyDomain,
+      jobId: job.id,
+      productIds: selectedProductIds,
+    });
+  } catch (error) {
+    console.error(`syncSelectedShopifyProductsAction: failed to enqueue job ${job.id}`, error);
+    const message = "Unable to start the sync. Check the job queue and try again.";
+    await updateJobStatus({
+      accountId: account.id,
+      jobId: job.id,
+      status: "FAILED",
+      results: { error: message },
+    });
+    return { error: message };
+  }
+
+  return { jobId: job.id };
+}
+
 
 // Unit 16 follow-up: changes one or more products' status directly from the
 // products list (a single row's dropdown, or a bulk selection) with an

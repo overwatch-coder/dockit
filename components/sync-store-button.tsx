@@ -1,26 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { syncStore } from "@/app/(dashboard)/products/actions";
 import { ActionConfirmationModal } from "@/components/action-confirmation-modal";
+import { ShopifySyncModal } from "@/components/shopify-sync-modal";
 import { Button } from "@/components/ui/button";
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
 import type { SyncStoreResults } from "@/types/job";
 
-// Unit 17: pulls the store's current Shopify catalog into the database.
-// Structured identically to components/push-all-drafts-button.tsx — a
-// useTransition for the enqueue call, useJobPolling for settling, the
-// shared ActionConfirmationModal on success. No PushResultsDialog here: a
-// newly-synced product isn't in any client-side productTitles map the way
-// a push/delete's caller-selected ids are, so per-item results aren't
-// presentable the same way — a single aggregate count is the right level
-// of detail for this action.
 export function SyncStoreButton() {
   const router = useRouter();
-  const [isEnqueuing, startTransition] = useTransition();
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<{ title: string; description: string } | null>(null);
 
   const { isPolling, start } = useJobPolling({
@@ -32,11 +25,7 @@ export function SyncStoreButton() {
           errorCount: 0,
         };
         setConfirmation({
-          title: "Store synced",
-          // Unit 18: a product with an unpushed local edit is no longer
-          // silently skipped — it's flagged as a conflict (Conflict badge +
-          // dashboard stat) for the owner to resolve, so this needs to read
-          // as "needs your attention," not "nothing happened."
+          title: "Products synced",
           description:
             conflictedCount > 0
               ? `${syncedCount} product${syncedCount === 1 ? "" : "s"} updated, ${conflictedCount} flagged as conflict${conflictedCount === 1 ? "" : "s"}`
@@ -51,26 +40,29 @@ export function SyncStoreButton() {
     onError: (message) => toast.error(message),
   });
 
-  function handleClick() {
-    startTransition(async () => {
-      const result = await syncStore();
-      if ("error" in result) {
-        toast.error(result.error);
-        return;
-      }
-      toast.message("Syncing store...");
-      start(result.jobId);
-    });
+  function handleSyncStarted(jobId: string) {
+    toast.message("Syncing products from Shopify...");
+    start(jobId);
   }
-
-  const isBusy = isEnqueuing || isPolling;
 
   return (
     <>
-      <Button variant="outline" size="sm" disabled={isBusy} onClick={handleClick}>
-        <RefreshCw className="size-4" />
-        {isBusy ? "Syncing..." : "Sync store"}
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={isPolling}
+        onClick={() => setIsModalOpen(true)}
+      >
+        <RefreshCw className={isPolling ? "size-4 animate-spin" : "size-4"} />
+        {isPolling ? "Syncing..." : "Sync store"}
       </Button>
+
+      <ShopifySyncModal
+        open={isModalOpen}
+        onOpenChange={setIsModalOpen}
+        onSyncStarted={handleSyncStarted}
+      />
+
       <ActionConfirmationModal
         open={confirmation !== null}
         onOpenChange={(open) => {
@@ -82,3 +74,4 @@ export function SyncStoreButton() {
     </>
   );
 }
+

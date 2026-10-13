@@ -8,5 +8,6 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./tests/setup.ts"],
     pool: "threads",
+    exclude: ["**/node_modules/**", "**/spy-doc/**"],
   },
 });

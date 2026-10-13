@@ -6,11 +6,18 @@ import {
   type PaginatedProductsResult,
   type ProductSummary,
 } from "./types";
+import { autoHealFalseConflicts } from "./conflicts";
 
 export async function getProductsForStore(
   accountId: string,
   storeId: string,
 ): Promise<Product[]> {
+  try {
+    await autoHealFalseConflicts(accountId, storeId);
+  } catch (err) {
+    console.error("autoHealFalseConflicts error:", err);
+  }
+
   const products = await prisma.product.findMany({
     where: { accountId, storeId },
     orderBy: { createdAt: "desc" },
@@ -24,6 +31,12 @@ export async function getPaginatedProductsForStore(
   storeId: string,
   options: GetProductsOptions = {},
 ): Promise<PaginatedProductsResult> {
+  try {
+    await autoHealFalseConflicts(accountId, storeId);
+  } catch (err) {
+    console.error("autoHealFalseConflicts error:", err);
+  }
+
   const where: {
     accountId: string;
     storeId: string;
@@ -170,3 +183,21 @@ export async function getProductsForStatusSync(
     select: { id: true, storeId: true },
   });
 }
+
+export async function getExistingShopifyProductIds(
+  accountId: string,
+  storeId: string,
+  shopifyProductIds: string[],
+): Promise<Set<string>> {
+  if (shopifyProductIds.length === 0) return new Set();
+  const products = await prisma.product.findMany({
+    where: {
+      accountId,
+      storeId,
+      shopifyProductId: { in: shopifyProductIds },
+    },
+    select: { shopifyProductId: true },
+  });
+  return new Set(products.map((p) => p.shopifyProductId!).filter(Boolean));
+}
+

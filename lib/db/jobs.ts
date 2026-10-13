@@ -49,20 +49,44 @@ export async function getJobById(accountId: string, jobId: string): Promise<Job 
 }
 
 // Unit 20: backs the persistent job status indicator — the single most
-// recent job for a store, regardless of its status, so the indicator can
-// tell "currently running" (PENDING/RUNNING) apart from "just finished, and
-// the owner might not have seen it" (PARTIAL/FAILED) from "nothing to show"
-// (SUCCEEDED, or no job ever run). storeId-scoped the same way every other
-// job query in this file already is; `getStoresForAccount(...)[0]` ("first
-// connected store") resolves storeId at the call site, same convention as
-// pushAllDrafts/syncStore (app/(dashboard)/products/actions.ts) pending
-// Unit 21's real store switcher.
+// recent job for a store. If the latest job is PENDING or RUNNING but has
+// been running for more than 90 seconds, it is timed out / stalled (e.g. queue
+// worker disconnected or unresponsive store); auto-expire it to FAILED so the
+// UI never gets stuck showing "Syncing…" forever.
 export async function getLatestJobForStore(accountId: string, storeId: string): Promise<Job | null> {
   const job = await prisma.job.findFirst({
     where: { accountId, storeId },
     orderBy: { createdAt: "desc" },
   });
-  return job ? toDomainJob(job) : null;
+  if (!job) return null;
+
+  const isStale =
+    (job.status === "PENDING" || job.status === "RUNNING") &&
+    Date.now() - new Date(job.createdAt).getTime() > 90_000;
+
+  if (isStale) {
+    const errorMsg =
+      job.type === "SYNC"
+        ? "Sync timed out. Shopify connection did not respond."
+        : `${job.type.toLowerCase()} job timed out.`;
+    const now = new Date();
+    await prisma.job.update({
+      where: { id: job.id },
+      data: {
+        status: "FAILED",
+        results: { error: errorMsg },
+        completedAt: now,
+      },
+    });
+    return toDomainJob({
+      ...job,
+      status: "FAILED",
+      results: { error: errorMsg },
+      completedAt: now,
+    });
+  }
+
+  return toDomainJob(job);
 }
 
 export async function updateJobStatus(input: {
