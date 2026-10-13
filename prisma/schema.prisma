@@ -140,6 +140,7 @@ model Product {
   categoryFullName String?
   seoTitle         String?
   seoDescription   String?
+  metafields       Json?         @default("[]")
 
   // Conflict detection (context/architecture.md invariant 6).
   lastEditedAt            DateTime  @default(now())

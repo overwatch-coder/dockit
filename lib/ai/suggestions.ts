@@ -63,17 +63,54 @@ Write:
 - collectionId: the id of the single best-matching collection from the candidate list above, exactly as given, or null if none fit. Never invent an id that isn't in the candidate list.
 - categoryGuess: a short plain-text guess of this product's real-world category (e.g. "Dog Beds", "Men's Running Shoes"), or null if you can't tell. This is just a search hint used to look up a real category afterward, not a final answer — don't invent a full breadcrumb path, just the most specific plain category name you're confident in.`;
 
-  try {
-    const { output } = await generateText({
-      model: openai("gpt-4o-mini"),
-      output: Output.object({ schema: aiSuggestionSchema }),
-      prompt,
-    });
-    return { success: true, data: output };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return { success: false, error: `AI suggestion failed: ${message}` };
+  // 1. Try OpenAI if configured
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const { output } = await generateText({
+        model: openai("gpt-4o-mini"),
+        output: Output.object({ schema: aiSuggestionSchema }),
+        prompt,
+      });
+      return { success: true, data: output };
+    } catch (openAiError) {
+      console.warn("OpenAI suggestion failed, falling back to Gemini:", openAiError instanceof Error ? openAiError.message : openAiError);
+    }
   }
+
+  // 2. Resilient fallback to Gemini
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: `${prompt}\n\nStrict requirement: Output raw JSON adhering to this schema.` }] }],
+            generationConfig: {
+              responseMimeType: "application/json",
+            },
+          }),
+        }
+      );
+      if (res.ok) {
+        const body = await res.json();
+        const text = body.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          const parsed = JSON.parse(text);
+          const validated = aiSuggestionSchema.safeParse(parsed);
+          if (validated.success) {
+            return { success: true, data: validated.data };
+          }
+        }
+      }
+    } catch (geminiError) {
+      console.error("Gemini fallback failed:", geminiError);
+    }
+  }
+
+  return { success: false, error: "AI suggestion failed: Both OpenAI and Gemini were unavailable or encountered errors." };
 }
 
 // Generates a fresh description from a natural-language brief when the
@@ -133,15 +170,52 @@ ${effectiveRules.customInstructions ? `7. Custom store rules: ${effectiveRules.c
 
 Write the description as HTML using only these tags: ${allowedTags}. Keep it well-organized (short paragraphs and/or a bullet list of key features/benefits where useful). Return only the generated description as descriptionHtml.`;
 
-  try {
-    const { output } = await generateText({
-      model: openai("gpt-4o-mini"),
-      output: Output.object({ schema: productDescriptionSuggestionSchema }),
-      prompt,
-    });
-    return { success: true, data: { descriptionHtml: sanitizeDescriptionHtml(output.descriptionHtml) } };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return { success: false, error: `AI description generation failed: ${message}` };
+  // 1. Try OpenAI if configured
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const { output } = await generateText({
+        model: openai("gpt-4o-mini"),
+        output: Output.object({ schema: productDescriptionSuggestionSchema }),
+        prompt,
+      });
+      return { success: true, data: { descriptionHtml: sanitizeDescriptionHtml(output.descriptionHtml) } };
+    } catch (openAiError) {
+      console.warn("OpenAI description generation failed, falling back to Gemini:", openAiError instanceof Error ? openAiError.message : openAiError);
+    }
   }
+
+  // 2. Resilient fallback to Gemini
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: `${prompt}\n\nStrict requirement: Output raw JSON adhering to this schema: {"descriptionHtml": "..."}` }] }],
+            generationConfig: {
+              responseMimeType: "application/json",
+            },
+          }),
+        }
+      );
+      if (res.ok) {
+        const body = await res.json();
+        const text = body.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          const parsed = JSON.parse(text);
+          const validated = productDescriptionSuggestionSchema.safeParse(parsed);
+          if (validated.success) {
+            return { success: true, data: { descriptionHtml: sanitizeDescriptionHtml(validated.data.descriptionHtml) } };
+          }
+        }
+      }
+    } catch (geminiError) {
+      console.error("Gemini description fallback failed:", geminiError);
+    }
+  }
+
+  return { success: false, error: "AI description generation failed: Both OpenAI and Gemini were unavailable or encountered errors." };
 }

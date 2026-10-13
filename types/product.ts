@@ -33,6 +33,15 @@ export type ConflictSnapshot = {
   variants: { shopifyVariantId: string | null; optionName: string; price: string; inventory: number }[];
 };
 
+export type MetafieldValueEntry = {
+  namespace: string;
+  key: string;
+  name: string;
+  value: string;
+  type?: string;
+  isCategoryMetafield?: boolean;
+};
+
 export type Product = {
   id: string;
   storeId: string;
@@ -50,6 +59,7 @@ export type Product = {
   categoryFullName: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
+  metafields?: MetafieldValueEntry[];
   isConflicted: boolean;
   // Populated only while isConflicted is true; null once resolved
   // or if the product has never conflicted.

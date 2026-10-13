@@ -48,7 +48,12 @@ import {
 import { decryptAccessToken } from "@/lib/shopify/oauth";
 import { fetchAllCollections } from "@/lib/shopify/collections";
 import { previewShopifyProducts } from "@/lib/shopify/products";
-
+import {
+  fetchCategoryAttributes,
+  fetchProductMetafieldDefinitions,
+  type CategoryAttributeDefinition,
+  type ProductMetafieldDefinition,
+} from "@/lib/shopify/metafields";
 import {
   searchTaxonomyCategories,
   type ShopifyTaxonomyCategory,
@@ -207,6 +212,16 @@ function parseProductForm(
 ):
   | { fieldErrors: ProductFieldErrors }
   | ReturnType<typeof productFormSchema.parse> {
+  const metafieldsRaw = formData.get("metafields");
+  let metafieldsInput: unknown = undefined;
+  if (typeof metafieldsRaw === "string" && metafieldsRaw.length > 0) {
+    try {
+      metafieldsInput = JSON.parse(metafieldsRaw);
+    } catch {
+      metafieldsInput = undefined;
+    }
+  }
+
   const parsed = productFormSchema.safeParse({
     title: formData.get("title"),
     description: formData.get("description") ?? "",
@@ -218,6 +233,7 @@ function parseProductForm(
     categoryFullName: formData.get("categoryFullName") ?? undefined,
     seoTitle: formData.get("seoTitle") ?? undefined,
     seoDescription: formData.get("seoDescription") ?? undefined,
+    metafields: metafieldsInput,
   });
 
   if (!parsed.success) {
@@ -353,6 +369,7 @@ export async function updateProduct(
     tags: tagsInput,
     seoTitle: parsed.seoTitle || null,
     seoDescription: parsed.seoDescription || null,
+    metafields: parsed.metafields,
   });
   if (!result.success) {
     return {
@@ -1335,6 +1352,169 @@ export async function exportProductsCsv(filters: {
   return { csv: buildProductsCsv(products) };
 }
 
+export async function fetchCategoryAttributesAction(
+  storeId: string,
+  categoryId: string
+): Promise<
+  | { success: true; data: CategoryAttributeDefinition[] }
+  | { success: false; error: string }
+> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+  const storeToken = await getStoreToken(account.id, storeId);
+  if (!storeToken) return { success: false, error: "Store not connected." };
+  const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
+  const res = await fetchCategoryAttributes(storeToken.shopifyDomain, accessToken, categoryId);
+  if (!res.success) return { success: false, error: res.error };
+  return { success: true, data: res.data };
+}
+
+export async function fetchProductMetafieldDefinitionsAction(
+  storeId: string
+): Promise<
+  | { success: true; data: ProductMetafieldDefinition[] }
+  | { success: false; error: string }
+> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+  const storeToken = await getStoreToken(account.id, storeId);
+  if (!storeToken) return { success: false, error: "Store not connected." };
+  const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
+  const res = await fetchProductMetafieldDefinitions(storeToken.shopifyDomain, accessToken);
+  if (!res.success) return { success: false, error: res.error };
+  return { success: true, data: res.data };
+}
+
+export async function startBulkProductImageGenerationAction(
+  productIds: string[]
+): Promise<{ success: true; jobIds: string[] } | { error: string }> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+  if (productIds.length === 0) return { error: "Select at least one product." };
+
+  const products = await getProductsByIds(account.id, productIds);
+  if (products.length === 0) return { error: "Selected products not found." };
+
+  const jobIds: string[] = [];
+  for (const product of products) {
+    const referenceImage = product.imageUrl || product.imageUrls[0] || undefined;
+    const job = await createJob({
+      accountId: account.id,
+      storeId: product.storeId,
+      type: "GENERATE_IMAGE",
+    });
+    jobIds.push(job.id);
+    await triggerImageGenerationJob({
+      accountId: account.id,
+      storeId: product.storeId,
+      productId: product.id,
+      jobId: job.id,
+      prompt: `Professional high-end commercial studio product photography for ${product.title}, isolated clean lighting, crisp detail, 8k resolution`,
+      referenceImageUrl: referenceImage,
+      aspectRatio: "1:1",
+      mode: "angle",
+      count: 2,
+    });
+  }
+
+  return { success: true, jobIds };
+}
+
+export async function generateBulkAiVisionEnrichmentAction(
+  productIds: string[]
+): Promise<
+  | { success: true; enrichedCount: number; failureCount: number }
+  | { error: string }
+> {
+  const { userId } = await auth.protect();
+  const account = await getOrCreateAccountForClerkUser(userId);
+  if (productIds.length === 0 || !idsSchema.safeParse(productIds).success) {
+    return { error: "Select at least one product." };
+  }
+
+  const products = await getProductsByIds(account.id, productIds);
+  if (products.length === 0) {
+    return { error: "Products not found." };
+  }
+
+  let enrichedCount = 0;
+  let failureCount = 0;
+
+  for (const product of products) {
+    try {
+      const candidateUrls =
+        product.imageUrls && product.imageUrls.length > 0
+          ? product.imageUrls
+          : product.imageUrl
+            ? [product.imageUrl]
+            : [];
+
+      let collections: Collection[] = [];
+      let categoryAttributes: CategoryAttributeDefinition[] = [];
+      let productMetafieldDefinitions: ProductMetafieldDefinition[] = [];
+
+      const storeToken = await getStoreToken(account.id, product.storeId);
+      if (storeToken) {
+        const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
+        const [collectionsRes, metaDefsRes, catAttrsRes] = await Promise.all([
+          fetchAllCollections(storeToken.shopifyDomain, accessToken),
+          fetchProductMetafieldDefinitions(storeToken.shopifyDomain, accessToken),
+          product.categoryId
+            ? fetchCategoryAttributes(storeToken.shopifyDomain, accessToken, product.categoryId)
+            : Promise.resolve({ success: true as const, data: [] }),
+        ]);
+        if (collectionsRes.success) collections = collectionsRes.data;
+        if (metaDefsRes.success) productMetafieldDefinitions = metaDefsRes.data;
+        if (catAttrsRes.success) categoryAttributes = catAttrsRes.data;
+      }
+
+      const storeAiRules = await getAiRulesForStore(account.id, product.storeId);
+
+      const result = await runFullProductAiVisionEnrichment({
+        productId: product.id,
+        title: product.title,
+        price: product.price,
+        description: product.description,
+        imageUrls: candidateUrls,
+        generateImages: false,
+        rules: storeAiRules,
+        collections,
+        categoryAttributes,
+        productMetafieldDefinitions,
+      });
+
+      await applyFullAiEnrichmentInDb({
+        accountId: account.id,
+        productId: product.id,
+        fields: {
+          title: result.fields.title,
+          description: result.fields.descriptionHtml,
+          categoryId: result.fields.categoryId,
+          categoryFullName: result.fields.categoryFullName,
+          collectionId: result.fields.collectionId,
+          collectionTitle: result.fields.collectionTitle,
+          tags: result.fields.tags,
+          seoTitle: result.fields.seoTitle,
+          seoDescription: result.fields.seoDescription,
+          metafields: result.fields.metafields,
+        },
+        addImageUrls: [],
+      });
+
+      enrichedCount++;
+    } catch (err) {
+      console.error(`Failed to enrich product ${product.id}:`, err);
+      failureCount++;
+    }
+  }
+
+  revalidatePath("/products");
+  revalidatePath("/dashboard");
+  return { success: true, enrichedCount, failureCount };
+}
+
+
+
 export async function generateFullAiProductEnrichmentAction(input: {
   productId: string;
   generateAlternativeImages?: boolean;
@@ -1365,16 +1545,22 @@ export async function generateFullAiProductEnrichmentAction(input: {
           : [];
 
     let collections: Collection[] = [];
+    let categoryAttributes: CategoryAttributeDefinition[] = [];
+    let productMetafieldDefinitions: ProductMetafieldDefinition[] = [];
+
     const storeToken = await getStoreToken(account.id, product.storeId);
     if (storeToken) {
       const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
-      const collectionsRes = await fetchAllCollections(
-        storeToken.shopifyDomain,
-        accessToken,
-      );
-      if (collectionsRes.success) {
-        collections = collectionsRes.data;
-      }
+      const [collectionsRes, metaDefsRes, catAttrsRes] = await Promise.all([
+        fetchAllCollections(storeToken.shopifyDomain, accessToken),
+        fetchProductMetafieldDefinitions(storeToken.shopifyDomain, accessToken),
+        product.categoryId
+          ? fetchCategoryAttributes(storeToken.shopifyDomain, accessToken, product.categoryId)
+          : Promise.resolve({ success: true as const, data: [] }),
+      ]);
+      if (collectionsRes.success) collections = collectionsRes.data;
+      if (metaDefsRes.success) productMetafieldDefinitions = metaDefsRes.data;
+      if (catAttrsRes.success) categoryAttributes = catAttrsRes.data;
     }
 
     const storeAiRules = await getAiRulesForStore(account.id, product.storeId);
@@ -1390,6 +1576,8 @@ export async function generateFullAiProductEnrichmentAction(input: {
       imageProvider: input.imageProvider,
       rules: storeAiRules,
       collections,
+      categoryAttributes,
+      productMetafieldDefinitions,
     });
 
     return { success: true, data: result };
@@ -1424,6 +1612,7 @@ export async function applyFullAiProductEnrichmentAction(input: {
       tags: input.fields.tags,
       seoTitle: input.fields.seoTitle,
       seoDescription: input.fields.seoDescription,
+      metafields: input.fields.metafields,
     },
     addImageUrls: input.selectedImageUrls,
   });

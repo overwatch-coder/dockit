@@ -732,3 +732,23 @@ change.
 - `.env` (real Neon + Clerk credentials) and `.env.example` (placeholder shape, safe to commit) both exist at the repo root. `.env` is gitignored and was confirmed absent from `git status` before every commit involving it.
 - `app/(dashboard)/dashboard/page.tsx` is still **temporary placeholder body content** (just renders the resolved account id) — Unit 8 replaces it with the real product list at this same route. The shell around it (sidebar, auth gate) is the real, permanent Unit 4 structure.
 - Always run `rm -rf .next` before a fresh `npm run build`/`npm run dev` after deleting or moving routes — stale `.next/dev/types/validator.ts` references to removed pages will fail the TypeScript build step otherwise (hit this when `app/dashboard/` moved to `app/(dashboard)/dashboard/`).
+
+- **Category & Product Metafields, AI Vision Auto-Filling, & Bulk Actions**:
+  - **Metafield Models & Shopify GraphQL Integration**:
+    - Added `metafields Json? @default("[]")` to Prisma `model Product` and pushed to database (`npx prisma db push && npx prisma generate`).
+    - Added `lib/shopify/metafields.ts` to query `TaxonomyCategory` attributes (Color, Construction, Target gender, etc.) and store `ProductMetafieldDefinition`s via Shopify Admin GraphQL `2026-07`.
+    - Extended `PushProductInput` and `pushProductToShopify` (`lib/shopify/push.ts` & `lib/jobs/push.ts`) to forward `metafields` in Shopify's `productSet` mutation, ensuring saved metafields publish directly to Shopify.
+  - **AI Suggestions & Vision Auto-Filling**:
+    - Resolved OpenAI key failure on multi-product generation by implementing automatic Gemini (`gemini-3.8-flash`) fallback in `lib/ai/suggestions.ts` (`suggestProductSeo`, `generateProductDescription`).
+    - Extended AI Vision enrichment prompt and schema to take category attributes and store metafield definitions, predicting color choices, construction, gender, and custom inputs directly from product images.
+    - Updated `DetailsTab` in `components/product-vision-enrich/details-tab.tsx` to render AI-predicted category and product metafields with choice selects, text inputs, and "AI Suggested" badges.
+  - **Product Editor & Metafields UI**:
+    - Created `components/metafields-editor.tsx` matching Shopify's Category & Product Metafields UI: displays active fields with dropdown choices/inputs, "+ Add" actions, and pill buttons for remaining attributes.
+    - Integrated `MetafieldsEditor` into `components/product-form.tsx` syncing with form state and saving via `updateProduct` server action.
+  - **Bulk Actions in Products Table**:
+    - In `components/product-table.tsx`, added bulk actions when multiple items are selected:
+      - "Generate content with images" (`generateBulkAiVisionEnrichmentAction`): runs AI Vision enrichment sequentially across selected products, filling descriptions, categories, metafields, tags, and SEO directly from their photos.
+      - "Generate images" (`startBulkProductImageGenerationAction`): queues background commercial studio product photography jobs via Inngest.
+      - "Generate AI suggestions": fixed OpenAI error via Gemini fallback, opening bulk review dialog.
+  - **Verification**:
+    - All 42 test suites and 283 tests pass (`npm test`).

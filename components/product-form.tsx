@@ -23,6 +23,7 @@ import {
 } from "@/app/(dashboard)/products/actions";
 import { ActionConfirmationModal } from "@/components/action-confirmation-modal";
 import { CategoryPicker } from "@/components/category-picker";
+import { MetafieldsEditor } from "@/components/metafields-editor";
 import { ConflictResolutionDialog } from "@/components/conflict-resolution-dialog";
 import { ProductVisionEnrichDialog } from "@/components/product-vision-enrich-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -64,7 +65,7 @@ import { useJobPolling } from "@/lib/hooks/use-job-polling";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import { cn } from "@/lib/utils";
 import type { Collection } from "@/types/collection";
-import type { Product, ProductStatus } from "@/types/product";
+import type { MetafieldValueEntry, Product, ProductStatus } from "@/types/product";
 
 const NO_COLLECTION_VALUE = "none";
 
@@ -136,6 +137,9 @@ export function ProductForm({
   const [seoTitle, setSeoTitle] = useState(product?.seoTitle ?? "");
   const [seoDescription, setSeoDescription] = useState(
     product?.seoDescription ?? "",
+  );
+  const [metafields, setMetafields] = useState<MetafieldValueEntry[]>(
+    product?.metafields ?? []
   );
 
   const [aiSuggested, setAiSuggested] = useState<Set<AiSuggestedField>>(
@@ -253,6 +257,7 @@ export function ProductForm({
       tags,
       seoTitle,
       seoDescription,
+      metafields,
     });
   }
   const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() =>
@@ -809,6 +814,23 @@ export function ProductForm({
                 <input type="hidden" name="tags" value={JSON.stringify(tags)} />
               </div>
 
+              {(product?.storeId || storeId) && (
+                <div className="flex flex-col gap-2 rounded-lg p-2">
+                  <MetafieldsEditor
+                    storeId={product?.storeId ?? storeId ?? ""}
+                    categoryId={categoryId}
+                    categoryFullName={categoryFullName}
+                    value={metafields}
+                    onChange={setMetafields}
+                  />
+                  <input
+                    type="hidden"
+                    name="metafields"
+                    value={JSON.stringify(metafields)}
+                  />
+                </div>
+              )}
+
               <VariantList
                 variants={variants}
                 images={gallery}
@@ -1074,6 +1096,9 @@ export function ProductForm({
             setTags(fields.tags);
             setSeoTitle(fields.seoTitle);
             setSeoDescription(fields.seoDescription);
+            if (fields.metafields) {
+              setMetafields(fields.metafields);
+            }
             setAiSuggested(
               new Set(["seoTitle", "seoDescription", "tags", "category", "collection"])
             );

@@ -30,6 +30,16 @@ export const productFormSchema = z.object({
   // string means "not set."
   seoTitle: z.string().trim().optional(),
   seoDescription: z.string().trim().optional(),
+  metafields: z.array(
+    z.object({
+      namespace: z.string().trim().default("custom"),
+      key: z.string().trim().min(1),
+      name: z.string().trim().min(1),
+      value: z.string().trim(),
+      type: z.string().trim().optional(),
+      isCategoryMetafield: z.boolean().optional(),
+    })
+  ).optional(),
 });
 
 export type ProductFormInput = z.infer<typeof productFormSchema>;

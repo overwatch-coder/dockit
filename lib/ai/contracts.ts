@@ -2,6 +2,8 @@ import type { VisionAnalysis, EnrichedProductFields } from "@/lib/validation/ai-
 import type { StoreAiRules } from "@/lib/ai/rules";
 import type { Collection } from "@/types/collection";
 
+import type { CategoryAttributeDefinition, ProductMetafieldDefinition } from "@/lib/shopify/metafields";
+
 export type TextVisionProviderName = "gemini" | "openai";
 export type ImageProviderName = "gemini" | "openai" | "kie";
 
@@ -19,6 +21,8 @@ export interface ProductFieldsInput {
   analysis: VisionAnalysis;
   rules?: StoreAiRules;
   collections?: Collection[];
+  categoryAttributes?: CategoryAttributeDefinition[];
+  productMetafieldDefinitions?: ProductMetafieldDefinition[];
   apiKey?: string;
 }
 

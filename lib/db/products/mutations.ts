@@ -41,6 +41,7 @@ export async function duplicateProduct(input: {
       categoryFullName: source.categoryFullName,
       seoTitle: source.seoTitle,
       seoDescription: source.seoDescription,
+      metafields: (source.metafields as any) ?? [],
       lastEditedAt: new Date(),
       lastSyncedAt: null,
       isConflicted: false,
@@ -101,6 +102,7 @@ export async function updateProduct(input: {
   tags?: string[];
   seoTitle?: string | null;
   seoDescription?: string | null;
+  metafields?: any[];
 }): Promise<
   | { success: true; product: Product }
   | { success: false; reason: "not-found" | "conflicted" }
@@ -129,6 +131,9 @@ export async function updateProduct(input: {
       tags: input.tags ?? [],
       seoTitle: input.seoTitle ?? null,
       seoDescription: input.seoDescription ?? null,
+      ...(input.metafields !== undefined
+        ? { metafields: input.metafields as Prisma.InputJsonValue }
+        : {}),
       lastEditedAt: new Date(),
     },
     include: { variants: true },
@@ -149,6 +154,7 @@ export async function applyFullAiEnrichmentInDb(input: {
     tags?: string[];
     seoTitle?: string | null;
     seoDescription?: string | null;
+    metafields?: any[];
   };
   addImageUrls?: string[];
 }): Promise<
@@ -187,6 +193,9 @@ export async function applyFullAiEnrichmentInDb(input: {
       tags: input.fields.tags ?? existing.tags,
       seoTitle: input.fields.seoTitle ?? existing.seoTitle,
       seoDescription: input.fields.seoDescription ?? existing.seoDescription,
+      ...(input.fields.metafields !== undefined
+        ? { metafields: input.fields.metafields as Prisma.InputJsonValue }
+        : {}),
       imageUrls: nextImageUrls,
       imageUrl: nextPrimaryImageUrl,
       lastEditedAt: new Date(),

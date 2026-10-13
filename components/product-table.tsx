@@ -9,6 +9,7 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  Camera,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -21,13 +22,16 @@ import {
   Sparkles,
   Trash2,
   TriangleAlert,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   applyBulkAiSuggestions,
   duplicateProduct,
+  generateBulkAiVisionEnrichmentAction,
   generateBulkProductSeoSuggestions,
   pushSelectedProducts,
+  startBulkProductImageGenerationAction,
 } from "@/app/(dashboard)/products/actions";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -253,6 +257,8 @@ export function ProductTable({
   );
   const [visionEnrichProduct, setVisionEnrichProduct] = useState<Product | null>(null);
   const [generateImagesProduct, setGenerateImagesProduct] = useState<Product | null>(null);
+  const [isBulkVisionLoading, startBulkVisionTransition] = useTransition();
+  const [isBulkImageLoading, startBulkImageTransition] = useTransition();
   const { isPolling: isPushPolling, start: startPushPolling } = useJobPolling({
     onSettled: (status, results) => {
       const items = (results as PushBatchResults | undefined)?.items ?? [];
@@ -305,6 +311,41 @@ export function ProductTable({
           `${result.data.failures.length} product suggestion${result.data.failures.length === 1 ? "" : "s"} could not be generated.`,
         );
       }
+    });
+  }
+
+  function handleBulkContentWithImages() {
+    if (selectedIds.size === 0) return;
+    startBulkVisionTransition(async () => {
+      toast.message(`Analyzing images and generating rich catalog content for ${selectedIds.size} products...`);
+      const res = await generateBulkAiVisionEnrichmentAction(Array.from(selectedIds));
+      if ("error" in res) {
+        toast.error(res.error);
+        return;
+      }
+      setSelectedIds(new Set());
+      setConfirmation({
+        variant: "success",
+        title: "Content generated with AI Vision",
+        description: `Successfully enriched ${res.enrichedCount} product${res.enrichedCount === 1 ? "" : "s"} with titles, descriptions, categories, metafields & SEO from their images!`,
+      });
+      router.refresh();
+    });
+  }
+
+  function handleBulkGenerateImages() {
+    if (selectedIds.size === 0) return;
+    startBulkImageTransition(async () => {
+      const res = await startBulkProductImageGenerationAction(Array.from(selectedIds));
+      if ("error" in res) {
+        toast.error(res.error);
+        return;
+      }
+      setSelectedIds(new Set());
+      toast.success(
+        `Queued commercial studio photography jobs for ${selectedIds.size} product${selectedIds.size === 1 ? "" : "s"}. Images are generating in the background!`
+      );
+      router.refresh();
     });
   }
 
@@ -500,6 +541,40 @@ export function ProductTable({
                 <span className="hidden sm:inline">Generate with AI Vision</span>
                 <span className="sm:hidden">AI Vision</span>
               </Button>
+            )}
+            {selectedIds.size > 1 && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isBulkVisionLoading}
+                  onClick={handleBulkContentWithImages}
+                  className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10 text-xs h-8"
+                >
+                  <Wand2 className="size-3.5" />
+                  <span className="hidden sm:inline">
+                    {isBulkVisionLoading ? "Generating with vision..." : "Generate content with images"}
+                  </span>
+                  <span className="sm:hidden">
+                    {isBulkVisionLoading ? "Generating..." : "Content with images"}
+                  </span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isBulkImageLoading}
+                  onClick={handleBulkGenerateImages}
+                  className="gap-1.5 text-xs h-8"
+                >
+                  <Camera className="size-3.5" />
+                  <span className="hidden sm:inline">
+                    {isBulkImageLoading ? "Queuing images..." : "Generate images"}
+                  </span>
+                  <span className="sm:hidden">
+                    {isBulkImageLoading ? "Queuing..." : "Images"}
+                  </span>
+                </Button>
+              </>
             )}
             <Button
               variant="outline"

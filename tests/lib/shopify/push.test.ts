@@ -325,4 +325,29 @@ describe("pushProductToShopify — error sanitization", () => {
 
     expect(result).toEqual({ success: false, error: "Price must be greater than 0.00" });
   });
+
+  test("passes metafields to productSet input when provided", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(productSetResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await pushProductToShopify(
+      "my-store.myshopify.com",
+      "token",
+      baseInput({
+        metafields: [
+          { namespace: "shopify", key: "color-pattern", value: "Black" },
+          { namespace: "test_data", key: "binding_mount", value: "4x4", type: "single_line_text_field" },
+          { namespace: "custom", key: "empty", value: "" },
+        ],
+      })
+    );
+
+    expect(result.success).toBe(true);
+    const body = lastRequestBody(fetchMock);
+    expect(body.variables.input.metafields).toEqual([
+      { namespace: "shopify", key: "color-pattern", value: "Black" },
+      { namespace: "test_data", key: "binding_mount", value: "4x4", type: "single_line_text_field" },
+    ]);
+  });
 });
+

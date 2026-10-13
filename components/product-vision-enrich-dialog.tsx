@@ -294,6 +294,8 @@ export function ProductVisionEnrichDialog({
                       ? collections
                       : (enrichmentResult.availableCollections as Collection[]) || []
                   }
+                  availableCategoryAttributes={enrichmentResult.availableCategoryAttributes}
+                  availableProductMetafields={enrichmentResult.availableProductMetafields}
                   onChange={(updater) =>
                     setEditableFields((prev) => (prev ? updater(prev) : prev))
                   }

@@ -24,6 +24,18 @@ export const enrichedProductFieldsSchema = z.object({
   tags: z.array(z.string().trim()).default([]),
   seoTitle: z.string().trim().min(1),
   seoDescription: z.string().trim().min(1),
+  metafields: z
+    .array(
+      z.object({
+        namespace: z.string().default("custom"),
+        key: z.string(),
+        name: z.string(),
+        value: z.string(),
+        type: z.string().optional(),
+        isCategoryMetafield: z.boolean().optional(),
+      })
+    )
+    .default([]),
 });
 
 export type EnrichedProductFields = z.infer<typeof enrichedProductFieldsSchema>;
@@ -41,6 +53,8 @@ export const fullAiVisionEnrichmentResultSchema = z.object({
   fields: enrichedProductFieldsSchema,
   generatedImages: z.array(generatedPerspectiveImageSchema).default([]),
   availableCollections: z.array(z.any()).default([]),
+  availableCategoryAttributes: z.array(z.any()).default([]),
+  availableProductMetafields: z.array(z.any()).default([]),
 });
 
 export type FullAiVisionEnrichmentResult = z.infer<typeof fullAiVisionEnrichmentResultSchema>;

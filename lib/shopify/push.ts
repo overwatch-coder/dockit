@@ -19,6 +19,12 @@ export type PushProductInput = {
   collectionId: string | null; // bare id; null = never touch collection membership
   categoryId: string | null; // bare TaxonomyCategory id; null = never touch category
   imageUrls: string[]; // full current gallery, Blob and/or Shopify-CDN mixed
+  metafields?: {
+    namespace: string;
+    key: string;
+    value: string;
+    type?: string;
+  }[];
   variants: {
     id: string;
     shopifyVariantId: string | null;
@@ -435,6 +441,17 @@ export async function pushProductToShopify(
   // Shopify untouched, rather than risking clearing it.
   if (input.categoryId) {
     productSetInput.category = toGid("TaxonomyCategory", input.categoryId);
+  }
+
+  if (input.metafields && input.metafields.length > 0) {
+    productSetInput.metafields = input.metafields
+      .filter((m) => m.value && m.value.trim() !== "")
+      .map((m) => ({
+        namespace: m.namespace,
+        key: m.key,
+        value: m.value,
+        ...(m.type ? { type: m.type } : {}),
+      }));
   }
 
   // extraFileEntries (existing files a variant links to) is only populated

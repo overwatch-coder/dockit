@@ -58,6 +58,10 @@ export async function analyzeProductPhotosWithVision(input: {
 
 import type { StoreAiRules } from "@/lib/ai/rules";
 import type { Collection } from "@/types/collection";
+import type {
+  CategoryAttributeDefinition,
+  ProductMetafieldDefinition,
+} from "@/lib/shopify/metafields";
 
 export async function generateFullProductFields(input: {
   title: string;
@@ -66,6 +70,8 @@ export async function generateFullProductFields(input: {
   analysis: VisionAnalysis;
   rules?: StoreAiRules;
   collections?: Collection[];
+  categoryAttributes?: CategoryAttributeDefinition[];
+  productMetafieldDefinitions?: ProductMetafieldDefinition[];
   provider?: TextVisionProviderName;
   customProvider?: ITextVisionProvider;
   apiKey?: string;
@@ -78,6 +84,8 @@ export async function generateFullProductFields(input: {
     analysis: input.analysis,
     rules: input.rules,
     collections: input.collections,
+    categoryAttributes: input.categoryAttributes,
+    productMetafieldDefinitions: input.productMetafieldDefinitions,
     apiKey: input.apiKey,
   });
 }
@@ -140,6 +148,8 @@ export async function runFullProductAiVisionEnrichment(input: {
   imageProvider?: ImageProviderName;
   rules?: StoreAiRules;
   collections?: Collection[];
+  categoryAttributes?: CategoryAttributeDefinition[];
+  productMetafieldDefinitions?: ProductMetafieldDefinition[];
   apiKey?: string;
 }): Promise<FullAiVisionEnrichmentResult> {
   // 1. Analyze with Vision Provider (OpenAI, Gemini)
@@ -151,7 +161,7 @@ export async function runFullProductAiVisionEnrichment(input: {
     apiKey: input.apiKey,
   });
 
-  // 2. Generate full fields (Title, Description, Category, Tags, Collection, SEO)
+  // 2. Generate full fields (Title, Description, Category, Tags, Collection, SEO, Metafields)
   const fields = await generateFullProductFields({
     title: input.title,
     price: input.price,
@@ -159,6 +169,8 @@ export async function runFullProductAiVisionEnrichment(input: {
     analysis,
     rules: input.rules,
     collections: input.collections,
+    categoryAttributes: input.categoryAttributes,
+    productMetafieldDefinitions: input.productMetafieldDefinitions,
     provider: input.textProvider,
     apiKey: input.apiKey,
   });
@@ -182,5 +194,7 @@ export async function runFullProductAiVisionEnrichment(input: {
     fields,
     generatedImages,
     availableCollections: input.collections || [],
+    availableCategoryAttributes: input.categoryAttributes || [],
+    availableProductMetafields: input.productMetafieldDefinitions || [],
   };
 }

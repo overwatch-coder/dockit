@@ -75,8 +75,22 @@ Produce:
       ? input.collections.map((c) => `- ${c.id}: ${c.title}`).join("\n")
       : "(no collections exist in this store)";
 
+    const catAttrsText = input.categoryAttributes?.length
+      ? input.categoryAttributes
+          .slice(0, 15)
+          .map((a) => `- ${a.name} (${a.type}${a.choices?.length ? `: choose best from [${a.choices.slice(0, 10).join(", ")}]` : ""})`)
+          .join("\n")
+      : "(none available)";
+
+    const prodMetaText = input.productMetafieldDefinitions?.length
+      ? input.productMetafieldDefinitions
+          .slice(0, 15)
+          .map((m) => `- ${m.name} [namespace: "${m.namespace}", key: "${m.key}", type: "${m.typeName}"]: ${m.description || ""}`)
+          .join("\n")
+      : "(none available)";
+
     const promptText = `${effectiveRules.brandTone}
-Using the provided vision analysis and product details, generate high-converting, professional catalog metadata.
+Using the provided vision analysis and product details, generate high-converting, professional catalog metadata and populate relevant category/product metafields.
 
 Product Information:
 - Current Title: "${input.title}"
@@ -91,15 +105,24 @@ Product Information:
 Candidate collections (pick the single best match by id, or null if none fit):
 ${collectionsList}
 
+Available Category Metafields (select suitable values based on imagery/product details):
+${catAttrsText}
+
+Available Product Metafields (generate realistic values if applicable):
+${prodMetaText}
+
 CRITICAL INSTRUCTIONS & CONSTRAINTS:
 1. Title: ${effectiveRules.titleRule}
 2. Description: Return semantic, well-organized HTML using ONLY these tags: ${allowedTags}.
 ${effectiveRules.descriptionRule}
 3. Category Guess: A single specific retail category name for Shopify taxonomy mapping (e.g. "Water Bottles", "Coffee Drippers", "Men's Sneakers").
 4. Collection: Match the product to the single best collection from Candidate collections above by setting collectionId to that exact ID, or null if none fit.
-5. Tags: ${effectiveRules.tagsRule}
-6. SEO: ${effectiveRules.seoRule}
-${effectiveRules.customInstructions ? `7. STORE-SPECIFIC ADAPTED RULES & CONSTRAINTS:\n${effectiveRules.customInstructions}` : ""}`;
+5. Metafields: Generate relevant category and product metafield values based on visual analysis and context.
+   - For choice attributes (like Color, Target gender, Snowboarding style, etc.), select one of the allowed choices if listed.
+   - For text or measurement inputs (like Snowboard length, Snowboard binding mount), generate an accurate, realistic value (e.g. "156 cm", "4x4 / 2x4 Universal").
+6. Tags: ${effectiveRules.tagsRule}
+7. SEO: ${effectiveRules.seoRule}
+${effectiveRules.customInstructions ? `8. STORE-SPECIFIC ADAPTED RULES & CONSTRAINTS:\n${effectiveRules.customInstructions}` : ""}`;
 
     const { output } = await generateText({
       model: openai("gpt-4o-mini"),
@@ -141,6 +164,7 @@ ${effectiveRules.customInstructions ? `7. STORE-SPECIFIC ADAPTED RULES & CONSTRA
       tags: output.tags || [],
       seoTitle: output.seoTitle,
       seoDescription: output.seoDescription,
+      metafields: output.metafields || [],
     };
   }
 }

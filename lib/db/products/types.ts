@@ -1,4 +1,4 @@
-import type { ConflictSnapshot, Product } from "@/types/product";
+import type { ConflictSnapshot, MetafieldValueEntry, Product } from "@/types/product";
 
 export type ProductRecord = {
   id: string;
@@ -17,6 +17,7 @@ export type ProductRecord = {
   categoryFullName: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
+  metafields?: unknown;
   isConflicted: boolean;
   conflictAppSnapshot: unknown;
   conflictShopifySnapshot: unknown;
@@ -51,6 +52,7 @@ export function toDomainProduct(product: ProductRecord): Product {
     categoryFullName: product.categoryFullName,
     seoTitle: product.seoTitle,
     seoDescription: product.seoDescription,
+    metafields: (product.metafields as MetafieldValueEntry[] | null) ?? [],
     isConflicted: product.isConflicted,
     conflictAppSnapshot:
       (product.conflictAppSnapshot as ConflictSnapshot | null) ?? null,

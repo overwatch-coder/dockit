@@ -21,6 +21,7 @@ function toPushInput(product: Product): PushProductInput {
     collectionId: product.collectionId,
     categoryId: product.categoryId,
     imageUrls: product.imageUrls,
+    metafields: product.metafields,
     variants: product.variants.map((variant) => ({
       id: variant.id,
       shopifyVariantId: variant.shopifyVariantId,
