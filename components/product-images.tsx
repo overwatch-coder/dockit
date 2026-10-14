@@ -7,6 +7,7 @@ import Image from "next/image";
 import { Clock, ImagePlus, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { removeProductImage } from "@/app/(dashboard)/products/actions";
+import { productThumbnailUrl } from "@/lib/shopify/image-url";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -112,7 +113,7 @@ export function ProductImages({
       <div className="flex flex-wrap gap-2">
         {images.map((url) => (
           <div key={url} className="group relative size-16 shrink-0 overflow-hidden rounded-md border border-border">
-            <Image src={url} alt="" fill sizes="64px" className="object-cover" />
+            <Image src={productThumbnailUrl(url, 128)} alt="" fill sizes="64px" className="object-cover" />
             <Button
               type="button"
               size="icon-xs"

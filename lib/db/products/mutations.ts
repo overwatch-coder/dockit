@@ -157,6 +157,7 @@ export async function applyFullAiEnrichmentInDb(input: {
     metafields?: any[];
   };
   addImageUrls?: string[];
+  variantImages?: Array<{ variantId: string; imageUrl: string }>;
 }): Promise<
   | { success: true; product: Product }
   | { success: false; reason: "not-found" | "conflicted" }
@@ -179,7 +180,31 @@ export async function applyFullAiEnrichmentInDb(input: {
     }
   }
 
+  if (input.variantImages && input.variantImages.length > 0) {
+    for (const vi of input.variantImages) {
+      await prisma.variant.updateMany({
+        where: { id: vi.variantId, productId: input.productId },
+        data: { imageUrl: vi.imageUrl },
+      });
+      if (!nextImageUrls.includes(vi.imageUrl)) {
+        nextImageUrls.push(vi.imageUrl);
+      }
+    }
+  }
+
   const nextPrimaryImageUrl = existing.imageUrl || nextImageUrls[0] || null;
+
+  // If the product has a primary image and the first variant has no image, attach it.
+  const firstVariant = await prisma.variant.findFirst({
+    where: { productId: input.productId },
+    orderBy: { createdAt: "asc" },
+  });
+  if (firstVariant && !firstVariant.imageUrl && nextPrimaryImageUrl) {
+    await prisma.variant.update({
+      where: { id: firstVariant.id },
+      data: { imageUrl: nextPrimaryImageUrl },
+    });
+  }
 
   const product = await prisma.product.update({
     where: { id: input.productId },

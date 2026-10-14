@@ -8,6 +8,7 @@ export type ShopifyImportedVariant = {
   optionName: string;
   price: string;
   inventory: number;
+  imageUrl?: string | null;
 };
 
 export type ShopifyImportedProduct = {
@@ -52,6 +53,7 @@ type RawVariantNode = {
   title: string;
   price: string;
   inventoryQuantity: number | null;
+  image?: { url: string } | null;
 };
 
 type RawProductNode = {
@@ -154,12 +156,19 @@ function toImportedProduct(node: RawProductNode): ShopifyImportedProduct {
     categoryFullName,
     seoTitle: node.seo.title,
     seoDescription: node.seo.description,
-    variants: node.variants.edges.map(({ node: variant }) => ({
-      shopifyVariantId: toBareId(variant.id),
-      optionName: variant.title,
-      price: variant.price,
-      inventory: variant.inventoryQuantity ?? 0,
-    })),
+    variants: node.variants.edges.map(({ node: variant }, index) => {
+      const primaryImg =
+        node.featuredImage?.url ??
+        node.media.nodes.map((m) => m.image?.url).find(Boolean) ??
+        null;
+      return {
+        shopifyVariantId: toBareId(variant.id),
+        optionName: variant.title,
+        price: variant.price,
+        inventory: variant.inventoryQuantity ?? 0,
+        imageUrl: variant.image?.url ?? (index === 0 ? primaryImg : null),
+      };
+    }),
   };
 }
 
@@ -210,6 +219,9 @@ const PRODUCT_FIELDS = `
         title
         price
         inventoryQuantity
+        image {
+          url
+        }
       }
     }
   }

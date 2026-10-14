@@ -34,7 +34,12 @@ export default async function NewProductPage() {
 
       <h1 className="text-page-title font-semibold text-foreground">New product</h1>
 
-      <ProductForm mode="create" storeId={activeStore.id} />
+      <ProductForm
+        mode="create"
+        storeId={activeStore.id}
+        shopifyDomain={activeStore.shopifyDomain}
+        storeName={activeStore.name}
+      />
     </div>
   );
 }

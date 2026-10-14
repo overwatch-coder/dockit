@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { productThumbnailUrl } from "@/lib/shopify/image-url";
 import { cn } from "@/lib/utils";
 
 export const MAX_SELECTION = 100;
@@ -336,7 +337,7 @@ export function ShopifySyncModal({
 
                   {item.imageUrl ? (
                     <img
-                      src={item.imageUrl}
+                      src={productThumbnailUrl(item.imageUrl, 96)}
                       alt={item.title}
                       className="size-11 sm:size-12 rounded-md border border-border object-cover shrink-0"
                       loading="lazy"

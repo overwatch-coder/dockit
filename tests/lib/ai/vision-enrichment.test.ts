@@ -3,6 +3,7 @@ import {
   analyzeProductPhotosWithVision,
   generateFullProductFields,
   generatePerspectiveImages,
+  generateVariantImages,
   runFullProductAiVisionEnrichment,
 } from "@/lib/ai/vision-enrichment";
 import * as blobModule from "@/lib/blob/products";
@@ -241,6 +242,64 @@ describe("vision-enrichment", () => {
     });
   });
 
+  describe("generateVariantImages", () => {
+    it("returns empty array if all variants already have images", async () => {
+      const mockGenerator = {
+        providerName: "gemini" as const,
+        generate: vi.fn(),
+      };
+
+      const images = await generateVariantImages({
+        productId: "p1",
+        productTitle: "Snowboard",
+        referenceImageUrl: "https://example.com/snowboard.jpg",
+        variants: [
+          { id: "v1", optionName: "Ice", imageUrl: "https://example.com/ice.jpg" },
+          { id: "v2", optionName: "Dawn", imageUrl: "https://example.com/dawn.jpg" },
+        ],
+        customGenerator: mockGenerator,
+      });
+
+      expect(images).toEqual([]);
+      expect(mockGenerator.generate).not.toHaveBeenCalled();
+    });
+
+    it("generates images for variants lacking images", async () => {
+      const mockGenerator = {
+        providerName: "gemini" as const,
+        generate: vi.fn().mockResolvedValue({
+          buffer: Buffer.from("mock-variant-image-data"),
+          format: "png",
+        }),
+      };
+
+      vi.spyOn(blobModule, "uploadGeneratedProductImage").mockImplementation(async ({ filename }) => ({
+        success: true,
+        url: `https://blob.vercel-storage.com/products/p1/${filename}`,
+      }));
+
+      const images = await generateVariantImages({
+        productId: "p1",
+        productTitle: "Snowboard",
+        productDescription: "All-mountain snowboard for alpine carving.",
+        referenceImageUrl: "https://example.com/snowboard.jpg",
+        variants: [
+          { id: "v1", optionName: "Ice", imageUrl: null },
+          { id: "v2", optionName: "Dawn", imageUrl: "https://example.com/dawn.jpg" },
+          { id: "v3", optionName: "Powder", imageUrl: null },
+        ],
+        customGenerator: mockGenerator,
+      });
+
+      expect(images).toHaveLength(2);
+      expect(images[0]?.variantId).toBe("v1");
+      expect(images[0]?.optionName).toBe("Ice");
+      expect(images[1]?.variantId).toBe("v3");
+      expect(images[1]?.optionName).toBe("Powder");
+      expect(mockGenerator.generate).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe("runFullProductAiVisionEnrichment", () => {
     it("orchestrates vision analysis and field generation", async () => {
       const mockResponse = {
@@ -287,6 +346,134 @@ describe("vision-enrichment", () => {
       expect(result.analysis.identifiedProduct).toBe("Ceramic Coffee Mug");
       expect(result.fields.title).toBe("Artisan Ceramic Mug 12oz");
       expect(result.generatedImages).toEqual([]);
+      expect(result.generatedVariantImages).toEqual([]);
+    });
+
+    it("generates variant images first when product has multiple variants without images", async () => {
+      const mockResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    visualSummary: "Directional twin snowboard",
+                    identifiedProduct: "Snowboard",
+                    materials: ["Wood core", "P-Tex"],
+                    colors: ["Cyan", "Black"],
+                    detectedAngles: ["Front"],
+                    keyFeatures: ["Sintered base"],
+                    targetCategoryGuess: "Snowboards",
+                    recommendedPerspectives: [],
+                    title: "The Complete All-Mountain Snowboard",
+                    descriptionHtml: "<p>Top tier snowboard.</p>",
+                    tags: ["snowboard"],
+                    seoTitle: "The Complete Snowboard | Dockit",
+                    seoDescription: "All-mountain high performance board.",
+                  }),
+                },
+              ],
+            },
+          },
+        ],
+      };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const mockGenerator = {
+        providerName: "gemini" as const,
+        generate: vi.fn().mockResolvedValue({
+          buffer: Buffer.from("mock-image-data"),
+          format: "png",
+        }),
+      };
+
+      vi.spyOn(blobModule, "uploadGeneratedProductImage").mockImplementation(async ({ filename }) => ({
+        success: true,
+        url: `https://blob.vercel-storage.com/products/p1/${filename}`,
+      }));
+
+      const result = await runFullProductAiVisionEnrichment({
+        productId: "p1",
+        title: "The Complete All-Mountain Snowboard",
+        imageUrls: ["https://example.com/main-snowboard.jpg"],
+        variants: [
+          { id: "v1", optionName: "Ice", imageUrl: null },
+          { id: "v2", optionName: "Dawn", imageUrl: null },
+        ],
+        generateImages: true,
+        customGenerator: mockGenerator,
+        apiKey: "fake-test-key",
+      });
+
+      expect(result.generatedVariantImages).toHaveLength(2);
+      expect(result.generatedVariantImages[0]?.optionName).toBe("Ice");
+      expect(result.generatedVariantImages[1]?.optionName).toBe("Dawn");
+      expect(result.generatedImages).toHaveLength(3);
+    });
+
+    it("does not generate variant images if only single variant exists", async () => {
+      const mockResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    visualSummary: "Directional twin snowboard",
+                    identifiedProduct: "Snowboard",
+                    materials: ["Wood core"],
+                    colors: ["Cyan"],
+                    detectedAngles: ["Front"],
+                    keyFeatures: ["Twin shape"],
+                    targetCategoryGuess: "Snowboards",
+                    recommendedPerspectives: [],
+                    title: "The Complete All-Mountain Snowboard",
+                    descriptionHtml: "<p>Top tier snowboard.</p>",
+                    tags: ["snowboard"],
+                    seoTitle: "The Complete Snowboard | Dockit",
+                    seoDescription: "High performance board.",
+                  }),
+                },
+              ],
+            },
+          },
+        ],
+      };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const mockGenerator = {
+        providerName: "gemini" as const,
+        generate: vi.fn().mockResolvedValue({
+          buffer: Buffer.from("mock-image-data"),
+          format: "png",
+        }),
+      };
+
+      vi.spyOn(blobModule, "uploadGeneratedProductImage").mockResolvedValue({
+        success: true,
+        url: "https://blob.vercel-storage.com/products/p1/img.png",
+      });
+
+      const result = await runFullProductAiVisionEnrichment({
+        productId: "p1",
+        title: "The Complete All-Mountain Snowboard",
+        imageUrls: ["https://example.com/main-snowboard.jpg"],
+        variants: [{ id: "v1", optionName: "Default Title", imageUrl: null }],
+        generateImages: true,
+        customGenerator: mockGenerator,
+        apiKey: "fake-test-key",
+      });
+
+      expect(result.generatedVariantImages).toHaveLength(0);
+      expect(result.generatedImages).toHaveLength(3);
     });
   });
 });

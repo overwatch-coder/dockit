@@ -48,10 +48,20 @@ export const generatedPerspectiveImageSchema = z.object({
 
 export type GeneratedPerspectiveImage = z.infer<typeof generatedPerspectiveImageSchema>;
 
+export const generatedVariantImageSchema = z.object({
+  variantId: z.string().trim().min(1),
+  optionName: z.string().trim().min(1),
+  url: z.string().url(),
+  label: z.string().optional(),
+});
+
+export type GeneratedVariantImage = z.infer<typeof generatedVariantImageSchema>;
+
 export const fullAiVisionEnrichmentResultSchema = z.object({
   analysis: visionAnalysisSchema,
   fields: enrichedProductFieldsSchema,
   generatedImages: z.array(generatedPerspectiveImageSchema).default([]),
+  generatedVariantImages: z.array(generatedVariantImageSchema).default([]),
   availableCollections: z.array(z.any()).default([]),
   availableCategoryAttributes: z.array(z.any()).default([]),
   availableProductMetafields: z.array(z.any()).default([]),

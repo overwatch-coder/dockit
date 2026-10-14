@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TagInput } from "@/components/tag-input";
+import { GoogleSerpPreview } from "@/components/google-serp-preview";
 import type { Collection } from "@/types/collection";
 
 export type AiSuggestedField = "seoTitle" | "seoDescription" | "tags" | "collection" | "category";
@@ -151,6 +152,15 @@ export function AiSeoReviewDialog({
             Compare current metadata with AI suggestions. Check the fields you wish to update and edit suggestions directly before applying.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Live Google Search Engine Results Page (SERP) Preview */}
+        <div className="pt-2">
+          <GoogleSerpPreview
+            title={selectedFields.seoTitle ? seoTitle : current.seoTitle}
+            description={selectedFields.seoDescription ? seoDescription : current.seoDescription}
+            siteName={suggestedCollectionTitle || "Dockit Store"}
+          />
+        </div>
 
         <div className="flex flex-col gap-6 my-2">
           {/* SEO Title Row */}

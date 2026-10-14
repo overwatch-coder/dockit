@@ -3,11 +3,12 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { auth } from "@clerk/nextjs/server";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
-import { getProductById } from "@/lib/db/products";
+import { getProductById, getProductSiblingNavigation } from "@/lib/db/products";
 import { getStoreToken } from "@/lib/db/stores";
 import { decryptAccessToken } from "@/lib/shopify/oauth";
 import { fetchAllCollections } from "@/lib/shopify/collections";
 import { Button } from "@/components/ui/button";
+import { ProductPaginationNav } from "@/components/product-pagination-nav";
 import { ProductForm } from "@/components/product-form";
 import type { Collection } from "@/types/collection";
 
@@ -27,6 +28,12 @@ export default async function ProductEditorPage({
   if (!product) {
     notFound();
   }
+
+  const siblingNav = await getProductSiblingNavigation({
+    accountId: account.id,
+    storeId: product.storeId,
+    productId: product.id,
+  });
 
   // The store's Shopify collections, for the manual Collection
   // select — fetched live on every page load, not cached. Fails open: a fetch
@@ -57,22 +64,36 @@ export default async function ProductEditorPage({
           Back to products
         </Button>
 
-        {shopifyUrl && (
-          <Button
-            variant="outline"
-            size="sm"
-            nativeButton={false}
-            render={<a href={shopifyUrl} target="_blank" rel="noopener noreferrer" />}
-          >
-            Shopify
-            <ExternalLink className="size-4" />
-          </Button>
-        )}
+        <div className="flex items-center gap-2 sm:gap-3">
+          <ProductPaginationNav
+            currentIndex={siblingNav.currentIndex}
+            totalCount={siblingNav.totalCount}
+            prevProductId={siblingNav.prevProductId}
+            nextProductId={siblingNav.nextProductId}
+          />
+
+          {shopifyUrl && (
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={<a href={shopifyUrl} target="_blank" rel="noopener noreferrer" />}
+            >
+              Shopify
+              <ExternalLink className="size-4" />
+            </Button>
+          )}
+        </div>
       </div>
 
       <h1 className="text-page-title font-semibold text-foreground">{product.title}</h1>
 
-      <ProductForm mode="edit" product={product} collections={collections} />
+      <ProductForm
+        mode="edit"
+        product={product}
+        collections={collections}
+        shopifyDomain={storeToken?.shopifyDomain ?? null}
+      />
     </div>
   );
 }

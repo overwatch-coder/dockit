@@ -2,6 +2,7 @@ import type {
   VisionAnalysis,
   EnrichedProductFields,
   GeneratedPerspectiveImage,
+  GeneratedVariantImage,
   FullAiVisionEnrichmentResult,
 } from "@/lib/validation/ai-vision-enrichment";
 import { uploadGeneratedProductImage } from "@/lib/blob/products";
@@ -137,12 +138,83 @@ export async function generatePerspectiveImages(input: {
   return results.filter((img): img is GeneratedPerspectiveImage => img !== null);
 }
 
+export async function generateVariantImages(input: {
+  productId: string;
+  productTitle: string;
+  productDescription?: string | null;
+  referenceImageUrl: string;
+  variants: Array<{ id: string; optionName: string; imageUrl?: string | null }>;
+  provider?: ImageProviderName;
+  customGenerator?: IImageGenerator;
+  apiKey?: string;
+}): Promise<GeneratedVariantImage[]> {
+  const missingVariants = input.variants.filter((v) => !v.imageUrl);
+  if (missingVariants.length === 0) {
+    return [];
+  }
+
+  const generator = input.customGenerator || resolveImageGenerator(input.provider);
+
+  const cleanDescription = input.productDescription
+    ? input.productDescription.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160)
+    : "";
+
+  const results = await Promise.all(
+    missingVariants.map(async (variant) => {
+      try {
+        const prompt = [
+          `Commercial studio eCommerce product photography.`,
+          `Reference photo is the ground truth for product shape, build, geometry, and craftsmanship: keep the core product form identical.`,
+          `Render the specific variant option: "${variant.optionName}" for product "${input.productTitle}".`,
+          `Accurately reflect the distinct colorway, materials, surface finish, graphics, or styling designated by "${variant.optionName}".`,
+          cleanDescription ? `Context: ${cleanDescription}` : "",
+          `Positioned in a premium studio catalog setup on a seamless pure light neutral background with soft natural contact shadows. Crisp high resolution.`,
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        const generated = await generator.generate({
+          prompt,
+          referenceImageUrl: input.referenceImageUrl,
+          angle: "front_studio",
+          apiKey: input.apiKey,
+        });
+
+        const filename = `ai-variant-${variant.id}-${Date.now()}.png`;
+        const uploadResult = await uploadGeneratedProductImage({
+          productId: input.productId,
+          buffer: generated.buffer,
+          filename,
+        });
+
+        if (uploadResult.success) {
+          return {
+            variantId: variant.id,
+            optionName: variant.optionName,
+            url: uploadResult.url,
+            label: `Variant: ${variant.optionName}`,
+          } as GeneratedVariantImage;
+        }
+      } catch (err) {
+        console.warn(
+          `Variant generation failed for "${variant.optionName}" with provider ${generator.providerName}:`,
+          err
+        );
+      }
+      return null;
+    })
+  );
+
+  return results.filter((img): img is GeneratedVariantImage => img !== null);
+}
+
 export async function runFullProductAiVisionEnrichment(input: {
   productId: string;
   title: string;
   price?: string;
   description?: string | null;
   imageUrls: string[];
+  variants?: Array<{ id: string; optionName: string; imageUrl?: string | null }>;
   generateImages?: boolean;
   textProvider?: TextVisionProviderName;
   imageProvider?: ImageProviderName;
@@ -151,6 +223,8 @@ export async function runFullProductAiVisionEnrichment(input: {
   categoryAttributes?: CategoryAttributeDefinition[];
   productMetafieldDefinitions?: ProductMetafieldDefinition[];
   apiKey?: string;
+  customProvider?: ITextVisionProvider;
+  customGenerator?: IImageGenerator;
 }): Promise<FullAiVisionEnrichmentResult> {
   // 1. Analyze with Vision Provider (OpenAI, Gemini)
   const analysis = await analyzeProductPhotosWithVision({
@@ -158,6 +232,7 @@ export async function runFullProductAiVisionEnrichment(input: {
     imageUrls: input.imageUrls,
     description: input.description,
     provider: input.textProvider,
+    customProvider: input.customProvider,
     apiKey: input.apiKey,
   });
 
@@ -172,18 +247,42 @@ export async function runFullProductAiVisionEnrichment(input: {
     categoryAttributes: input.categoryAttributes,
     productMetafieldDefinitions: input.productMetafieldDefinitions,
     provider: input.textProvider,
+    customProvider: input.customProvider,
     apiKey: input.apiKey,
   });
 
-  // 3. Generate perspective angles using Image Generator in parallel
+  // 3. Image Generation Pipeline:
+  // - If product has multiple variants and some lack images: generate variant images FIRST using variant name/description
+  // - If single variant or after generating missing variants: generate perspective sides of the main product image
+  let generatedVariantImages: GeneratedVariantImage[] = [];
   let generatedImages: GeneratedPerspectiveImage[] = [];
+
   if (input.generateImages && input.imageUrls.length > 0) {
     const primaryImage = input.imageUrls[0];
     if (primaryImage) {
+      const variantsList = input.variants || [];
+      const missingVariantImages = variantsList.filter((v) => !v.imageUrl);
+
+      // Multiple variants exist and at least one is missing an image
+      if (variantsList.length > 1 && missingVariantImages.length > 0) {
+        generatedVariantImages = await generateVariantImages({
+          productId: input.productId,
+          productTitle: input.title,
+          productDescription: input.description,
+          referenceImageUrl: primaryImage,
+          variants: missingVariantImages,
+          provider: input.imageProvider,
+          customGenerator: input.customGenerator,
+          apiKey: input.apiKey,
+        });
+      }
+
+      // Generate perspective sides of the main product image
       generatedImages = await generatePerspectiveImages({
         productId: input.productId,
         referenceImageUrl: primaryImage,
         provider: input.imageProvider,
+        customGenerator: input.customGenerator,
         apiKey: input.apiKey,
       });
     }
@@ -193,6 +292,7 @@ export async function runFullProductAiVisionEnrichment(input: {
     analysis,
     fields,
     generatedImages,
+    generatedVariantImages,
     availableCollections: input.collections || [],
     availableCategoryAttributes: input.categoryAttributes || [],
     availableProductMetafields: input.productMetafieldDefinitions || [],

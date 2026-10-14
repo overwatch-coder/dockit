@@ -1472,6 +1472,7 @@ export async function enrichAndSaveSingleProductAction(
       price: product.price,
       description: product.description,
       imageUrls: candidateUrls,
+      variants: product.variants,
       generateImages: shouldGenerateImages,
       rules: storeAiRules,
       collections,
@@ -1479,10 +1480,23 @@ export async function enrichAndSaveSingleProductAction(
       productMetafieldDefinitions,
     });
 
-    const addImageUrls =
-      shouldGenerateImages && result.generatedImages
-        ? result.generatedImages.map((img) => img.url)
-        : [];
+    const addImageUrls: string[] = [];
+    if (shouldGenerateImages) {
+      if (result.generatedImages) {
+        addImageUrls.push(...result.generatedImages.map((img) => img.url));
+      }
+      if (result.generatedVariantImages) {
+        addImageUrls.push(...result.generatedVariantImages.map((v) => v.url));
+      }
+    }
+
+    const variantImages =
+      shouldGenerateImages && result.generatedVariantImages
+        ? result.generatedVariantImages.map((v) => ({
+            variantId: v.variantId,
+            imageUrl: v.url,
+          }))
+        : undefined;
 
     await applyFullAiEnrichmentInDb({
       accountId: account.id,
@@ -1500,6 +1514,7 @@ export async function enrichAndSaveSingleProductAction(
         metafields: result.fields.metafields,
       },
       addImageUrls,
+      variantImages,
     });
 
     revalidatePath(`/products/${product.id}`);
@@ -1600,6 +1615,7 @@ export async function generateFullAiProductEnrichmentAction(input: {
       price: product.price,
       description: product.description,
       imageUrls: candidateUrls,
+      variants: product.variants,
       generateImages: input.generateAlternativeImages ?? true,
       textProvider: input.textProvider,
       imageProvider: input.imageProvider,
@@ -1620,6 +1636,7 @@ export async function applyFullAiProductEnrichmentAction(input: {
   productId: string;
   fields: EnrichedProductFields;
   selectedImageUrls: string[];
+  variantImages?: Array<{ variantId: string; imageUrl: string }>;
 }): Promise<{ success: true } | { error: string }> {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
@@ -1644,6 +1661,7 @@ export async function applyFullAiProductEnrichmentAction(input: {
       metafields: input.fields.metafields,
     },
     addImageUrls: input.selectedImageUrls,
+    variantImages: input.variantImages,
   });
 
   if (!res.success) {

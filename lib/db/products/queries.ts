@@ -201,3 +201,33 @@ export async function getExistingShopifyProductIds(
   return new Set(products.map((p) => p.shopifyProductId!).filter(Boolean));
 }
 
+export async function getProductSiblingNavigation(input: {
+  accountId: string;
+  storeId: string;
+  productId: string;
+}): Promise<{
+  prevProductId: string | null;
+  nextProductId: string | null;
+  currentIndex: number;
+  totalCount: number;
+}> {
+  const products = await prisma.product.findMany({
+    where: { accountId: input.accountId, storeId: input.storeId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+
+  const ids = products.map((p) => p.id);
+  const index = ids.indexOf(input.productId);
+  const totalCount = ids.length;
+  const prevProductId = index > 0 ? ids[index - 1] : null;
+  const nextProductId = index >= 0 && index < totalCount - 1 ? ids[index + 1] : null;
+
+  return {
+    prevProductId,
+    nextProductId,
+    currentIndex: index >= 0 ? index + 1 : 1,
+    totalCount,
+  };
+}
+

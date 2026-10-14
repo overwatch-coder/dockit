@@ -30,7 +30,7 @@ export function isValidVariantImageUrl(
   url: string | null
 ): boolean {
   if (url === null) return true;
-  if (product.imageUrls.length > 0) return product.imageUrls.includes(url);
+  if (product.imageUrls.length > 0) return product.imageUrls.includes(url) || product.imageUrl === url;
   return product.imageUrl === url;
 }
 

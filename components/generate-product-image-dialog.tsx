@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { productThumbnailUrl } from "@/lib/shopify/image-url";
 import {
   Wand2,
   Sparkles,
@@ -395,7 +396,7 @@ export function GenerateProductImageDialog({
                     className="group relative aspect-square overflow-hidden rounded-lg border bg-muted shadow-sm"
                   >
                     <Image
-                      src={url}
+                      src={productThumbnailUrl(url, 360)}
                       alt={`Generated variation ${idx + 1}`}
                       fill
                       sizes="180px"
@@ -458,7 +459,7 @@ export function GenerateProductImageDialog({
                             )}
                           >
                             <Image
-                              src={url}
+                              src={productThumbnailUrl(url, 120)}
                               alt={`Ref photo ${idx + 1}`}
                               fill
                               sizes="56px"

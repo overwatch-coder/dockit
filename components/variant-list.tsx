@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { ImageOff, Plus, Trash2 } from "lucide-react";
+import { productThumbnailUrl } from "@/lib/shopify/image-url";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,13 +33,16 @@ function makeTempId(): string {
 function VariantImagePicker({
   images,
   value,
+  fallbackImage,
   onChange,
 }: {
   images: string[];
   value: string | null;
+  fallbackImage?: string | null;
   onChange: (url: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const effectiveImage = value || fallbackImage || null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -46,13 +50,13 @@ function VariantImagePicker({
         render={
           <button
             type="button"
-            className="relative size-10 shrink-0 overflow-hidden rounded-md border border-input"
-            aria-label={value ? "Change variant image" : "Set variant image"}
+            className="relative size-10 shrink-0 overflow-hidden rounded-md border border-input cursor-pointer hover:border-primary/50 transition-colors"
+            aria-label={effectiveImage ? "Change variant image" : "Set variant image"}
           />
         }
       >
-        {value ? (
-          <Image src={value} alt="" fill sizes="40px" className="object-cover" />
+        {effectiveImage ? (
+                <Image src={productThumbnailUrl(effectiveImage, 80)} alt="" fill sizes="40px" className="object-cover" />
         ) : (
           <span className="flex size-full items-center justify-center bg-muted">
             <ImageOff className="size-4 text-muted-foreground" />
@@ -69,10 +73,10 @@ function VariantImagePicker({
             <button
               type="button"
               className={`relative flex size-10 shrink-0 items-center justify-center rounded-md border p-0 ${
-                value === null ? "border-primary ring-2 ring-primary" : "border-border"
+                effectiveImage === null ? "border-primary ring-2 ring-primary" : "border-border"
               }`}
               aria-label="No image"
-              aria-pressed={value === null}
+              aria-pressed={effectiveImage === null}
               onClick={() => {
                 onChange(null);
                 setOpen(false);
@@ -85,16 +89,16 @@ function VariantImagePicker({
                 key={url}
                 type="button"
                 className={`relative size-10 shrink-0 overflow-hidden rounded-md border p-0 ${
-                  value === url ? "border-primary ring-2 ring-primary" : "border-border"
+                  effectiveImage === url ? "border-primary ring-2 ring-primary" : "border-border"
                 }`}
                 aria-label="Use this image"
-                aria-pressed={value === url}
+                aria-pressed={effectiveImage === url}
                 onClick={() => {
                   onChange(url);
                   setOpen(false);
                 }}
               >
-                <Image src={url} alt="" fill sizes="40px" className="object-cover" />
+                <Image src={productThumbnailUrl(url, 80)} alt="" fill sizes="40px" className="object-cover" />
               </button>
             ))}
           </div>
@@ -125,7 +129,17 @@ export function VariantList({
   }
 
   function addRow() {
-    onChange([...variants, { id: makeTempId(), optionName: "", price: "", inventory: "0", imageUrl: null }]);
+    const isFirst = variants.length === 0;
+    onChange([
+      ...variants,
+      {
+        id: makeTempId(),
+        optionName: "",
+        price: "",
+        inventory: "0",
+        imageUrl: isFirst && images.length > 0 ? images[0] : null,
+      },
+    ]);
   }
 
   return (
@@ -149,12 +163,13 @@ export function VariantList({
               </TableCell>
             </TableRow>
           )}
-          {variants.map((variant) => (
+          {variants.map((variant, index) => (
             <TableRow key={variant.id}>
               <TableCell>
                 <VariantImagePicker
                   images={images}
                   value={variant.imageUrl}
+                  fallbackImage={index === 0 && images.length > 0 ? images[0] : null}
                   onChange={(imageUrl) => updateRow(variant.id, { imageUrl })}
                 />
               </TableCell>

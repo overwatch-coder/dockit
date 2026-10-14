@@ -381,7 +381,9 @@ export async function syncProducts(input: {
         },
       });
 
-      for (const variant of product.variants) {
+      for (let i = 0; i < product.variants.length; i++) {
+        const variant = product.variants[i];
+        const variantImg = variant.imageUrl ?? (i === 0 ? savedProduct.imageUrl : null);
         await prisma.variant.upsert({
           where: {
             productId_shopifyVariantId: {
@@ -396,11 +398,13 @@ export async function syncProducts(input: {
             optionName: variant.optionName,
             price: variant.price,
             inventory: variant.inventory,
+            imageUrl: variantImg,
           },
           update: {
             optionName: variant.optionName,
             price: variant.price,
             inventory: variant.inventory,
+            ...(variantImg ? { imageUrl: variantImg } : {}),
           },
         });
       }

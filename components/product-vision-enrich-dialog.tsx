@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Image from "next/image";
+import { productThumbnailUrl } from "@/lib/shopify/image-url";
 import {
   Sparkles,
   Check,
@@ -71,9 +72,20 @@ interface ProductVisionEnrichDialogProps {
     collectionTitle?: string | null;
     categoryId?: string | null;
     categoryFullName?: string | null;
+    variants?: Array<{
+      id: string;
+      optionName: string;
+      price?: string;
+      inventory?: number;
+      imageUrl?: string | null;
+    }>;
   };
   collections?: Collection[];
-  onApplyInEditor?: (fields: EnrichedProductFields, selectedImages: string[]) => void;
+  onApplyInEditor?: (
+    fields: EnrichedProductFields,
+    selectedImages: string[],
+    variantImages?: Array<{ variantId: string; optionName: string; imageUrl: string }>
+  ) => void;
   onSavedSuccessfully?: () => void;
 }
 
@@ -127,7 +139,11 @@ export function ProductVisionEnrichDialog({
 
       setEnrichmentResult(res.data);
       setEditableFields(res.data.fields);
-      setSelectedImageUrls(getInitialAnglesSelection(res.data.generatedImages));
+      const initialSelected = getInitialAnglesSelection(res.data.generatedImages);
+      for (const v of res.data.generatedVariantImages || []) {
+        initialSelected.add(v.url);
+      }
+      setSelectedImageUrls(initialSelected);
       toast.success("AI vision analysis & enrichment complete!");
     });
   };
@@ -147,19 +163,34 @@ export function ProductVisionEnrichDialog({
       enrichmentResult?.generatedImages || [],
       selectedImageUrls
     );
+    const chosenVariantImages = (enrichmentResult?.generatedVariantImages || [])
+      .filter((v) => selectedImageUrls.has(v.url))
+      .map((v) => ({
+        variantId: v.variantId,
+        optionName: v.optionName,
+        imageUrl: v.url,
+      }));
 
     if (onApplyInEditor) {
-      onApplyInEditor(editableFields, chosenImages);
+      onApplyInEditor(editableFields, chosenImages, chosenVariantImages);
       toast.success("AI enhancements applied to product editor!");
       onOpenChange(false);
       return;
     }
 
     startApplyingTransition(async () => {
+      const combinedImageUrls = [
+        ...chosenImages,
+        ...chosenVariantImages.map((v) => v.imageUrl),
+      ];
       const res = await applyFullAiProductEnrichmentAction({
         productId: product.id,
         fields: editableFields,
-        selectedImageUrls: chosenImages,
+        selectedImageUrls: combinedImageUrls,
+        variantImages: chosenVariantImages.map((v) => ({
+          variantId: v.variantId,
+          imageUrl: v.imageUrl,
+        })),
       });
 
       if ("error" in res) {
@@ -197,7 +228,7 @@ export function ProductVisionEnrichDialog({
               <div className="relative size-16 shrink-0 overflow-hidden rounded-lg border border-border/60 bg-muted/40">
                 {existingImages[0] ? (
                   <Image
-                    src={existingImages[0]}
+                    src={productThumbnailUrl(existingImages[0], 128)}
                     alt={product.title}
                     fill
                     className="object-cover"
@@ -281,7 +312,10 @@ export function ProductVisionEnrichDialog({
                   SEO & Meta
                 </TabsTrigger>
                 <TabsTrigger value="photography" className="text-xs">
-                  Photos ({enrichmentResult.generatedImages.length})
+                  Photos (
+                  {(enrichmentResult.generatedImages?.length || 0) +
+                    (enrichmentResult.generatedVariantImages?.length || 0)}
+                  )
                 </TabsTrigger>
               </TabsList>
 
@@ -319,10 +353,11 @@ export function ProductVisionEnrichDialog({
                 />
               </TabsContent>
 
-              {/* Tab 4: Alternative Photography */}
+              {/* Tab 4: Alternative & Variant Photography */}
               <TabsContent value="photography">
                 <PhotosTab
                   images={enrichmentResult.generatedImages}
+                  variantImages={enrichmentResult.generatedVariantImages || []}
                   selectedUrls={selectedImageUrls}
                   onToggleUrl={handleToggleImage}
                 />

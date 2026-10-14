@@ -12,6 +12,72 @@ change.
 
 - Unit 26 is complete. The next planned unit is Unit 27 (CSV catalog import); live-testing the existing v1 flows against a real connected Shopify store remains outstanding and valuable before expanding further.
 
+- **Image Loading Performance Optimization (`lib/shopify/image-url.ts`, `components/product-images.tsx`, `components/product-form.tsx`, `components/variant-list.tsx`, `components/product-image-lightbox.tsx`, `components/generate-product-image-dialog.tsx`, `components/product-vision-enrich/photos-tab.tsx`, `components/product-vision-enrich-dialog.tsx`, `components/shopify-sync-modal.tsx`)**:
+  - **Root Cause Analysis**:
+    - `next.config.ts` sets `images.unoptimized: true` globally (which avoids `/_next/image` proxy overhead and timeouts against external CDNs).
+    - However, several UI components (`product-images.tsx`, `product-form.tsx` preview card, `variant-list.tsx`, `product-image-lightbox.tsx` thumbnail strip, `generate-product-image-dialog.tsx` reference picker, `product-vision-enrich/photos-tab.tsx`, and `shopify-sync-modal.tsx`) were passing raw, full-resolution camera photos (often 2000–4000px, 5–15MB each from Shopify or Vercel Blob) directly to `<Image fill sizes="48px">` or `<img>`.
+    - As a result, opening a product with 10+ images or a variant list caused the browser to download and decode hundreds of megabytes of raw image data for tiny 40px–64px thumbnail boxes.
+  - **Resolution**:
+    - **CDN Thumbnail Helper (`lib/shopify/image-url.ts`)**:
+      - Extended `shopifyThumbnailUrl` and added `productThumbnailUrl(url, size)`.
+      - Detects Shopify CDN (`cdn.shopify.com`) and applies `?width={size}&height={size}`.
+      - Detects Vercel Blob public storage CDN (`*.public.blob.vercel-storage.com`) and applies `?width={size}` using Vercel Blob's built-in CDN image resizing.
+      - Safely falls back to original URL for unknown sources or relative paths without corrupting queries.
+    - **Component Upgrades**:
+      - `components/product-images.tsx`: Gallery strip thumbnails now request 128px (2x retina for 64px box) instead of raw full resolution.
+      - `components/product-form.tsx`: Preview panel main image now requests 800px instead of 4000px, and gallery buttons request 96px.
+      - `components/variant-list.tsx`: Variant image pickers and popovers now request 80px thumbnails.
+      - `components/product-image-lightbox.tsx`: Thumbnail bar requests 128px thumbnails, and modal lightbox image requests 1600px max width.
+      - `components/generate-product-image-dialog.tsx`: Seed reference picker requests 120px and completed variation previews request 360px.
+      - `components/product-vision-enrich/photos-tab.tsx`: Variant and perspective photo cards request 480px.
+      - `components/product-vision-enrich-dialog.tsx`: Target product overview image requests 128px.
+      - `components/shopify-sync-modal.tsx`: Shopify sync list preview images request 96px thumbnails.
+  - **Testing**:
+    - Updated `tests/lib/shopify/image-url.test.ts` to test both Shopify CDN and Vercel Blob resizing rules (7 unit tests).
+    - All 49 test suites and 309 tests passing green.
+
+- **Main Variant Image Attachment & Gmail-Style Product Pagination Navigation (`components/variant-list.tsx`, `components/product-form.tsx`, `lib/shopify/products.ts`, `lib/db/products/`, `components/product-pagination-nav.tsx`, `app/(dashboard)/products/[id]/page.tsx`)**:
+  - **Main Variant Image Attachment**:
+    - **Problem**: When a product had variants (including standard single/default variant like "Default Title"), the variant table displayed an empty `<ImageOff>` icon instead of attaching the main product image.
+    - **UI Resolution**:
+      - `components/variant-list.tsx`: `VariantImagePicker` now accepts `fallbackImage` (passed as `images[0]` for the first/main variant). If `value` is null, it renders the fallback image preview rather than `<ImageOff>`. `addRow` also seeds `imageUrl` with `images[0]` when creating the first variant row.
+      - `components/product-form.tsx`: In `toDraftVariants`, the first variant defaults to `product.imageUrl || product.imageUrls[0]` when `variant.imageUrl` is null. Added a `useEffect` on `gallery` to automatically attach `gallery[0]` to the first variant if its image is unset.
+    - **Backend & Sync Persistence**:
+      - `lib/shopify/products.ts`: Updated `PRODUCT_FIELDS` GraphQL query to request `image { url }` on variants. Updated `toImportedProduct` so variants receive their Shopify variant image URL, with index 0 falling back to the primary product image.
+      - `lib/db/products/conflicts.ts`: In `syncProducts`, variant upsert saves and updates `imageUrl` for variants with index 0 fallback.
+      - `lib/db/products/mutations.ts`: In `applyFullAiEnrichmentInDb`, attaches `nextPrimaryImageUrl` to the first variant if unset.
+      - `lib/db/variants.ts`: In `isValidVariantImageUrl`, checks both `product.imageUrls` and `product.imageUrl`.
+  - **Gmail-Style Next / Previous Product Navigation**:
+    - **Problem**: Reviewers had to navigate back to the product list table each time they finished reviewing or editing a product to click the next one.
+    - **Navigation Query (`lib/db/products/queries.ts`)**:
+      - Added `getProductSiblingNavigation({ accountId, storeId, productId })` ordering by `createdAt: "desc"` (identical order to the products table) to resolve `prevProductId`, `nextProductId`, `currentIndex` (1-indexed), and `totalCount`.
+    - **Component (`components/product-pagination-nav.tsx`)**:
+      - Displays `{currentIndex} of {totalCount}` in monospace text beside styled `ChevronLeft` and `ChevronRight` buttons/links. Disabled buttons when at beginning or end of store catalog.
+    - **Page Placement (`app/(dashboard)/products/[id]/page.tsx`)**:
+      - Placed at the top right of the product detail header row alongside the Shopify admin link button.
+  - **Testing**:
+    - Added unit tests in `tests/components/product-pagination-nav.test.tsx` (3 tests), `tests/components/variant-list.test.tsx` (2 tests), and `tests/lib/db/products-navigation.test.ts` (4 tests).
+    - Updated mock fixtures in `tests/lib/shopify/products.test.ts`.
+    - All 49 test suites and 306 tests passing green.
+
+- **Variant-Aware Image Generation & Google SERP Search Snippet Preview (`lib/ai/vision-enrichment.ts`, `lib/db/products/mutations.ts`, `components/google-serp-preview.tsx`, `components/product-form.tsx`, `components/product-vision-enrich/`, `components/ai-seo-review-dialog.tsx`)**:
+  - **Variant-Aware Image Generation Pipeline (`lib/ai/vision-enrichment.ts`, `lib/db/products/mutations.ts`, `app/(dashboard)/products/actions.ts`)**:
+    - When a product has multiple variants (`variants.length > 1`) and any variant lacks an image (`!variant.imageUrl`), `generateVariantImages` uses the variant name/description alongside the main product reference photo (ground truth for form and craftsmanship) to generate distinct commercial studio photography for those missing variants *before* rendering alternative perspective angles of the main product.
+    - If there is only one variant (or all variants already have images), proceeds directly to generating perspective shots of the main product image.
+    - Automatically persists generated variant images to `Variant.imageUrl` via `applyFullAiEnrichmentInDb` and appends them to `Product.imageUrls` so they are part of the product gallery and pushable to Shopify.
+    - Updated `ProductForm` editor state and `PhotosTab` in Vision AI Catalog Studio with a dedicated "Generated Variant Photography" gallery section.
+  - **Google Search (SERP) Listing Preview (`components/google-serp-preview.tsx`, `components/product-form.tsx`, `components/product-vision-enrich/seo-tab.tsx`, `components/ai-seo-review-dialog.tsx`)**:
+    - Built reusable `GoogleSerpPreview` component presenting an authentic Google search result:
+      - Site favicon circle and store name.
+      - Breadcrumb URL path: `https://{domain} › products › {handle}`.
+      - Clickable Google blue title link: `{seoTitle || title} | {siteName}`.
+      - Meta description snippet with automatic HTML stripping and clean line clamping.
+      - Title and description character count badges (color-coded for optimal SEO character limits).
+    - Integrated live preview in the **Preview** column on the Product Details page (`components/product-form.tsx`), in the SEO review dialog (`components/ai-seo-review-dialog.tsx`), and in the Vision AI modal SEO tab (`components/product-vision-enrich/seo-tab.tsx`).
+  - **Testing**:
+    - Added unit tests in `tests/components/google-serp-preview.test.tsx` (3 tests) and expanded `tests/lib/ai/vision-enrichment.test.ts` (10 tests).
+    - Full test suite passing green: 46 test files, 297 unit tests.
+
 - **Shopify Image Processing Timeout Fix & Vision AI Collection Enhancement (`lib/shopify/push.ts`, `lib/ai/vision-enrichment.ts`, `lib/ai/providers/`, `components/product-vision-enrich/`, `components/product-form.tsx`)**:
   - **Shopify Image Processing Timeout (`lib/shopify/push.ts`)**:
     - Identified root cause of `"Timed out waiting for Shopify to finish processing new images"`: `resolveNewMediaUrls` was hardcoded to only 3 retries with 1s delay (2.0s total). Real-world multi-image uploads to Shopify CDN take 4–12s to download, transcode, and generate derivatives from external Vercel Blob URLs.

@@ -102,7 +102,13 @@ describe("fetchAllProducts", () => {
           seoTitle: "Test Product | Shop",
           seoDescription: "A great test product.",
           variants: [
-            { shopifyVariantId: "10", optionName: "Default Title", price: "19.99", inventory: 5 },
+            {
+              shopifyVariantId: "10",
+              optionName: "Default Title",
+              price: "19.99",
+              inventory: 5,
+              imageUrl: "https://cdn.shopify.com/s/files/1/test.jpg",
+            },
           ],
         },
       ],

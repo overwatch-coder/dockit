@@ -1,7 +1,6 @@
-"use client";
-
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { GoogleSerpPreview } from "@/components/google-serp-preview";
 import type { EnrichedProductFields } from "@/lib/validation/ai-vision-enrichment";
 
 interface SeoTabProps {
@@ -12,18 +11,11 @@ interface SeoTabProps {
 export function SeoTab({ fields, onChange }: SeoTabProps) {
   return (
     <div className="space-y-4 pt-3">
-      {/* Live SERP Snippet Preview */}
-      <div className="rounded-xl border border-border/60 bg-muted/10 p-3.5 space-y-1">
-        <span className="text-[10px] uppercase font-mono tracking-wider text-muted-foreground">
-          Search Engine Result Snippet Preview
-        </span>
-        <div className="text-sm font-semibold text-primary hover:underline cursor-pointer">
-          {fields.seoTitle || "Product Title | Dockit Store"}
-        </div>
-        <div className="text-xs text-muted-foreground line-clamp-2">
-          {fields.seoDescription || "Discover this premium product with detailed specifications and fast delivery."}
-        </div>
-      </div>
+      {/* Live Google SERP Snippet Preview */}
+      <GoogleSerpPreview
+        title={fields.seoTitle}
+        description={fields.seoDescription}
+      />
 
       {/* SEO Title Input */}
       <div className="space-y-1.5">

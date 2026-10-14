@@ -3,6 +3,7 @@
 import { useCallback, useEffect } from "react";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { productThumbnailUrl } from "@/lib/shopify/image-url";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogOverlay, DialogPortal, DialogTitle } from "@/components/ui/dialog";
 
@@ -104,7 +105,7 @@ export function ProductImageLightbox({
 
             <div className="relative w-full h-full min-h-0 flex items-center justify-center">
               <Image
-                src={currentImage}
+                src={productThumbnailUrl(currentImage, 1600)}
                 alt={title || "Product image"}
                 fill
                 sizes="(max-width: 1280px) 100vw, 1280px"
@@ -146,7 +147,7 @@ export function ProductImageLightbox({
                       aria-label={`Go to image ${index + 1}`}
                       aria-pressed={isActive}
                     >
-                      <Image src={url} alt="" fill sizes="64px" className="object-cover" />
+                      <Image src={productThumbnailUrl(url, 128)} alt="" fill sizes="64px" className="object-cover" />
                     </button>
                   );
                 })}

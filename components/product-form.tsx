@@ -53,6 +53,7 @@ import { ProductImagesErrorBoundary } from "@/components/product-images-error-bo
 import { ProductImageLightbox } from "@/components/product-image-lightbox";
 import { TagInput } from "@/components/tag-input";
 import { VariantList, type DraftVariant } from "@/components/variant-list";
+import { productThumbnailUrl } from "@/lib/shopify/image-url";
 import { AiDescriptionReviewDialog } from "@/components/ai-description-review-dialog";
 import { GenerateProductImageDialog } from "@/components/generate-product-image-dialog";
 import {
@@ -61,6 +62,7 @@ import {
   type CurrentSeoState,
   type SuggestedSeoState,
 } from "@/components/ai-seo-review-dialog";
+import { GoogleSerpPreview } from "@/components/google-serp-preview";
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
 import { sanitizeDescriptionHtml } from "@/lib/sanitize-description";
 import { cn } from "@/lib/utils";
@@ -85,13 +87,15 @@ function PreviewStatusBadge({ status }: { status: ProductStatus }) {
 }
 
 function toDraftVariants(product: Product | undefined): DraftVariant[] {
+  const primaryImage =
+    product?.imageUrl || (product?.imageUrls && product.imageUrls[0]) || null;
   return (
-    product?.variants.map((variant) => ({
+    product?.variants.map((variant, index) => ({
       id: variant.id,
       optionName: variant.optionName,
       price: variant.price,
       inventory: String(variant.inventory),
-      imageUrl: variant.imageUrl,
+      imageUrl: variant.imageUrl || (index === 0 ? primaryImage : null),
     })) ?? []
   );
 }
@@ -101,11 +105,15 @@ export function ProductForm({
   product,
   storeId,
   collections = [],
+  shopifyDomain,
+  storeName,
 }: {
   mode: "create" | "edit";
   product?: Product;
   storeId?: string;
   collections?: Collection[];
+  shopifyDomain?: string | null;
+  storeName?: string | null;
 }) {
   const router = useRouter();
   const action =
@@ -356,6 +364,20 @@ export function ProductForm({
       }
     };
   }, []);
+
+  // Ensure the primary variant stays attached to the main product image if it has no custom image
+  useEffect(() => {
+    if (gallery.length > 0) {
+      setVariants((prev) => {
+        if (prev.length > 0 && !prev[0].imageUrl) {
+          const next = [...prev];
+          next[0] = { ...next[0], imageUrl: gallery[0] };
+          return next;
+        }
+        return prev;
+      });
+    }
+  }, [gallery]);
 
   function handleFilesAdded(files: File[]) {
     const staged = files.map((file) => ({
@@ -916,7 +938,7 @@ export function ProductForm({
                     aria-label="View full-size image"
                   >
                     <Image
-                      src={mainImage}
+                      src={productThumbnailUrl(mainImage, 800)}
                       alt={title || "Product image"}
                       fill
                       sizes="(max-width: 1024px) 100vw, 480px"
@@ -948,7 +970,7 @@ export function ProductForm({
                         aria-pressed={index === selectedImageIndex}
                       >
                         <Image
-                          src={url}
+                          src={productThumbnailUrl(url, 96)}
                           alt=""
                           fill
                           sizes="48px"
@@ -1026,6 +1048,20 @@ export function ProductForm({
                   </ul>
                 </div>
               )}
+
+              {/* Google Search Listing (SERP) Preview */}
+              <div className="flex flex-col gap-2 pt-3 border-t border-border">
+                <span className="text-label font-medium text-muted-foreground">
+                  Google Search Preview
+                </span>
+                <GoogleSerpPreview
+                  title={seoTitle || title}
+                  description={seoDescription || descriptionHtml}
+                  handle={title}
+                  shopDomain={shopifyDomain}
+                  siteName={storeName || collectionTitle || "Store"}
+                />
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -1080,7 +1116,7 @@ export function ProductForm({
           onOpenChange={setIsVisionEnrichOpen}
           product={product}
           collections={collections}
-          onApplyInEditor={async (fields, selectedImages) => {
+          onApplyInEditor={async (fields, selectedImages, variantImages) => {
             setTitle(fields.title);
             setDescriptionHtml(fields.descriptionHtml);
             setDescriptionExternalContent({
@@ -1103,8 +1139,34 @@ export function ProductForm({
               new Set(["seoTitle", "seoDescription", "tags", "category", "collection"])
             );
 
-            if (selectedImages.length > 0) {
-              for (const imgUrl of selectedImages) {
+            // Update variant image in state if variant photography was generated
+            if (variantImages && variantImages.length > 0) {
+              setVariants((prev) =>
+                prev.map((v) => {
+                  const match = variantImages.find(
+                    (vi) =>
+                      vi.variantId === v.id ||
+                      vi.optionName.trim().toLowerCase() === v.optionName.trim().toLowerCase()
+                  );
+                  if (match) {
+                    return { ...v, imageUrl: match.imageUrl };
+                  }
+                  return v;
+                })
+              );
+            }
+
+            const allImagesToAdd = [...selectedImages];
+            if (variantImages && variantImages.length > 0) {
+              for (const vi of variantImages) {
+                if (!allImagesToAdd.includes(vi.imageUrl)) {
+                  allImagesToAdd.push(vi.imageUrl);
+                }
+              }
+            }
+
+            if (allImagesToAdd.length > 0) {
+              for (const imgUrl of allImagesToAdd) {
                 await addProductImageUrlAction(product.id, imgUrl);
               }
               router.refresh();
