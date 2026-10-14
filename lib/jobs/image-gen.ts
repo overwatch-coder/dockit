@@ -4,7 +4,7 @@ import { getProductById } from "@/lib/db/products";
 import { appendProductImages } from "@/lib/db/products/mutations";
 import { uploadGeneratedProductImage } from "@/lib/blob/products";
 import { resolveImageGenerator } from "@/lib/ai/image/image-generator-factory";
-import type { ImageProviderName, ImageAspectRatio, ImageGenerationMode } from "@/lib/ai/contracts";
+import type { ImageProviderName, ImageAspectRatio, ImageGenerationMode, PresentationStyle } from "@/lib/ai/contracts";
 
 export interface ImageGenerationJobPayload {
   accountId: string;
@@ -13,6 +13,9 @@ export interface ImageGenerationJobPayload {
   jobId: string;
   prompt: string;
   referenceImageUrl?: string | null;
+  referenceModelFaceUrl?: string | null;
+  presentationStyle?: PresentationStyle;
+  modelFaceNotes?: string;
   aspectRatio?: ImageAspectRatio;
   size?: string;
   mode?: ImageGenerationMode;
@@ -33,6 +36,9 @@ export async function executeImagePipeline(
     jobId,
     prompt,
     referenceImageUrl,
+    referenceModelFaceUrl,
+    presentationStyle,
+    modelFaceNotes,
     aspectRatio = "1:1",
     size,
     mode = "variation",
@@ -63,6 +69,24 @@ export async function executeImagePipeline(
 
     const generator = resolveImageGenerator(provider);
 
+    // If presentation style or model face notes were not explicitly provided, fall back to store AI rules defaults
+    let effectivePresentationStyle = presentationStyle;
+    let effectiveModelFaceNotes = modelFaceNotes;
+    if ((!effectivePresentationStyle || !effectiveModelFaceNotes) && payload.storeId) {
+      try {
+        const { getAiRulesForStore } = await import("@/lib/db/ai-rules");
+        const storeRules = await getAiRulesForStore(accountId, payload.storeId);
+        if (!effectivePresentationStyle && storeRules.presentationStyle) {
+          effectivePresentationStyle = storeRules.presentationStyle;
+        }
+        if (!effectiveModelFaceNotes && storeRules.modelFaceDirective) {
+          effectiveModelFaceNotes = storeRules.modelFaceDirective;
+        }
+      } catch {
+        // Fall back gracefully to defaults
+      }
+    }
+
     // Build rich, mode-specific prompt
     let modeInstruction = "";
     if (mode === "refine") {
@@ -78,9 +102,28 @@ export async function executeImagePipeline(
       modeInstruction = "Professional commercial studio product photography.";
     }
 
+    // Presentation style and model face consistency directives
+    let presentationDirective = "";
+    if (effectivePresentationStyle === "on_model") {
+      presentationDirective =
+        "IMPORTANT MODEL & FACE FIDELITY DIRECTIVE: The apparel/product must be worn by the exact human model from the reference photo. Strictly preserve the model's exact face, facial features, facial structure, skin tone, eye shape, hairstyle, and identity with 100% photographic realism. Do NOT alter, blur, or substitute the model's face." +
+        (effectiveModelFaceNotes ? ` Model Specifics: ${effectiveModelFaceNotes.trim()}.` : "");
+    } else if (effectivePresentationStyle === "ghost_mannequin") {
+      presentationDirective =
+        "PRESENTATION DIRECTIVE: Professional 3D ghost mannequin / invisible mannequin photography. The clothing appears dimensional and worn by an invisible figure, with realistic fabric drape, hollow neck opening, and visible inner collar/lining. Seamless light commercial studio background.";
+    } else if (effectivePresentationStyle === "studio_mannequin") {
+      presentationDirective =
+        "PRESENTATION DIRECTIVE: Displayed on a high-end minimalist matte neutral studio mannequin / tailor form, clean commercial studio lighting.";
+    } else if (effectivePresentationStyle === "product_only") {
+      presentationDirective =
+        "PRESENTATION DIRECTIVE: Clean isolated studio product photography without any model, mannequin, or distracting props.";
+    }
+
+
     const finalPrompt = [
       `Product: ${product.title}.`,
       prompt ? `Specific Direction: ${prompt.trim()}.` : "",
+      presentationDirective,
       modeInstruction,
     ]
       .filter(Boolean)
@@ -112,6 +155,9 @@ export async function executeImagePipeline(
       const genResult = await generator.generate({
         prompt: variationPrompt,
         referenceImageUrl: effectiveReferenceUrl ?? undefined,
+        referenceModelFaceUrl: referenceModelFaceUrl ?? undefined,
+        presentationStyle,
+        modelFaceNotes,
         aspectRatio,
         size,
         mode,

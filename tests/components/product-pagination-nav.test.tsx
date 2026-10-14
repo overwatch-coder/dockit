@@ -1,8 +1,23 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ProductPaginationNav } from "@/components/product-pagination-nav";
 
+const mockPush = vi.fn();
+let mockSearchParams = new URLSearchParams();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mockPush,
+  }),
+  useSearchParams: () => mockSearchParams,
+}));
+
 describe("ProductPaginationNav", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSearchParams = new URLSearchParams();
+  });
+
   it("renders counter and active navigation links when prev and next exist", () => {
     render(
       <ProductPaginationNav
@@ -58,5 +73,55 @@ describe("ProductPaginationNav", () => {
 
     const nextButton = screen.getByRole("button", { name: /next product/i });
     expect(nextButton).toBeDisabled();
+  });
+
+  it("navigates on J and K keyboard shortcuts", () => {
+    render(
+      <ProductPaginationNav
+        currentIndex={2}
+        totalCount={5}
+        prevProductId="prod-1"
+        nextProductId="prod-3"
+      />
+    );
+
+    fireEvent.keyDown(window, { key: "j" });
+    expect(mockPush).toHaveBeenCalledWith("/products/prod-3");
+
+    fireEvent.keyDown(window, { key: "k" });
+    expect(mockPush).toHaveBeenCalledWith("/products/prod-1");
+  });
+
+  it("does not navigate via J/K if typing in an input element", () => {
+    render(
+      <div>
+        <input data-testid="test-input" />
+        <ProductPaginationNav
+          currentIndex={2}
+          totalCount={5}
+          prevProductId="prod-1"
+          nextProductId="prod-3"
+        />
+      </div>
+    );
+
+    const input = screen.getByTestId("test-input");
+    fireEvent.keyDown(input, { key: "j" });
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("preserves URL search params in navigation links", () => {
+    mockSearchParams = new URLSearchParams({ status: "DRAFT", search: "shoes" });
+    render(
+      <ProductPaginationNav
+        currentIndex={2}
+        totalCount={5}
+        prevProductId="prod-1"
+        nextProductId="prod-3"
+      />
+    );
+
+    const nextLink = screen.getByRole("link", { name: /next product/i });
+    expect(nextLink).toHaveAttribute("href", "/products/prod-3?status=DRAFT&search=shoes");
   });
 });

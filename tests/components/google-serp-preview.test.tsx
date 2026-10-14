@@ -52,4 +52,41 @@ describe("GoogleSerpPreview", () => {
       screen.getByText(/Double walled ceramic travel mug\./i)
     ).toBeInTheDocument();
   });
+
+  it("switches to Social Share card view when tab is clicked", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    render(
+      <GoogleSerpPreview
+        title="Trail Running Shoes"
+        description="Lightweight waterproof trail shoes for rough terrains."
+        shopDomain="trail-store.myshopify.com"
+        imageUrl="https://cdn.shopify.com/shoe.jpg"
+      />
+    );
+
+    const socialTab = screen.getByRole("button", { name: /social share/i });
+    fireEvent.click(socialTab);
+
+    expect(screen.getByText("trail-store.myshopify.com")).toBeInTheDocument();
+    expect(screen.getByText("Trail Running Shoes")).toBeInTheDocument();
+  });
+
+  it("calculates live focus keyword placements across title, meta, and body", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    render(
+      <GoogleSerpPreview
+        title="Waterproof Hiking Boots"
+        description="Durable waterproof boots built for all seasons."
+        bodyHtml="<p>These waterproof boots feature Vibram soles.</p>"
+      />
+    );
+
+    const keywordInput = screen.getByPlaceholderText(/target focus keyword/i);
+    fireEvent.change(keywordInput, { target: { value: "waterproof" } });
+
+    expect(screen.getByText("SEO Perfect")).toBeInTheDocument();
+    expect(screen.getByText("In Title")).toBeInTheDocument();
+    expect(screen.getByText("In Meta")).toBeInTheDocument();
+    expect(screen.getByText("In Body")).toBeInTheDocument();
+  });
 });

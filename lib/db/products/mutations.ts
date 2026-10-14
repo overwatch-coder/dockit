@@ -103,6 +103,7 @@ export async function updateProduct(input: {
   seoTitle?: string | null;
   seoDescription?: string | null;
   metafields?: any[];
+  imageUrls?: string[];
 }): Promise<
   | { success: true; product: Product }
   | { success: false; reason: "not-found" | "conflicted" }
@@ -131,6 +132,12 @@ export async function updateProduct(input: {
       tags: input.tags ?? [],
       seoTitle: input.seoTitle ?? null,
       seoDescription: input.seoDescription ?? null,
+      ...(input.imageUrls !== undefined
+        ? {
+            imageUrls: input.imageUrls,
+            imageUrl: input.imageUrls[0] ?? null,
+          }
+        : {}),
       ...(input.metafields !== undefined
         ? { metafields: input.metafields as Prisma.InputJsonValue }
         : {}),

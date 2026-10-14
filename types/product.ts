@@ -10,6 +10,8 @@ export type Variant = {
   // for products imported before the gallery field existed), or null if this
   // variant has no image of its own — falls back to the product's default gallery.
   imageUrl: string | null;
+  // Optional color swatch hex code (e.g. #000000, #3B82F6) synced to Shopify metafields
+  colorHex?: string | null;
 };
 
 // The shape stored in Product.conflictAppSnapshot/conflictShopifySnapshot (Json columns)

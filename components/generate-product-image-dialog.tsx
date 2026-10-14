@@ -20,6 +20,10 @@ import {
   AlertCircle,
   Clock,
   Info,
+  Package,
+  Shirt,
+  User,
+  UserCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -39,10 +43,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
 import { enqueueGenerateProductImagesAction } from "@/app/(dashboard)/products/actions";
-import type { ImageAspectRatio, ImageGenerationMode, ImageProviderName } from "@/lib/ai/contracts";
+import type { ImageAspectRatio, ImageGenerationMode, ImageProviderName, PresentationStyle } from "@/lib/ai/contracts";
 import type { ImageGenerationJobResult } from "@/types/job";
 import { cn } from "@/lib/utils";
 
@@ -55,8 +60,11 @@ interface GenerateProductImageDialogProps {
     imageUrl?: string | null;
     imageUrls?: string[];
   };
+  defaultPresentationStyle?: PresentationStyle;
+  defaultModelFaceNotes?: string;
   onGenerated?: (newUrls: string[]) => void;
 }
+
 
 const MODES: Array<{
   id: ImageGenerationMode;
@@ -97,6 +105,43 @@ const MODES: Array<{
     desc: "Full creative control driven by your custom directives, specific scene styling, props, and backdrops.",
     bestFor: "Themed holiday campaigns, bold seasonal sets, and bespoke creative concepts.",
     icon: Wand2,
+  },
+];
+
+const PRESENTATION_STYLES: Array<{
+  id: PresentationStyle;
+  label: string;
+  tagline: string;
+  desc: string;
+  icon: typeof UserCheck;
+}> = [
+  {
+    id: "product_only",
+    label: "Product Only",
+    tagline: "Studio flat lay",
+    desc: "Clean commercial product shot on a seamless studio background without any model or mannequin.",
+    icon: Package,
+  },
+  {
+    id: "on_model",
+    label: "On-Model (Keep Face)",
+    tagline: "Preserve model face & identity",
+    desc: "Apparel worn by the human model from your photos. Strictly preserves facial identity, expression, hairstyle, and skin tone across all generated shots and variants.",
+    icon: UserCheck,
+  },
+  {
+    id: "ghost_mannequin",
+    label: "Ghost Mannequin",
+    tagline: "3D hollow body drape",
+    desc: "Invisible mannequin effect where garments appear floating in 3D with realistic hollow neckline, inner lining, and natural fabric drape.",
+    icon: Shirt,
+  },
+  {
+    id: "studio_mannequin",
+    label: "Studio Mannequin",
+    tagline: "Tailor dummy / mannequin",
+    desc: "Garment displayed on a minimalist matte studio dress form or tailor mannequin with soft catalog shadows.",
+    icon: User,
   },
 ];
 
@@ -162,6 +207,8 @@ export function GenerateProductImageDialog({
   open,
   onOpenChange,
   product,
+  defaultPresentationStyle,
+  defaultModelFaceNotes,
   onGenerated,
 }: GenerateProductImageDialogProps) {
   const router = useRouter();
@@ -180,6 +227,16 @@ export function GenerateProductImageDialog({
 
   // Settings
   const [mode, setMode] = useState<ImageGenerationMode>("variation");
+  const [presentationStyle, setPresentationStyle] = useState<PresentationStyle>(
+    defaultPresentationStyle ?? "product_only"
+  );
+  const [modelFaceNotes, setModelFaceNotes] = useState(
+    defaultModelFaceNotes ?? ""
+  );
+  const [selectedModelFaceUrl, setSelectedModelFaceUrl] = useState<string | null>(
+    allImages[0] ?? null
+  );
+
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState<ImageAspectRatio>("1:1");
   const [provider, setProvider] = useState<ImageProviderName | "auto">("auto");
@@ -255,6 +312,10 @@ export function GenerateProductImageDialog({
         productId: product.id,
         prompt,
         referenceImageUrl: selectedRefUrl,
+        referenceModelFaceUrl:
+          presentationStyle === "on_model" ? (selectedModelFaceUrl || selectedRefUrl) : undefined,
+        presentationStyle,
+        modelFaceNotes: presentationStyle === "on_model" ? modelFaceNotes : undefined,
         aspectRatio,
         size: selectedRatioObj?.size,
         mode,
@@ -590,11 +651,114 @@ export function GenerateProductImageDialog({
                 })()}
               </div>
 
-              {/* 3. Custom Prompt & Suggestions */}
+              {/* 3. Presentation & Subject (Mannequins & Faces) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">3. Presentation & Subject</Label>
+                  <span className="text-[11px] text-muted-foreground">Apparel drape, mannequins & faces</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {PRESENTATION_STYLES.map((item) => {
+                    const Icon = item.icon;
+                    const isSelected = presentationStyle === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setPresentationStyle(item.id)}
+                        className={cn(
+                          "group relative flex flex-col items-start gap-1 rounded-lg border p-2.5 text-left transition-all w-full cursor-pointer",
+                          isSelected
+                            ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary shadow-xs"
+                            : "border-border hover:bg-muted/50 text-muted-foreground hover:border-foreground/20"
+                        )}
+                      >
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                          <Icon className="size-3.5 text-primary" />
+                          <span>{item.label}</span>
+                        </div>
+                        <p className="text-[10px] font-medium text-muted-foreground leading-tight">
+                          {item.tagline}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* On-Model Face & Identity Consistency Card */}
+                {presentationStyle === "on_model" && (
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5 text-xs animate-in fade-in-50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 font-semibold text-primary">
+                        <UserCheck className="size-4" />
+                        <span>Face & Identity Preservation Active</span>
+                      </div>
+                      <Badge variant="outline" className="text-[10px] bg-background">
+                        Consistent Model Identity
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      AI will maintain 100% facial structure, skin tone, expression, and hair fidelity based on the reference model photo.
+                    </p>
+
+                    {allImages.length > 1 && (
+                      <div className="space-y-1 pt-1">
+                        <Label className="text-[11px] font-medium">Select Model Face Photo</Label>
+                        <div className="flex flex-wrap gap-2">
+                          {allImages.map((url, idx) => {
+                            const isFaceRef = (selectedModelFaceUrl || selectedRefUrl) === url;
+                            return (
+                              <button
+                                key={url}
+                                type="button"
+                                onClick={() => setSelectedModelFaceUrl(url)}
+                                className={cn(
+                                  "relative size-12 shrink-0 overflow-hidden rounded-md border transition-all cursor-pointer",
+                                  isFaceRef
+                                    ? "ring-2 ring-primary border-primary shadow-xs"
+                                    : "opacity-70 hover:opacity-100 border-border"
+                                )}
+                              >
+                                <Image
+                                  src={productThumbnailUrl(url, 100)}
+                                  alt={`Model face ${idx + 1}`}
+                                  fill
+                                  sizes="48px"
+                                  className="object-cover"
+                                />
+                                {isFaceRef && (
+                                  <span className="absolute bottom-0 inset-x-0 bg-primary/90 text-primary-foreground text-[8px] font-semibold text-center py-0.5">
+                                    Face Ref
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-1 pt-1">
+                      <Label htmlFor="model-notes" className="text-[11px] font-medium">
+                        Model / Face Directives (Optional)
+                      </Label>
+                      <Input
+                        id="model-notes"
+                        value={modelFaceNotes}
+                        onChange={(e) => setModelFaceNotes(e.target.value)}
+                        placeholder="e.g. Preserve female model with brunette hair, smiling expression, natural makeup"
+                        className="text-xs h-8"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 4. Custom Prompt & Suggestions */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="image-prompt" className="text-xs font-semibold">
-                    3. Directive / Instructions
+                    4. Directive / Instructions
                   </Label>
                   <span className="text-[11px] text-muted-foreground">Optional</span>
                 </div>
@@ -621,10 +785,10 @@ export function GenerateProductImageDialog({
                 </div>
               </div>
 
-              {/* 4. Aspect Ratio & Dimensions */}
+              {/* 5. Aspect Ratio & Dimensions */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs font-semibold">4. Aspect Ratio & Canvas</Label>
+                  <Label className="text-xs font-semibold">5. Aspect Ratio & Canvas</Label>
                   <span className="text-[11px] text-muted-foreground">Hover to view resolution & best use</span>
                 </div>
                 <div className="flex flex-wrap gap-2">

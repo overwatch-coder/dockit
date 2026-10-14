@@ -298,6 +298,68 @@ describe("vision-enrichment", () => {
       expect(images[1]?.optionName).toBe("Powder");
       expect(mockGenerator.generate).toHaveBeenCalledTimes(2);
     });
+
+    it("applies On-Model face preservation directives when presentationStyle is on_model", async () => {
+      const mockGenerator = {
+        providerName: "gemini" as const,
+        generate: vi.fn().mockResolvedValue({
+          buffer: Buffer.from("mock-face-consistent-image"),
+          format: "png",
+        }),
+      };
+
+      vi.spyOn(blobModule, "uploadGeneratedProductImage").mockResolvedValue({
+        success: true,
+        url: "https://blob.vercel-storage.com/products/p1/variant-model.png",
+      });
+
+      await generateVariantImages({
+        productId: "p1",
+        productTitle: "Merino Wool Sweater",
+        referenceImageUrl: "https://example.com/sweater-model.jpg",
+        referenceModelFaceUrl: "https://example.com/sweater-model.jpg",
+        presentationStyle: "on_model",
+        modelFaceNotes: "Preserve female model with short blonde hair and smile",
+        variants: [{ id: "v1", optionName: "Olive Green", imageUrl: null }],
+        customGenerator: mockGenerator,
+      });
+
+      expect(mockGenerator.generate).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerator.generate.mock.calls[0][0];
+      expect(callArgs.prompt).toContain("IMPORTANT MODEL & FACE FIDELITY DIRECTIVE");
+      expect(callArgs.prompt).toContain("Preserve female model with short blonde hair and smile");
+      expect(callArgs.presentationStyle).toBe("on_model");
+      expect(callArgs.referenceModelFaceUrl).toBe("https://example.com/sweater-model.jpg");
+    });
+
+    it("applies Ghost Mannequin 3D hollow drape directive when presentationStyle is ghost_mannequin", async () => {
+      const mockGenerator = {
+        providerName: "gemini" as const,
+        generate: vi.fn().mockResolvedValue({
+          buffer: Buffer.from("mock-ghost-mannequin-image"),
+          format: "png",
+        }),
+      };
+
+      vi.spyOn(blobModule, "uploadGeneratedProductImage").mockResolvedValue({
+        success: true,
+        url: "https://blob.vercel-storage.com/products/p1/variant-ghost.png",
+      });
+
+      await generateVariantImages({
+        productId: "p1",
+        productTitle: "Linen Button-down Shirt",
+        referenceImageUrl: "https://example.com/shirt.jpg",
+        presentationStyle: "ghost_mannequin",
+        variants: [{ id: "v1", optionName: "Navy", imageUrl: null }],
+        customGenerator: mockGenerator,
+      });
+
+      expect(mockGenerator.generate).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerator.generate.mock.calls[0][0];
+      expect(callArgs.prompt).toContain("3D ghost mannequin / invisible mannequin photography");
+      expect(callArgs.presentationStyle).toBe("ghost_mannequin");
+    });
   });
 
   describe("runFullProductAiVisionEnrichment", () => {

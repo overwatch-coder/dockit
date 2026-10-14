@@ -3,6 +3,7 @@ import {
   type StoreAiRules,
   DEFAULT_AI_RULES,
   resolveEffectiveAiRules,
+  encodeImageRules,
 } from "@/lib/ai/rules";
 
 /**
@@ -78,6 +79,11 @@ export async function saveAiRulesForStore(
     throw new Error("Store not found or access denied.");
   }
 
+  const encodedCustomInstructions = encodeImageRules(rules.customInstructions, {
+    presentationStyle: rules.presentationStyle,
+    modelFaceDirective: rules.modelFaceDirective,
+  });
+
   const record = await prisma.storeAiRule.upsert({
     where: { storeId },
     create: {
@@ -88,7 +94,7 @@ export async function saveAiRulesForStore(
       descriptionRule: rules.descriptionRule.trim(),
       tagsRule: rules.tagsRule.trim(),
       seoRule: rules.seoRule.trim(),
-      customInstructions: rules.customInstructions.trim(),
+      customInstructions: encodedCustomInstructions.trim(),
     },
     update: {
       brandTone: rules.brandTone.trim(),
@@ -96,7 +102,7 @@ export async function saveAiRulesForStore(
       descriptionRule: rules.descriptionRule.trim(),
       tagsRule: rules.tagsRule.trim(),
       seoRule: rules.seoRule.trim(),
-      customInstructions: rules.customInstructions.trim(),
+      customInstructions: encodedCustomInstructions.trim(),
     },
   });
 
@@ -109,6 +115,7 @@ export async function saveAiRulesForStore(
     customInstructions: record.customInstructions ?? undefined,
   });
 }
+
 
 /**
  * Resets a store's AI generation rules back to the system defaults by deleting the custom row.

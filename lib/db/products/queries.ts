@@ -205,14 +205,47 @@ export async function getProductSiblingNavigation(input: {
   accountId: string;
   storeId: string;
   productId: string;
+  search?: string;
+  statusFilter?: "all" | "DRAFT" | "ACTIVE" | "CONFLICT";
+  categoryFilter?: string;
 }): Promise<{
   prevProductId: string | null;
   nextProductId: string | null;
   currentIndex: number;
   totalCount: number;
 }> {
+  const where: {
+    accountId: string;
+    storeId: string;
+    title?: { contains: string; mode: "insensitive" };
+    isConflicted?: boolean;
+    status?: "DRAFT" | "ACTIVE";
+    collectionTitle?: string;
+  } = {
+    accountId: input.accountId,
+    storeId: input.storeId,
+  };
+
+  if (input.search?.trim()) {
+    where.title = { contains: input.search.trim(), mode: "insensitive" };
+  }
+
+  if (input.statusFilter === "CONFLICT") {
+    where.isConflicted = true;
+  } else if (input.statusFilter === "DRAFT") {
+    where.status = "DRAFT";
+    where.isConflicted = false;
+  } else if (input.statusFilter === "ACTIVE") {
+    where.status = "ACTIVE";
+    where.isConflicted = false;
+  }
+
+  if (input.categoryFilter && input.categoryFilter !== "all") {
+    where.collectionTitle = input.categoryFilter;
+  }
+
   const products = await prisma.product.findMany({
-    where: { accountId: input.accountId, storeId: input.storeId },
+    where,
     orderBy: { createdAt: "desc" },
     select: { id: true },
   });

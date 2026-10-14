@@ -35,6 +35,21 @@ export type ProductRecord = {
 };
 
 export function toDomainProduct(product: ProductRecord): Product {
+  const metafieldsList = (product.metafields as MetafieldValueEntry[] | null) ?? [];
+  const variantColorEntry = Array.isArray(metafieldsList)
+    ? metafieldsList.find(
+        (m) =>
+          (m.namespace === "dockit" && m.key === "variant_colors") ||
+          (m.namespace === "custom" && m.key === "variant_colors")
+      )
+    : undefined;
+  let colorMap: Record<string, string> = {};
+  if (variantColorEntry?.value) {
+    try {
+      colorMap = JSON.parse(variantColorEntry.value);
+    } catch {}
+  }
+
   return {
     id: product.id,
     storeId: product.storeId,
@@ -52,7 +67,7 @@ export function toDomainProduct(product: ProductRecord): Product {
     categoryFullName: product.categoryFullName,
     seoTitle: product.seoTitle,
     seoDescription: product.seoDescription,
-    metafields: (product.metafields as MetafieldValueEntry[] | null) ?? [],
+    metafields: metafieldsList,
     isConflicted: product.isConflicted,
     conflictAppSnapshot:
       (product.conflictAppSnapshot as ConflictSnapshot | null) ?? null,
@@ -68,6 +83,7 @@ export function toDomainProduct(product: ProductRecord): Product {
       price: variant.price.toString(),
       inventory: variant.inventory,
       imageUrl: variant.imageUrl,
+      colorHex: colorMap[variant.id] || colorMap[variant.optionName] || null,
     })),
   };
 }

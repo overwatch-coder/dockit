@@ -126,4 +126,48 @@ describe("GenerateProductImageDialog", () => {
     expect(screen.getByText("Story (9:16)")).toBeInTheDocument();
     expect(screen.getByText("1024x1792")).toBeInTheDocument();
   });
+
+  it("renders presentation style options and reveals face preservation card for On-Model", () => {
+    render(
+      <GenerateProductImageDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        product={mockProduct}
+      />
+    );
+
+    // Presentation options
+    expect(screen.getByText("Product Only")).toBeInTheDocument();
+    expect(screen.getByText("On-Model (Keep Face)")).toBeInTheDocument();
+    expect(screen.getByText("Ghost Mannequin")).toBeInTheDocument();
+    expect(screen.getByText("Studio Mannequin")).toBeInTheDocument();
+
+    // Click On-Model
+    const onModelBtn = screen.getByText("On-Model (Keep Face)").closest("button");
+    expect(onModelBtn).not.toBeNull();
+    fireEvent.click(onModelBtn!);
+
+    // Face preservation card active
+    expect(screen.getByText(/Face & Identity Preservation Active/i)).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(/Preserve female model with brunette hair/i)
+    ).toBeInTheDocument();
+  });
+
+  it("respects defaultPresentationStyle and defaultModelFaceNotes props", () => {
+    render(
+      <GenerateProductImageDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        product={mockProduct}
+        defaultPresentationStyle="on_model"
+        defaultModelFaceNotes="Nordic model with natural styling"
+      />
+    );
+
+    expect(screen.getByText(/Face & Identity Preservation Active/i)).toBeInTheDocument();
+    const notesInput = screen.getByPlaceholderText(/Preserve female model with brunette hair/i) as HTMLInputElement;
+    expect(notesInput.value).toBe("Nordic model with natural styling");
+  });
 });
+

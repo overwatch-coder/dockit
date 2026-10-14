@@ -34,11 +34,15 @@ export interface ITextVisionProvider {
 
 export type ImageAspectRatio = "1:1" | "4:3" | "16:9" | "3:4" | "9:16";
 export type ImageGenerationMode = "variation" | "refine" | "angle" | "custom";
+export type PresentationStyle = "product_only" | "on_model" | "ghost_mannequin" | "studio_mannequin";
 
 export interface ImageGenerationOptions {
   prompt: string;
   referenceImageUrl?: string;
   referenceImageUrls?: string[];
+  referenceModelFaceUrl?: string;
+  presentationStyle?: PresentationStyle;
+  modelFaceNotes?: string;
   angle?: string;
   aspectRatio?: ImageAspectRatio;
   size?: string;

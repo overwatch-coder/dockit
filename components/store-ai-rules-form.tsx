@@ -7,10 +7,15 @@ import {
   CheckCircle,
   HelpCircle,
   Loader2,
+  Package,
   RotateCcw,
   Save,
+  Shirt,
   Sparkles,
   Store as StoreIcon,
+  User,
+  UserCheck,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -28,10 +33,45 @@ import {
   DEFAULT_AI_RULES,
   type StoreAiRules,
 } from "@/lib/ai/rules";
+import type { PresentationStyle } from "@/lib/ai/contracts";
+import { cn } from "@/lib/utils";
 import {
   saveStoreAiRulesAction,
   resetStoreAiRulesAction,
 } from "@/app/(dashboard)/settings/actions";
+
+const PRESENTATION_OPTIONS: Array<{
+  id: PresentationStyle;
+  label: string;
+  desc: string;
+  icon: typeof Package;
+}> = [
+  {
+    id: "product_only",
+    label: "Product Only (Flat Lay / Studio)",
+    desc: "Clean product photography without human models or mannequins on an isolated commercial background.",
+    icon: Package,
+  },
+  {
+    id: "on_model",
+    label: "On-Model (Keep Face & Identity)",
+    desc: "Human fashion model wearing the product. Strictly preserves facial features, expression, hairstyle, and identity.",
+    icon: UserCheck,
+  },
+  {
+    id: "ghost_mannequin",
+    label: "3D Ghost / Invisible Mannequin",
+    desc: "Dimensional hollow-body drape showing inside collar, neck lining, and natural shape without a visible model.",
+    icon: Shirt,
+  },
+  {
+    id: "studio_mannequin",
+    label: "Studio Mannequin",
+    desc: "Minimalist matte neutral retail tailor form or mannequin bust with subtle catalog drop shadows.",
+    icon: User,
+  },
+];
+
 
 export function StoreAiRulesForm({
   storeId,
@@ -71,7 +111,9 @@ export function StoreAiRulesForm({
     rules.descriptionRule !== initialRules.descriptionRule ||
     rules.tagsRule !== initialRules.tagsRule ||
     rules.seoRule !== initialRules.seoRule ||
-    rules.customInstructions !== initialRules.customInstructions;
+    rules.customInstructions !== initialRules.customInstructions ||
+    rules.presentationStyle !== initialRules.presentationStyle ||
+    rules.modelFaceDirective !== initialRules.modelFaceDirective;
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -321,7 +363,87 @@ export function StoreAiRulesForm({
             </span>
           </div>
 
+          {/* 7. AI Image Generation & Model Face Presentation Mode */}
+          <div className="flex flex-col gap-3 rounded-lg border border-border/80 bg-muted/20 p-3.5 sm:p-4.5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+              <div className="flex items-center gap-2">
+                <Wand2 className="size-4 text-primary" />
+                <span className="text-xs sm:text-sm font-semibold text-foreground">
+                  AI Image Generation Presentation & Model Face Consistency
+                </span>
+              </div>
+              <span className="text-[11px] font-normal text-muted-foreground">Store Studio Default</span>
+            </div>
+
+            <p className="text-[11px] sm:text-xs text-muted-foreground">
+              Configure the default presentation style and model consistency guidelines for this store. Applies to on-demand generation, new angles, and catalog variant mockups.
+            </p>
+
+            {/* Presentation Mode Selection Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+              {PRESENTATION_OPTIONS.map((opt) => {
+                const isSelected = (rules.presentationStyle || "product_only") === opt.id;
+                const Icon = opt.icon;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setRules({ ...rules, presentationStyle: opt.id })}
+                    disabled={saving || resetting}
+                    className={cn(
+                      "flex flex-col text-left p-3 rounded-lg border transition-all text-xs",
+                      isSelected
+                        ? "border-primary bg-primary/5 ring-1 ring-primary shadow-xs"
+                        : "border-border/60 bg-card hover:bg-muted/40 text-muted-foreground"
+                    )}
+                  >
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <div className="flex items-center gap-2">
+                        <Icon className={cn("size-4", isSelected ? "text-primary" : "text-muted-foreground")} />
+                        <span className={cn("font-medium text-xs", isSelected ? "text-foreground font-semibold" : "")}>
+                          {opt.label}
+                        </span>
+                      </div>
+                      {isSelected && (
+                        <Badge variant="secondary" className="text-[10px] py-0 px-1.5 h-4">
+                          Default
+                        </Badge>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                      {opt.desc}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Model Face & Mannequin Consistency Directive */}
+            <div className="flex flex-col gap-1.5 pt-2.5 border-t border-border/50">
+              <label
+                htmlFor="model-face-directive"
+                className="text-xs font-semibold text-foreground flex items-center justify-between"
+              >
+                <span>Default Model Face & Mannequin Consistency Directive</span>
+                <span className="text-[11px] font-normal text-muted-foreground">Model & Mannequin Rules</span>
+              </label>
+              <Textarea
+                id="model-face-directive"
+                rows={3}
+                value={rules.modelFaceDirective ?? ""}
+                onChange={(e) => setRules({ ...rules, modelFaceDirective: e.target.value })}
+                placeholder="e.g. Always preserve the exact model face, facial structure, skin tone, and hairstyle from the reference photos across all variants. Use clean natural daylight studio lighting..."
+                disabled={saving || resetting}
+                className="text-xs sm:text-sm resize-y"
+              />
+              <span className="text-[11px] text-muted-foreground">
+                Automatically injected into image generation prompts to enforce identity preservation, realistic skin tones, or hollow 3D invisible mannequin drape.
+              </span>
+            </div>
+          </div>
+
           {/* Status Message */}
+
           {statusMessage && (
             <p
               role="status"

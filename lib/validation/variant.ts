@@ -23,6 +23,16 @@ export const variantFormSchema = z.object({
   // lib/db/variants.ts's isValidVariantImageUrl. .default(null) normalizes an absent field
   // to null so parsed variants always contain this key.
   imageUrl: z.string().trim().min(1).nullable().default(null),
+  // Optional color swatch hex code for this variant (e.g. #000000, #3B82F6),
+  // pushed to Shopify as shopify.color-pattern JSON and custom.color metafields.
+  colorHex: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Invalid hex color")
+    .nullable()
+    .optional()
+    .or(z.literal("").transform(() => null))
+    .default(null),
 });
 
 export type VariantFormInput = z.infer<typeof variantFormSchema>;

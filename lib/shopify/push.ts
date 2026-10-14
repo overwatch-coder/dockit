@@ -35,6 +35,7 @@ export type PushProductInput = {
     // null/undefined for no variant-specific image. Optional so this input
     // shape stays backward compatible for callers that build a variant literal without it.
     imageUrl?: string | null;
+    colorHex?: string | null;
   }[];
 };
 
@@ -419,11 +420,27 @@ export async function pushProductToShopify(
 
   productSetInput.variants = normalizedVariants.map((v) => {
     const file = resolveVariantFile(v.imageUrl);
+    const variantMetafields: { namespace: string; key: string; value: string; type: string }[] = [];
+    if ("colorHex" in v && v.colorHex) {
+      variantMetafields.push({
+        namespace: "shopify",
+        key: "color-pattern",
+        type: "json",
+        value: JSON.stringify({ color: v.colorHex }),
+      });
+      variantMetafields.push({
+        namespace: "custom",
+        key: "color",
+        type: "single_line_text_field",
+        value: v.colorHex,
+      });
+    }
     return {
       ...(v.shopifyVariantId ? { id: toGid("ProductVariant", v.shopifyVariantId) } : {}),
       price: v.price,
       optionValues: [{ optionName: "Title", name: v.optionName }],
       ...(file ? { file } : {}),
+      ...(variantMetafields.length > 0 ? { metafields: variantMetafields } : {}),
     };
   });
 

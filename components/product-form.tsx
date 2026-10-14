@@ -9,7 +9,7 @@ import {
 } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ImageOff, Maximize2, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -56,6 +56,7 @@ import { VariantList, type DraftVariant } from "@/components/variant-list";
 import { productThumbnailUrl } from "@/lib/shopify/image-url";
 import { AiDescriptionReviewDialog } from "@/components/ai-description-review-dialog";
 import { GenerateProductImageDialog } from "@/components/generate-product-image-dialog";
+import type { PresentationStyle } from "@/lib/ai/contracts";
 import {
   AiSeoReviewDialog,
   type AiSuggestedField,
@@ -96,6 +97,7 @@ function toDraftVariants(product: Product | undefined): DraftVariant[] {
       price: variant.price,
       inventory: String(variant.inventory),
       imageUrl: variant.imageUrl || (index === 0 ? primaryImage : null),
+      colorHex: variant.colorHex ?? null,
     })) ?? []
   );
 }
@@ -107,6 +109,9 @@ export function ProductForm({
   collections = [],
   shopifyDomain,
   storeName,
+  nextProductId,
+  defaultPresentationStyle,
+  defaultModelFaceNotes,
 }: {
   mode: "create" | "edit";
   product?: Product;
@@ -114,8 +119,15 @@ export function ProductForm({
   collections?: Collection[];
   shopifyDomain?: string | null;
   storeName?: string | null;
+  nextProductId?: string | null;
+  defaultPresentationStyle?: PresentationStyle;
+  defaultModelFaceNotes?: string;
 }) {
+
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const formRef = useRef<HTMLFormElement>(null);
+  const navigateNextAfterSaveRef = useRef(false);
   const action =
     mode === "create"
       ? createProduct.bind(null, storeId!)
@@ -330,11 +342,22 @@ export function ProductForm({
   // Supports multi-image galleries (components/product-images.tsx), falling
   // back to the single featured imageUrl if needed. Clicking a thumbnail changes
   // which image is shown in the main preview.
-  const gallery = product?.imageUrls?.length
-    ? product.imageUrls
-    : product?.imageUrl
-      ? [product.imageUrl]
-      : [];
+  const [gallery, setGallery] = useState<string[]>(() =>
+    product?.imageUrls?.length
+      ? product.imageUrls
+      : product?.imageUrl
+        ? [product.imageUrl]
+        : []
+  );
+
+  useEffect(() => {
+    if (product?.imageUrls?.length) {
+      setGallery(product.imageUrls);
+    } else if (product?.imageUrl) {
+      setGallery([product.imageUrl]);
+    }
+  }, [product?.imageUrls, product?.imageUrl]);
+
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const mainImage = gallery[selectedImageIndex] ?? null;
@@ -430,6 +453,14 @@ export function ProductForm({
     if (state === prevStateRef.current) return;
     prevStateRef.current = state;
     if (state && "success" in state && state.success) {
+      if (navigateNextAfterSaveRef.current && nextProductId) {
+        navigateNextAfterSaveRef.current = false;
+        toast.success("Saved — advancing to next product");
+        uploadPendingImages(pendingImages);
+        const queryStr = searchParams?.toString() ? `?${searchParams.toString()}` : "";
+        router.push(`/products/${nextProductId}${queryStr}`);
+        return;
+      }
       // Save persists the full form snapshot at once, so every AI-suggested
       // mark clears together on success. Deferred via setTimeout (same
       // workaround already used by connect-store-dialog.tsx's DialogError)
@@ -454,6 +485,7 @@ export function ProductForm({
       // design as the rest of this effect.
       uploadPendingImages(pendingImages);
     } else if (state && "error" in state && state.error) {
+      navigateNextAfterSaveRef.current = false;
       toast.error(state.error);
     }
     // Deliberately only reacts to `state` (a save completing) — currentSnapshot/
@@ -461,6 +493,28 @@ export function ProductForm({
     // and shouldn't re-run this effect on every keystroke/drop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
+
+  // Keyboard shortcut for Cmd+S (Save), Cmd+Shift+S (Save & Next), and Cmd+Enter (Save & Next)
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const isCmdOrCtrl = event.metaKey || event.ctrlKey;
+      if (!isCmdOrCtrl) return;
+
+      if (event.key === "s" || event.key === "S") {
+        event.preventDefault();
+        if (event.shiftKey && nextProductId) {
+          navigateNextAfterSaveRef.current = true;
+        }
+        formRef.current?.requestSubmit();
+      } else if (event.key === "Enter" && nextProductId) {
+        event.preventDefault();
+        navigateNextAfterSaveRef.current = true;
+        formRef.current?.requestSubmit();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [nextProductId]);
 
   const fieldErrors =
     state && "fieldErrors" in state ? state.fieldErrors : undefined;
@@ -518,7 +572,7 @@ export function ProductForm({
         </div>
       )}
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-        <form action={formAction} className="flex flex-col gap-6">
+        <form ref={formRef} action={formAction} className="flex flex-col gap-6">
           {mode === "edit" && product && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3.5">
               <div className="flex items-center gap-2.5">
@@ -581,6 +635,7 @@ export function ProductForm({
                 onRemovePending={handleRemovePending}
                 isUploadingPending={isUploadingPending}
                 onOpenGenerateDialog={() => setIsGenerateImageOpen(true)}
+                onReorderImages={(reordered) => setGallery(reordered)}
               />
             </ProductImagesErrorBoundary>
           )}
@@ -863,6 +918,11 @@ export function ProductForm({
                 name="variants"
                 value={JSON.stringify(variants)}
               />
+              <input
+                type="hidden"
+                name="imageUrls"
+                value={JSON.stringify(gallery)}
+              />
 
               {statusField}
             </>
@@ -879,11 +939,27 @@ export function ProductForm({
               title={
                 product?.isConflicted
                   ? "Resolve the conflict before editing this product"
-                  : undefined
+                  : "Save product (Cmd+S)"
               }
             >
-              {isPending ? "Saving..." : "Save"}
+              {isPending && !navigateNextAfterSaveRef.current ? "Saving..." : "Save"}
             </Button>
+            {mode === "edit" && nextProductId && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={isPending || product?.isConflicted}
+                onClick={() => {
+                  navigateNextAfterSaveRef.current = true;
+                  formRef.current?.requestSubmit();
+                }}
+                title="Save changes and proceed to next product (Cmd+Enter or Cmd+Shift+S)"
+              >
+                {isPending && navigateNextAfterSaveRef.current
+                  ? "Saving & Next..."
+                  : "Save & Next"}
+              </Button>
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -1057,9 +1133,11 @@ export function ProductForm({
                 <GoogleSerpPreview
                   title={seoTitle || title}
                   description={seoDescription || descriptionHtml}
+                  bodyHtml={descriptionHtml}
                   handle={title}
                   shopDomain={shopifyDomain}
                   siteName={storeName || collectionTitle || "Store"}
+                  imageUrl={mainImage}
                 />
               </div>
             </CardContent>
@@ -1184,11 +1262,14 @@ export function ProductForm({
             imageUrl: product.imageUrl,
             imageUrls: gallery,
           }}
+          defaultPresentationStyle={defaultPresentationStyle}
+          defaultModelFaceNotes={defaultModelFaceNotes}
           onGenerated={() => {
             router.refresh();
           }}
         />
       )}
+
     </div>
   );
 }

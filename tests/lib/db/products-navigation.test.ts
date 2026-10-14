@@ -100,4 +100,40 @@ describe("getProductSiblingNavigation", () => {
       totalCount: 1,
     });
   });
+
+  it("applies search, statusFilter, and categoryFilter to navigation where clause", async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValueOnce([
+      { id: "prod-1" },
+      { id: "prod-2" },
+    ] as any);
+
+    const result = await getProductSiblingNavigation({
+      accountId: "acc-1",
+      storeId: "store-1",
+      productId: "prod-1",
+      search: "shirt",
+      statusFilter: "DRAFT",
+      categoryFilter: "Apparel",
+    });
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith({
+      where: {
+        accountId: "acc-1",
+        storeId: "store-1",
+        title: { contains: "shirt", mode: "insensitive" },
+        status: "DRAFT",
+        isConflicted: false,
+        collectionTitle: "Apparel",
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+
+    expect(result).toEqual({
+      prevProductId: null,
+      nextProductId: "prod-2",
+      currentIndex: 1,
+      totalCount: 2,
+    });
+  });
 });

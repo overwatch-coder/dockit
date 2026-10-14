@@ -3,6 +3,8 @@ import {
   DEFAULT_AI_RULES,
   resolveEffectiveAiRules,
   storeAiRulesFormSchema,
+  encodeImageRules,
+  extractImageRules,
 } from "@/lib/ai/rules";
 import {
   getAiRulesForStore,
@@ -57,6 +59,8 @@ describe("lib/ai/rules: defaults and resolver", () => {
       tagsRule: "Tags",
       seoRule: "SEO",
       customInstructions: "Instructions",
+      presentationStyle: "on_model",
+      modelFaceDirective: "Maintain model facial features",
     });
     expect(valid.success).toBe(true);
 
@@ -70,7 +74,36 @@ describe("lib/ai/rules: defaults and resolver", () => {
     });
     expect(oversized.success).toBe(false);
   });
+
+  it("extractImageRules and encodeImageRules correctly serialize and parse image rules", () => {
+    const raw = "Never mention plastic.";
+    const encoded = encodeImageRules(raw, {
+      presentationStyle: "on_model",
+      modelFaceDirective: "Use realistic lighting and maintain model face",
+    });
+
+    expect(encoded).toContain("Never mention plastic.");
+    expect(encoded).toContain("<!-- dockit:image_rules");
+
+    const decoded = extractImageRules(encoded);
+    expect(decoded.cleanCustomInstructions).toBe("Never mention plastic.");
+    expect(decoded.presentationStyle).toBe("on_model");
+    expect(decoded.modelFaceDirective).toBe("Use realistic lighting and maintain model face");
+  });
+
+  it("resolveEffectiveAiRules extracts presentation style and keeps customInstructions clean for text prompts", () => {
+    const saved = {
+      customInstructions:
+        "Only British English.\n\n<!-- dockit:image_rules {\"presentationStyle\":\"ghost_mannequin\",\"modelFaceDirective\":\"Hollow body drape\"} -->",
+    };
+
+    const resolved = resolveEffectiveAiRules(saved);
+    expect(resolved.customInstructions).toBe("Only British English.");
+    expect(resolved.presentationStyle).toBe("ghost_mannequin");
+    expect(resolved.modelFaceDirective).toBe("Hollow body drape");
+  });
 });
+
 
 describe("lib/db/ai-rules: database queries", () => {
   beforeEach(() => {

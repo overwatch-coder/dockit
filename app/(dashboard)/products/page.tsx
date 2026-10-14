@@ -7,6 +7,7 @@ import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
 import { getActiveStoreForAccount, getStoresForAccount } from "@/lib/db/stores";
 import { ACTIVE_STORE_COOKIE_NAME } from "@/lib/active-store-cookie";
 import { getPaginatedProductsForStore, getProductSummariesForStore, getStoreCategories } from "@/lib/db/products";
+import { getAiRulesForStore } from "@/lib/db/ai-rules";
 import { Button } from "@/components/ui/button";
 import { ProductTable } from "@/components/product-table";
 import { PushAllDraftsButton } from "@/components/push-all-drafts-button";
@@ -54,7 +55,7 @@ export default async function ProductsPage({
   // for the full Product shape (variants, description, images) that
   // getProductsForStore fetches. The paginated table itself only ever needs
   // one page of full records, from getPaginatedProductsForStore below.
-  const [paginatedResult, categories, productSummaries] = await Promise.all([
+  const [paginatedResult, categories, productSummaries, aiRules] = await Promise.all([
     getPaginatedProductsForStore(account.id, currentStore.id, {
       page,
       pageSize,
@@ -64,6 +65,7 @@ export default async function ProductsPage({
     }),
     getStoreCategories(account.id, currentStore.id),
     getProductSummariesForStore(account.id, currentStore.id),
+    getAiRulesForStore(account.id, currentStore.id),
   ]);
 
   return (
@@ -96,8 +98,11 @@ export default async function ProductsPage({
           initialStatusFilter={statusFilter}
           initialCategoryFilter={categoryFilter}
           allProducts={productSummaries}
+          defaultPresentationStyle={aiRules.presentationStyle}
+          defaultModelFaceNotes={aiRules.modelFaceDirective}
         />
       )}
+
     </div>
   );
 }

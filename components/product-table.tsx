@@ -78,6 +78,7 @@ import {
 } from "@/components/bulk-generation-progress-dialog";
 import { ProductVisionEnrichDialog } from "@/components/product-vision-enrich-dialog";
 import { GenerateProductImageDialog } from "@/components/generate-product-image-dialog";
+import type { PresentationStyle } from "@/lib/ai/contracts";
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
 import type {
   PaginatedProductsResult,
@@ -108,6 +109,8 @@ interface ProductTableProps {
   // isConflicted) and title lookups, both of which fit in the lean
   // ProductSummary shape (lib/db/products.ts) instead of the full Product.
   allProducts: ProductSummary[];
+  defaultPresentationStyle?: PresentationStyle;
+  defaultModelFaceNotes?: string;
 }
 
 export function ProductTable({
@@ -118,7 +121,10 @@ export function ProductTable({
   initialStatusFilter = "all",
   initialCategoryFilter = "all",
   allProducts,
+  defaultPresentationStyle,
+  defaultModelFaceNotes,
 }: ProductTableProps) {
+
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -502,9 +508,10 @@ export function ProductTable({
 
   const handleEdit = useCallback(
     (product: Product) => {
-      router.push(`/products/${product.id}`);
+      const queryStr = searchParams?.toString() ? `?${searchParams.toString()}` : "";
+      router.push(`/products/${product.id}${queryStr}`);
     },
-    [router],
+    [router, searchParams],
   );
 
   const handleDuplicate = useCallback(
@@ -998,12 +1005,15 @@ export function ProductTable({
             imageUrl: generateImagesProduct.imageUrl,
             imageUrls: generateImagesProduct.imageUrls,
           }}
+          defaultPresentationStyle={defaultPresentationStyle}
+          defaultModelFaceNotes={defaultModelFaceNotes}
           onGenerated={() => {
             setGenerateImagesProduct(null);
             router.refresh();
           }}
         />
       )}
+
       {bulkProgressState && (
         <BulkGenerationProgressDialog
           open={bulkProgressState.open}

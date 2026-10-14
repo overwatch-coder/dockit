@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useDropzone, type FileRejection } from "react-dropzone";
 import Image from "next/image";
@@ -48,6 +48,7 @@ export function ProductImages({
   onRemovePending,
   isUploadingPending,
   onOpenGenerateDialog,
+  onReorderImages,
 }: {
   productId: string;
   images: string[];
@@ -56,10 +57,21 @@ export function ProductImages({
   onRemovePending: (id: string) => void;
   isUploadingPending: boolean;
   onOpenGenerateDialog?: () => void;
+  onReorderImages?: (newImages: string[]) => void;
 }) {
   const router = useRouter();
   const [isRemoving, startTransition] = useTransition();
   const isBusy = isRemoving || isUploadingPending;
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  function handleReorder(from: number, to: number) {
+    if (from === to || !onReorderImages) return;
+    const next = [...images];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onReorderImages(next);
+  }
 
   function handleDrop(acceptedFiles: File[], rejections: FileRejection[]) {
     for (const rejection of rejections) {
@@ -111,9 +123,76 @@ export function ProductImages({
         )}
       </div>
       <div className="flex flex-wrap gap-2">
-        {images.map((url) => (
-          <div key={url} className="group relative size-16 shrink-0 overflow-hidden rounded-md border border-border">
+        {images.map((url, index) => (
+          <div
+            key={url}
+            draggable={Boolean(onReorderImages)}
+            onDragStart={(e) => {
+              setDraggedIndex(index);
+              e.dataTransfer.setData("text/plain", String(index));
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }}
+            onDragEnter={() => setDragOverIndex(index)}
+            onDragEnd={() => {
+              setDraggedIndex(null);
+              setDragOverIndex(null);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (draggedIndex !== null) {
+                handleReorder(draggedIndex, index);
+              }
+              setDraggedIndex(null);
+              setDragOverIndex(null);
+            }}
+            className={cn(
+              "group relative size-16 shrink-0 overflow-hidden rounded-md border transition-all select-none",
+              onReorderImages && "cursor-grab active:cursor-grabbing",
+              index === 0 ? "border-primary/80 ring-1 ring-primary/40 shadow-xs" : "border-border",
+              dragOverIndex === index && "ring-2 ring-primary scale-105",
+              draggedIndex === index && "opacity-40"
+            )}
+            title={index === 0 ? "Hero Image (drag to reorder)" : `Image ${index + 1} (drag to reorder)`}
+          >
             <Image src={productThumbnailUrl(url, 128)} alt="" fill sizes="64px" className="object-cover" />
+            {index === 0 && (
+              <span className="absolute bottom-0 left-0 right-0 bg-primary/90 text-primary-foreground text-[8px] font-mono text-center font-bold tracking-wider uppercase py-0.5">
+                Hero
+              </span>
+            )}
+            <div className="absolute top-0.5 left-0.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              {index > 0 && onReorderImages && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleReorder(index, index - 1);
+                  }}
+                  className="size-4 rounded bg-background/90 text-foreground flex items-center justify-center text-[10px] hover:bg-background cursor-pointer"
+                  aria-label="Move left"
+                  title="Move left"
+                >
+                  ‹
+                </button>
+              )}
+              {index < images.length - 1 && onReorderImages && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleReorder(index, index + 1);
+                  }}
+                  className="size-4 rounded bg-background/90 text-foreground flex items-center justify-center text-[10px] hover:bg-background cursor-pointer"
+                  aria-label="Move right"
+                  title="Move right"
+                >
+                  ›
+                </button>
+              )}
+            </div>
             <Button
               type="button"
               size="icon-xs"

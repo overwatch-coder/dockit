@@ -29,6 +29,7 @@ function toPushInput(product: Product): PushProductInput {
       price: variant.price,
       inventory: variant.inventory,
       imageUrl: variant.imageUrl,
+      colorHex: variant.colorHex ?? null,
     })),
   };
 }

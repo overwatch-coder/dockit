@@ -12,6 +12,59 @@ change.
 
 - Unit 26 is complete. The next planned unit is Unit 27 (CSV catalog import); live-testing the existing v1 flows against a real connected Shopify store remains outstanding and valuable before expanding further.
 
+- **Velocity Review Navigation, Drag-and-Drop Gallery, Social Cards, Swatches & AI Model Face Consistency**:
+  - **High-Velocity Review Navigation & Shortcuts (`components/product-pagination-nav.tsx`, `components/product-form.tsx`, `app/(dashboard)/products/[id]/page.tsx`)**:
+    - Added global `j` (next product) and `k` (previous product) keyboard navigation, automatically disabled when typing in input, textarea, or contentEditable elements.
+    - Added `Cmd+S` (Save) and `Cmd+Shift+S` / `Cmd+Enter` ("Save & Next") shortcuts.
+    - Added dedicated "Save & Next" button in `ProductForm` sticky footer that saves the product and immediately navigates to `nextProductId`.
+    - Preserved active search query, status filters, and category filter parameters across pagination navigation via `useSearchParams()`.
+    - Unit tests: 6 tests passing in `tests/components/product-pagination-nav.test.tsx`.
+  - **Social Share Card & Live Focus Keyword Scoring (`components/google-serp-preview.tsx`, `components/product-form.tsx`)**:
+    - Expanded Google SERP preview into a tabbed component with "Google Search" and "Social Share (OG)" preview modes.
+    - Designed realistic OpenGraph card mimicking Twitter, Facebook, and iMessage preview cards with product hero imagery, site domain, and truncated typography.
+    - Added live Focus Keyword scoring checking keyword presence and density across Title, Meta Description, and Description body copy with color badges.
+    - Unit tests: 5 tests passing in `tests/components/google-serp-preview.test.tsx`.
+  - **Gallery Drag-and-Drop Image Reordering (`components/product-images.tsx`, `components/product-form.tsx`, `lib/db/products/mutations.ts`, `app/(dashboard)/products/actions.ts`)**:
+    - Implemented native HTML5 Drag and Drop (`draggable`, `onDragStart`, `onDrop`) in `ProductImages` with visual drag handles and "Hero" badges on index 0.
+    - Added accessible `‹` / `›` shift buttons per thumbnail.
+    - Updated `updateProduct` mutation and action to persist reordered `imageUrls`, automatically designating index 0 as `imageUrl` (primary hero) across saves and pushes to Shopify.
+    - Unit tests: 2 tests passing in `tests/components/product-images.test.tsx`.
+  - **Shopify Variant Color Swatches with Auto-Detection (`lib/utils/color-detect.ts`, `components/variant-list.tsx`, `components/product-form.tsx`, `lib/validation/variant.ts`, `lib/shopify/push.ts`, `lib/jobs/push.ts`, `lib/db/products/types.ts`)**:
+    - Created `lib/utils/color-detect.ts` with comprehensive 50+ color keyword dictionary and `detectColorFromName` supporting compound names ("Navy Blue", "Heather Grey", "Army Green", "Dusty Rose") and embedded `#HEX` codes.
+    - Created `VariantColorPicker` in `components/variant-list.tsx` with circular swatch button, 24-color preset palette, custom hex input, and native color picker.
+    - Added "Auto-Detect Swatches" button in variant header to batch-populate swatches from variant names with one click.
+    - Automatically synced swatches to Shopify variant metafields (`shopify.color-pattern` JSON and `custom.color` single-line text) in `lib/shopify/push.ts`, rendering native swatches on Shopify themes.
+    - Stored variant colors in `Product.metafields` under `dockit.variant_colors` JSON so swatches persist across page reloads.
+    - Unit tests: 7 tests in `tests/lib/utils/color-detect.test.ts`, 4 tests in `tests/components/variant-list.test.tsx`, 14 tests in `tests/lib/validation/variant.test.ts`.
+  - **AI Image Generation Mannequin & Model Face Consistency (`components/generate-product-image-dialog.tsx`, `lib/ai/contracts.ts`, `lib/jobs/image-gen.ts`, `lib/ai/vision-enrichment.ts`, `app/(dashboard)/products/actions.ts`)**:
+    - Added `PresentationStyle` (`product_only`, `on_model`, `ghost_mannequin`, `studio_mannequin`) to `contracts.ts` and image generation pipelines.
+    - Upgraded `GenerateProductImageDialog` with a dedicated "Presentation & Subject" section with 4 presentation cards:
+      - **On-Model (Keep Face)**: Strictly preserves facial structure, skin tone, hair, and identity from reference photos across all generated variants and perspective angles.
+      - **Ghost Mannequin**: 3D invisible hollow form drape with visible inner lining and realistic neckline.
+      - **Studio Mannequin**: Minimalist matte studio tailor dress form.
+      - **Product Only**: Clean isolated commercial flat-lay without human or mannequin.
+    - Added interactive Model Face Reference image selector and optional Model Directives input when On-Model is selected.
+    - Updated `generateVariantImages` in `lib/ai/vision-enrichment.ts` and `executeImagePipeline` in `lib/jobs/image-gen.ts` to inject strict facial preservation directives into prompts.
+    - Unit tests: 4 tests in `tests/components/generate-product-image-dialog.test.tsx` and 12 tests in `tests/lib/ai/vision-enrichment.test.ts`.
+  - **Filter Preservation Across Product Details & Navigation (`components/product-table.tsx`, `lib/db/products/queries.ts`, `app/(dashboard)/products/[id]/page.tsx`, `components/product-form.tsx`)**:
+    - Fixed row-click handler `handleEdit` in `components/product-table.tsx` to preserve active `searchParams` when opening a product (`/products/[id]?search=...&status=...&category=...`).
+    - Updated `getProductSiblingNavigation` in `lib/db/products/queries.ts` to accept `search`, `statusFilter`, and `categoryFilter`, ensuring `prevProductId` and `nextProductId` navigation traverses the filtered subset instead of the entire catalog.
+    - Updated `app/(dashboard)/products/[id]/page.tsx` to pass filter parameters to `getProductSiblingNavigation` and dynamically construct `backHref` on the "Back to products" button.
+    - Updated `ProductForm` to retain active query strings when advancing via "Save & Next" (`Cmd+Shift+S` / `Cmd+Enter`).
+    - Unit tests: 5 tests passing in `tests/lib/db/products-navigation.test.ts`.
+  - **Store-Level AI Image Generation & Model Face Presentation Mode in Settings (`lib/ai/rules.ts`, `lib/db/ai-rules.ts`, `components/store-ai-rules-form.tsx`, `app/(dashboard)/products/[id]/page.tsx`, `app/(dashboard)/products/page.tsx`, `lib/jobs/image-gen.ts`)**:
+    - Added Section 7 to **Settings -> Store Information -> AI Rules** (`StoreAiRulesForm`):
+      - Visual presentation mode selection: **Product Only**, **On-Model (Keep Face & Identity)**, **3D Ghost / Invisible Mannequin**, and **Studio Mannequin**.
+      - **Default Model Face & Mannequin Consistency Directive** textarea for global brand model styling instructions.
+    - Extended `StoreAiRules` and `storeAiRulesFormSchema` with `presentationStyle` and `modelFaceDirective`.
+    - Implemented transparent metadata serialization (`encodeImageRules` / `extractImageRules`) inside `customInstructions` for zero-migration Neon database persistence and backwards compatibility with text copy prompts.
+    - Automatically passed store presentation defaults into `GenerateProductImageDialog` across both `ProductForm` (Product Details) and `ProductTable` (Catalog Grid), and injected fallback defaults in `executeImagePipeline`.
+    - Unit tests: 11 tests in `tests/lib/ai/rules.test.ts`, 2 tests in `tests/components/store-ai-rules-form.test.tsx`, 5 tests in `tests/components/generate-product-image-dialog.test.tsx`.
+  - **Testing & Verification**:
+    - Full test suite passes: **52 test files, 337 tests green**.
+    - `npx tsc --noEmit` clean with 0 type errors.
+
+
 - **Image Loading Performance Optimization (`lib/shopify/image-url.ts`, `components/product-images.tsx`, `components/product-form.tsx`, `components/variant-list.tsx`, `components/product-image-lightbox.tsx`, `components/generate-product-image-dialog.tsx`, `components/product-vision-enrich/photos-tab.tsx`, `components/product-vision-enrich-dialog.tsx`, `components/shopify-sync-modal.tsx`)**:
   - **Root Cause Analysis**:
     - `next.config.ts` sets `images.unoptimized: true` globally (which avoids `/_next/image` proxy overhead and timeouts against external CDNs).

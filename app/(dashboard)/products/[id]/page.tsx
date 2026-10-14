@@ -5,6 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 import { getOrCreateAccountForClerkUser } from "@/lib/db/accounts";
 import { getProductById, getProductSiblingNavigation } from "@/lib/db/products";
 import { getStoreToken } from "@/lib/db/stores";
+import { getAiRulesForStore } from "@/lib/db/ai-rules";
 import { decryptAccessToken } from "@/lib/shopify/oauth";
 import { fetchAllCollections } from "@/lib/shopify/collections";
 import { Button } from "@/components/ui/button";
@@ -17,12 +18,19 @@ import type { Collection } from "@/types/collection";
 // Row click and the product list's Edit action both land here (components/product-table.tsx).
 export default async function ProductEditorPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{
+    search?: string;
+    status?: string;
+    category?: string;
+  }>;
 }) {
   const { userId } = await auth.protect();
   const account = await getOrCreateAccountForClerkUser(userId);
   const { id } = await params;
+  const sParams = searchParams ? await searchParams : undefined;
 
   const product = await getProductById(account.id, id);
   if (!product) {
@@ -33,6 +41,9 @@ export default async function ProductEditorPage({
     accountId: account.id,
     storeId: product.storeId,
     productId: product.id,
+    search: sParams?.search,
+    statusFilter: sParams?.status as "all" | "DRAFT" | "ACTIVE" | "CONFLICT" | undefined,
+    categoryFilter: sParams?.category,
   });
 
   // The store's Shopify collections, for the manual Collection
@@ -41,7 +52,11 @@ export default async function ProductEditorPage({
   // plus whatever the product's existing collectionTitle already implies),
   // matching fetchShopName's existing "best-effort, never blocks the page" convention.
   let collections: Collection[] = [];
-  const storeToken = await getStoreToken(account.id, product.storeId);
+  const [storeToken, aiRules] = await Promise.all([
+    getStoreToken(account.id, product.storeId),
+    getAiRulesForStore(account.id, product.storeId),
+  ]);
+
   if (storeToken) {
     const accessToken = decryptAccessToken(storeToken.accessTokenEncrypted);
     const result = await fetchAllCollections(storeToken.shopifyDomain, accessToken);
@@ -50,16 +65,23 @@ export default async function ProductEditorPage({
     }
   }
 
+
   let shopifyUrl: string | null = null;
   if (product.shopifyProductId && storeToken?.shopifyDomain) {
     const numericId = product.shopifyProductId.replace(/^gid:\/\/shopify\/Product\//, "");
     shopifyUrl = `https://${storeToken.shopifyDomain}/admin/products/${numericId}`;
   }
 
+  const queryObj = new URLSearchParams();
+  if (sParams?.search) queryObj.set("search", sParams.search);
+  if (sParams?.status && sParams.status !== "all") queryObj.set("status", sParams.status);
+  if (sParams?.category && sParams.category !== "all") queryObj.set("category", sParams.category);
+  const backHref = queryObj.toString() ? `/products?${queryObj.toString()}` : "/products";
+
   return (
     <div className="flex flex-1 flex-col gap-4 sm:gap-6 p-3.5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
-        <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/products" />}>
+        <Button variant="ghost" size="sm" nativeButton={false} render={<Link href={backHref} />}>
           <ArrowLeft className="size-4" />
           Back to products
         </Button>
@@ -93,7 +115,11 @@ export default async function ProductEditorPage({
         product={product}
         collections={collections}
         shopifyDomain={storeToken?.shopifyDomain ?? null}
+        nextProductId={siblingNav.nextProductId}
+        defaultPresentationStyle={aiRules.presentationStyle}
+        defaultModelFaceNotes={aiRules.modelFaceDirective}
       />
     </div>
   );
 }
+

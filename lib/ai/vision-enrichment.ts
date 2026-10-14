@@ -11,6 +11,7 @@ import type {
   ImageProviderName,
   ITextVisionProvider,
   IImageGenerator,
+  PresentationStyle,
 } from "@/lib/ai/contracts";
 import { resolveTextVisionProvider } from "@/lib/ai/providers/text-provider-factory";
 import { resolveImageGenerator } from "@/lib/ai/image/image-generator-factory";
@@ -147,6 +148,9 @@ export async function generateVariantImages(input: {
   provider?: ImageProviderName;
   customGenerator?: IImageGenerator;
   apiKey?: string;
+  presentationStyle?: PresentationStyle;
+  referenceModelFaceUrl?: string;
+  modelFaceNotes?: string;
 }): Promise<GeneratedVariantImage[]> {
   const missingVariants = input.variants.filter((v) => !v.imageUrl);
   if (missingVariants.length === 0) {
@@ -159,6 +163,22 @@ export async function generateVariantImages(input: {
     ? input.productDescription.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160)
     : "";
 
+  let presentationDirective = "";
+  if (input.presentationStyle === "on_model") {
+    presentationDirective =
+      "IMPORTANT MODEL & FACE FIDELITY DIRECTIVE: The apparel variant must be worn by the exact human model from the reference photo. Strictly preserve the model's exact face, facial features, facial structure, skin tone, eye shape, hairstyle, and identity with 100% photographic realism. Do NOT alter, blur, or substitute the model's face." +
+      (input.modelFaceNotes ? ` Model Specifics: ${input.modelFaceNotes.trim()}.` : "");
+  } else if (input.presentationStyle === "ghost_mannequin") {
+    presentationDirective =
+      "PRESENTATION DIRECTIVE: Professional 3D ghost mannequin / invisible mannequin photography. The clothing appears dimensional and worn by an invisible figure, with realistic fabric drape, hollow neck opening, and visible inner collar/lining.";
+  } else if (input.presentationStyle === "studio_mannequin") {
+    presentationDirective =
+      "PRESENTATION DIRECTIVE: Displayed on a high-end minimalist matte neutral studio mannequin / tailor form, clean commercial studio lighting.";
+  } else if (input.presentationStyle === "product_only") {
+    presentationDirective =
+      "PRESENTATION DIRECTIVE: Clean isolated studio product photography without any model, mannequin, or distracting props.";
+  }
+
   const results = await Promise.all(
     missingVariants.map(async (variant) => {
       try {
@@ -167,6 +187,7 @@ export async function generateVariantImages(input: {
           `Reference photo is the ground truth for product shape, build, geometry, and craftsmanship: keep the core product form identical.`,
           `Render the specific variant option: "${variant.optionName}" for product "${input.productTitle}".`,
           `Accurately reflect the distinct colorway, materials, surface finish, graphics, or styling designated by "${variant.optionName}".`,
+          presentationDirective,
           cleanDescription ? `Context: ${cleanDescription}` : "",
           `Positioned in a premium studio catalog setup on a seamless pure light neutral background with soft natural contact shadows. Crisp high resolution.`,
         ]
@@ -176,6 +197,9 @@ export async function generateVariantImages(input: {
         const generated = await generator.generate({
           prompt,
           referenceImageUrl: input.referenceImageUrl,
+          referenceModelFaceUrl: input.referenceModelFaceUrl,
+          presentationStyle: input.presentationStyle,
+          modelFaceNotes: input.modelFaceNotes,
           angle: "front_studio",
           apiKey: input.apiKey,
         });

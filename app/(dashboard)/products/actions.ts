@@ -73,6 +73,7 @@ import type {
   ImageProviderName,
   ImageAspectRatio,
   ImageGenerationMode,
+  PresentationStyle,
 } from "@/lib/ai/contracts";
 import { triggerBatchPush, triggerProductPush } from "@/lib/jobs/push";
 import { triggerProductDelete } from "@/lib/jobs/delete";
@@ -355,6 +356,43 @@ export async function updateProduct(
     tagsInput = parsedTags.data;
   }
 
+  const imageUrlsRaw = formData.get("imageUrls");
+  let imageUrlsInput: string[] | undefined = undefined;
+  if (typeof imageUrlsRaw === "string" && imageUrlsRaw.length > 0) {
+    try {
+      const parsedUrls = JSON.parse(imageUrlsRaw);
+      if (Array.isArray(parsedUrls)) {
+        imageUrlsInput = parsedUrls.filter((u): u is string => typeof u === "string");
+      }
+    } catch {
+      imageUrlsInput = undefined;
+    }
+  }
+
+  // Persist variant color swatches into metafields under dockit.variant_colors so they
+  // survive page reloads and push cleanly to Shopify's variant metafields.
+  const variantColorMap: Record<string, string> = {};
+  for (const v of variantsInput) {
+    if (v.colorHex) {
+      variantColorMap[v.id] = v.colorHex;
+      variantColorMap[v.optionName] = v.colorHex;
+    }
+  }
+
+  let finalMetafields = Array.isArray(parsed.metafields) ? [...parsed.metafields] : [];
+  finalMetafields = finalMetafields.filter(
+    (m: any) => !(m?.namespace === "dockit" && m?.key === "variant_colors")
+  );
+  if (Object.keys(variantColorMap).length > 0) {
+    finalMetafields.push({
+      namespace: "dockit",
+      key: "variant_colors",
+      name: "Variant Swatches",
+      value: JSON.stringify(variantColorMap),
+      type: "json",
+    });
+  }
+
   const result = await updateProductInDb({
     accountId: account.id,
     productId,
@@ -369,7 +407,8 @@ export async function updateProduct(
     tags: tagsInput,
     seoTitle: parsed.seoTitle || null,
     seoDescription: parsed.seoDescription || null,
-    metafields: parsed.metafields,
+    metafields: finalMetafields,
+    imageUrls: imageUrlsInput,
   });
   if (!result.success) {
     return {
@@ -1681,6 +1720,9 @@ export async function enqueueGenerateProductImagesAction(input: {
   productId: string;
   prompt: string;
   referenceImageUrl?: string | null;
+  referenceModelFaceUrl?: string | null;
+  presentationStyle?: PresentationStyle;
+  modelFaceNotes?: string;
   aspectRatio?: ImageAspectRatio;
   size?: string;
   mode?: ImageGenerationMode;
@@ -1713,6 +1755,9 @@ export async function enqueueGenerateProductImagesAction(input: {
       jobId: job.id,
       prompt: input.prompt,
       referenceImageUrl: input.referenceImageUrl,
+      referenceModelFaceUrl: input.referenceModelFaceUrl,
+      presentationStyle: input.presentationStyle,
+      modelFaceNotes: input.modelFaceNotes,
       aspectRatio: input.aspectRatio,
       size: input.size,
       mode: input.mode,
