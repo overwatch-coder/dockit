@@ -31,44 +31,43 @@ function makeProduct(overrides: Partial<Product> = {}): Product {
 }
 
 describe("ShopifyStatusBadge", () => {
-  test("renders 'Not pushed' when product has never been pushed to Shopify", () => {
+  test("renders 'Not published' when product has not been synced to Shopify", () => {
     const product = makeProduct({ shopifyProductId: null });
     render(<ShopifyStatusBadge product={product} shopDomain="test-store.myshopify.com" />);
 
-    expect(screen.getByText("Not pushed")).toBeInTheDocument();
+    expect(screen.getByText("Not published")).toBeInTheDocument();
     expect(screen.queryByTitle(/Open in Shopify Admin/i)).not.toBeInTheDocument();
   });
 
-  test("renders 'Published' when product exists on Shopify and status is ACTIVE", () => {
-    const product = makeProduct({
+  test("renders 'Published' when product exists on Shopify regardless of whether status is ACTIVE or DRAFT", () => {
+    const activeProduct = makeProduct({
       shopifyProductId: "shopify-123",
       status: "ACTIVE",
     });
-    render(<ShopifyStatusBadge product={product} shopDomain="test-store.myshopify.com" />);
+    const { rerender } = render(
+      <ShopifyStatusBadge product={activeProduct} shopDomain="test-store.myshopify.com" />
+    );
 
     expect(screen.getByText("Published")).toBeInTheDocument();
     const link = screen.getByTitle(/Open in Shopify Admin/i);
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "https://test-store.myshopify.com/admin/products/shopify-123");
-  });
 
-  test("renders 'Unpublished' when product exists on Shopify and status is DRAFT", () => {
-    const product = makeProduct({
+    const draftProduct = makeProduct({
       shopifyProductId: "shopify-456",
       status: "DRAFT",
     });
-    render(<ShopifyStatusBadge product={product} shopDomain="test-store.myshopify.com" />);
+    rerender(<ShopifyStatusBadge product={draftProduct} shopDomain="test-store.myshopify.com" />);
 
-    expect(screen.getByText("Unpublished")).toBeInTheDocument();
-    const link = screen.getByTitle(/Open in Shopify Admin/i);
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "https://test-store.myshopify.com/admin/products/shopify-456");
+    expect(screen.getByText("Published")).toBeInTheDocument();
+    const draftLink = screen.getByTitle(/Open in Shopify Admin/i);
+    expect(draftLink).toHaveAttribute("href", "https://test-store.myshopify.com/admin/products/shopify-456");
   });
 
   test("does not render external link if shopDomain is null even if shopifyProductId exists", () => {
     const product = makeProduct({
       shopifyProductId: "shopify-789",
-      status: "ACTIVE",
+      status: "DRAFT",
     });
     render(<ShopifyStatusBadge product={product} shopDomain={null} />);
 

@@ -94,7 +94,7 @@ describe("ProductTable", () => {
 
     // Row status values in the Shopify column
     expect(screen.getByText("Published")).toBeInTheDocument();
-    expect(screen.getByText("Not pushed")).toBeInTheDocument();
+    expect(screen.getByText("Not published")).toBeInTheDocument();
   });
 
   it("shows 'Generate Image with Content' and 'Generate Content' when items are selected", async () => {
