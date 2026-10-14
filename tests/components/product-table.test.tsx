@@ -21,6 +21,7 @@ vi.mock("@/lib/hooks/use-job-polling", () => ({
 }));
 
 vi.mock("@/app/(dashboard)/products/actions", () => ({
+  enrichAndSaveSingleProductAction: vi.fn().mockResolvedValue({ success: true }),
   generateBulkAiVisionEnrichmentAction: vi.fn().mockResolvedValue({ success: true, enrichedCount: 2 }),
   pushSelectedProducts: vi.fn(),
   duplicateProduct: vi.fn(),

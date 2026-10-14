@@ -757,7 +757,16 @@ change.
       - Displays:
         - **Published** (green badge): product exists in Shopify (`product.shopifyProductId !== null`), with direct external link to Shopify Admin.
         - **Not published** (subtle outline badge): product created locally in Dockit and not yet synced to Shopify (`product.shopifyProductId === null`).
+    - **Live Progression & Process Visibility for Bulk Generation**:
+      - Created `BulkGenerationProgressDialog` (`components/bulk-generation-progress-dialog.tsx`) to show real-time progress when generating content/images across multiple products:
+        - Displays overall progress bar and percentage.
+        - Displays active item card with live stage indicators ("Analyzing reference photos with vision...", "Generating commercial studio photos...").
+        - Displays itemized queue list with status badges (`Analyzed` / `Processing` / `Queued` / `Failed`).
+        - Lets the user see exactly how products move from step to step.
+      - Refactored `components/product-table.tsx` to orchestrate generation item-by-item using `enrichAndSaveSingleProductAction`, preventing serverless timeouts and updating client state per product.
+    - **Fixed Prisma Client In-Memory Schema Validation**:
+      - Updated `lib/db/client.ts` with `PRISMA_CLIENT_VERSION = 2` cache-busting token to force dev-mode re-instantiation of `PrismaClient` after schema updates, eliminating the `Unknown argument metafields` validation error from the long-running dev server.
     - **Verification & Testing**:
-      - Added unit tests in `tests/components/shopify-status-badge.test.tsx` and `tests/components/product-table.test.tsx`.
-      - All 44 test suites (288 tests) pass (`npm test`).
+      - Added unit tests in `tests/components/bulk-generation-progress-dialog.test.tsx`.
+      - All 45 test suites (290 tests) pass (`npm test`).
       - TypeScript check passes cleanly (`npx tsc --noEmit`).

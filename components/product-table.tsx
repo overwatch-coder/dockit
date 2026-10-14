@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import {
   applyBulkAiSuggestions,
   duplicateProduct,
+  enrichAndSaveSingleProductAction,
   generateBulkAiVisionEnrichmentAction,
   generateBulkProductSeoSuggestions,
   pushSelectedProducts,
@@ -71,6 +72,10 @@ import { ProductStatusBadge } from "@/components/product-status-badge";
 import { ProductTableRow } from "@/components/product-table-row";
 import { PushResultsDialog } from "@/components/push-results-dialog";
 import { BulkAiReviewDialog } from "@/components/bulk-ai-review-dialog";
+import {
+  BulkGenerationProgressDialog,
+  type BulkGenerationProgressItem,
+} from "@/components/bulk-generation-progress-dialog";
 import { ProductVisionEnrichDialog } from "@/components/product-vision-enrich-dialog";
 import { GenerateProductImageDialog } from "@/components/generate-product-image-dialog";
 import { useJobPolling } from "@/lib/hooks/use-job-polling";
@@ -259,6 +264,13 @@ export function ProductTable({
   const [generateImagesProduct, setGenerateImagesProduct] = useState<Product | null>(null);
   const [isBulkVisionLoading, startBulkVisionTransition] = useTransition();
   const [isBulkVisionWithImagesLoading, startBulkVisionWithImagesTransition] = useTransition();
+  const [bulkProgressState, setBulkProgressState] = useState<{
+    open: boolean;
+    mode: "content-and-images" | "content-only";
+    items: BulkGenerationProgressItem[];
+    currentIndex: number;
+    isComplete: boolean;
+  } | null>(null);
   const { isPolling: isPushPolling, start: startPushPolling } = useJobPolling({
     onSettled: (status, results) => {
       const items = (results as PushBatchResults | undefined)?.items ?? [];
@@ -314,52 +326,126 @@ export function ProductTable({
     });
   }
 
-  function handleBulkImageWithContent() {
+  async function startBulkProgression(mode: "content-and-images" | "content-only") {
     if (selectedIds.size === 0) return;
-    startBulkVisionWithImagesTransition(async () => {
-      toast.message(
-        `Analyzing images, generating perspective photos & rich catalog content for ${selectedIds.size} product${selectedIds.size === 1 ? "" : "s"}...`,
-      );
-      const res = await generateBulkAiVisionEnrichmentAction(
-        Array.from(selectedIds),
-        { generateImages: true },
-      );
-      if ("error" in res) {
-        toast.error(res.error);
-        return;
-      }
-      setSelectedIds(new Set());
-      setConfirmation({
-        variant: "success",
-        title: "Image & Content Generated",
-        description: `Successfully enriched ${res.enrichedCount} product${res.enrichedCount === 1 ? "" : "s"} with new perspective photos, descriptions, categories, metafields & SEO!`,
-      });
-      router.refresh();
+    const generateImages = mode === "content-and-images";
+
+    const initialItems: BulkGenerationProgressItem[] = Array.from(selectedIds).map((id) => {
+      const onPage = paginatedProducts.find((p) => p.id === id);
+      return {
+        id,
+        title: onPage?.title || productTitles[id] || "Product",
+        imageUrl: onPage?.imageUrl || null,
+        status: "pending",
+        stepDescription: "In queue",
+      };
     });
+
+    setBulkProgressState({
+      open: true,
+      mode,
+      items: initialItems,
+      currentIndex: 0,
+      isComplete: false,
+    });
+
+    let currentItems = [...initialItems];
+
+    for (let i = 0; i < currentItems.length; i++) {
+      const activeId = currentItems[i].id;
+      // Mark as processing
+      currentItems = currentItems.map((item, idx) =>
+        idx === i
+          ? {
+              ...item,
+              status: "processing" as const,
+              stepDescription: generateImages
+                ? "Analyzing reference photos with vision & rendering studio photos..."
+                : "Analyzing photos, writing copy & predicting metafields...",
+            }
+          : item,
+      );
+
+      setBulkProgressState((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: currentItems,
+              currentIndex: i,
+            }
+          : null,
+      );
+
+      const res = await enrichAndSaveSingleProductAction(activeId, {
+        generateImages,
+      });
+
+      if ("success" in res) {
+        currentItems = currentItems.map((item, idx) =>
+          idx === i
+            ? {
+                ...item,
+                status: "completed" as const,
+                stepDescription: generateImages
+                  ? "Completed (content and studio photography saved)"
+                  : "Completed (content, category & metafields saved)",
+              }
+            : item,
+        );
+      } else {
+        currentItems = currentItems.map((item, idx) =>
+          idx === i
+            ? {
+                ...item,
+                status: "failed" as const,
+                error: res.error,
+                stepDescription: `Failed: ${res.error}`,
+              }
+            : item,
+        );
+      }
+
+      setBulkProgressState((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: currentItems,
+              currentIndex: i,
+            }
+          : null,
+      );
+    }
+
+    setBulkProgressState((prev) =>
+      prev
+        ? {
+            ...prev,
+            items: currentItems,
+            isComplete: true,
+          }
+        : null,
+    );
+
+    const succeededCount = currentItems.filter((i) => i.status === "completed").length;
+    if (succeededCount > 0) {
+      toast.success(
+        `Enriched ${succeededCount} of ${currentItems.length} product${currentItems.length === 1 ? "" : "s"} successfully!`,
+      );
+    }
+  }
+
+  function handleBulkImageWithContent() {
+    startBulkProgression("content-and-images");
   }
 
   function handleBulkContentOnly() {
-    if (selectedIds.size === 0) return;
-    startBulkVisionTransition(async () => {
-      toast.message(
-        `Analyzing images and generating rich catalog content for ${selectedIds.size} product${selectedIds.size === 1 ? "" : "s"}...`,
-      );
-      const res = await generateBulkAiVisionEnrichmentAction(
-        Array.from(selectedIds),
-        { generateImages: false },
-      );
-      if ("error" in res) {
-        toast.error(res.error);
-        return;
-      }
-      setSelectedIds(new Set());
-      setConfirmation({
-        variant: "success",
-        title: "Content Generated",
-        description: `Successfully enriched ${res.enrichedCount} product${res.enrichedCount === 1 ? "" : "s"} with titles, descriptions, categories, metafields & SEO!`,
-      });
-      router.refresh();
-    });
+    startBulkProgression("content-only");
+  }
+
+  function handleCloseBulkProgress() {
+    setBulkProgressState(null);
+    setSelectedIds(new Set());
+    router.refresh();
   }
 
   function handleApplyBulkSuggestions(suggestions: BulkAiReviewItem[]) {
@@ -916,6 +1002,19 @@ export function ProductTable({
             setGenerateImagesProduct(null);
             router.refresh();
           }}
+        />
+      )}
+      {bulkProgressState && (
+        <BulkGenerationProgressDialog
+          open={bulkProgressState.open}
+          onOpenChange={(open) => {
+            if (!open) handleCloseBulkProgress();
+          }}
+          items={bulkProgressState.items}
+          mode={bulkProgressState.mode}
+          currentIndex={bulkProgressState.currentIndex}
+          isComplete={bulkProgressState.isComplete}
+          onClose={handleCloseBulkProgress}
         />
       )}
     </div>
