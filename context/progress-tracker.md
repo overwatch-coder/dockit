@@ -755,11 +755,9 @@ change.
     - **Shopify Publishing Status Column (`components/shopify-status-badge.tsx`, `components/product-table-row.tsx`)**:
       - Added a dedicated "Shopify" table column clarifying the difference between the local Dockit status and live Shopify presence.
       - Displays:
-        - **Published** (green badge): pushed to Shopify and active (`product.status === "ACTIVE"`).
-        - **Unpublished** (amber badge): pushed to Shopify as draft (`product.status === "DRAFT"`).
-        - **Not pushed** (subtle outline badge): local draft, never pushed to Shopify (`product.shopifyProductId === null`).
-        - Includes external link to Shopify Admin for any product that exists on Shopify.
+        - **Published** (green badge): product exists in Shopify (`product.shopifyProductId !== null`), with direct external link to Shopify Admin.
+        - **Not published** (subtle outline badge): product created locally in Dockit and not yet synced to Shopify (`product.shopifyProductId === null`).
     - **Verification & Testing**:
       - Added unit tests in `tests/components/shopify-status-badge.test.tsx` and `tests/components/product-table.test.tsx`.
-      - All 44 test suites (289 tests) pass (`npm test`).
+      - All 44 test suites (288 tests) pass (`npm test`).
       - TypeScript check passes cleanly (`npx tsc --noEmit`).
